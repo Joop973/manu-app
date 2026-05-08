@@ -1,117 +1,135 @@
 import streamlit as st
 import pandas as pd
-import time
 
-# --- MOBILE-OPTIMIERTES DESIGN ---
-st.set_page_config(page_title="Manu Mobile", layout="centered", page_icon="📱")
+# --- CONFIGURATION ---
+st.set_page_config(page_title="Manu Finanzen", layout="centered", page_icon="💎")
 
+# --- ADVANCED STYLING (THE MILLION DOLLAR LOOK) ---
 st.markdown("""
     <style>
-    /* Verhindert horizontales Scrollen komplett */
-    .stApp { overflow-x: hidden; background-color: #FFFFFF; }
+    /* Hintergrund & Font */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
     
-    /* Edle Karten für das Handy */
-    .data-card {
-        background: #FFFFFF; border-radius: 15px; padding: 15px;
-        margin-bottom: 10px; border-left: 5px solid #D4AF37;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        display: flex; justify-content: space-between; align-items: center;
-    }
-    .card-title { font-weight: bold; font-size: 16px; color: #333; }
-    .card-value { font-family: 'Courier New', monospace; font-weight: bold; }
+    .stApp { background-color: #F8F9FA; font-family: 'Inter', sans-serif; }
     
-    /* Overlay Styling */
-    .overlay {
-        background-color: #FDFCF0; border: 1px solid #D4AF37;
-        border-radius: 20px; padding: 20px; margin-top: 10px;
+    /* Maximale Lesbarkeit für Text */
+    h1, h2, h3, p, span, div { color: #1A1A1A !important; }
+    
+    /* Die "Edle Karte" */
+    .finance-card {
+        background: white;
+        border-radius: 24px;
+        padding: 20px;
+        margin-bottom: 15px;
+        border: 1px solid #E0E0E0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
     }
+    
+    /* Farb-Indikatoren für Einnahmen/Ausgaben */
+    .indicator-plus { border-left: 8px solid #2ECC71 !important; background-color: #F0FFF4 !important; }
+    .indicator-minus { border-left: 8px solid #E74C3C !important; background-color: #FFF5F5 !important; }
+
+    /* Buttons: Groß, Schwarz, Kontrastreich */
+    .stButton>button {
+        width: 100%; border-radius: 16px; height: 60px;
+        background-color: #1A1A1A; color: white !important;
+        font-weight: 600; font-size: 18px; border: none;
+        margin-top: 10px;
+    }
+    
+    /* Overlay / Detail-Ansicht */
+    .detail-box {
+        background: white; border: 2px solid #D4AF37;
+        border-radius: 20px; padding: 25px; margin-top: 20px;
+    }
+
+    /* Tabellen-Schriftgröße optimieren */
+    .stDataFrame div[data-testid="stTable"] { font-size: 18px !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- NAVIGATION ---
-if "page" not in st.session_state:
-    st.session_state.page = "home"
-if "detail_view" not in st.session_state:
-    st.session_state.detail_view = None
+# --- APP LOGIK ---
+if "page" not in st.session_state: st.session_state.page = "home"
+if "selected_item" not in st.session_state: st.session_state.selected_item = None
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.title("💎 Manu")
-    if st.button("🏠 Startseite"): 
-        st.session_state.page = "home"
-        st.session_state.detail_view = None
-    selected_month = st.select_slider("Wähle den Monat", options=["Jan", "Feb", "Mär", "Apr", "Mai", "Jun"])
+def navigate(page, item=None):
+    st.session_state.page = page
+    st.session_state.selected_item = item
 
 # --- HOME: KONTOAUSWAHL ---
 if st.session_state.page == "home":
-    st.markdown("<h1 style='text-align: center; color: #D4AF37;'>Konto wählen</h1>", unsafe_allow_html=True)
-    if st.button("🏦 Haus A (Annaveen)", use_container_width=True):
-        st.session_state.page = "dash"
-    if st.button("🏦 Haus B (Südstraße)", use_container_width=True):
-        st.session_state.page = "dash"
+    st.markdown("<h1 style='text-align: center; font-weight: 800; font-size: 42px;'>💎 Manu</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; font-size: 18px;'>Wähle ein Konto zur Verwaltung</p>", unsafe_allow_html=True)
+    st.write("---")
+    
+    if st.button("🏦 Südstraße (Konto B)"): navigate("dash", "Südstraße")
+    if st.button("🏠 Annaveen & Finkenstraße"): navigate("dash", "Haus A")
 
-# --- DASHBOARD: MOBILE ANSICHT ---
+# --- DASHBOARD: MOBILE OPTIMIERTE ÜBERSICHT ---
 elif st.session_state.page == "dash":
-    st.markdown(f"<h2 style='text-align: center;'>{selected_month} Übersicht</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='font-weight: 800;'>{st.session_state.selected_item}</h2>", unsafe_allow_html=True)
     
-    # --- AUSGABEN SEKTION ---
-    st.markdown("### ➖ Ausgaben")
-    # Beispiel-Daten
-    ausgaben = [
-        {"name": "Handwerker Schulze", "betrag": -553.00, "datum": "12.04.2026", "info": "Dachrinnenreinigung"},
-        {"name": "Stadtwerke", "betrag": -120.50, "datum": "01.04.2026", "info": "Abschlag Strom"}
-    ]
+    # Monats-Auswahl (Groß & Sauber)
+    month = st.select_slider("", options=["Januar", "Februar", "März", "April", "Mai", "Juni"])
     
-    for item in ausgaben:
-        col_name, col_val = st.columns([2, 1])
-        with col_name:
-            if st.button(f"📍 {item['name']}", key=item['name']):
-                st.session_state.detail_view = item
-        with col_val:
-            st.markdown(f"<span style='color: #B71C1C; font-weight: bold;'>{item['betrag']} €</span>", unsafe_allow_html=True)
-
-    # --- EINNAHMEN SEKTION ---
-    st.markdown("### ➕ Einnahmen")
+    # --- EINNAHMEN SEKTION (Mint-Weiß, Schwarze Schrift) ---
+    st.markdown("### 📈 Einnahmen")
     einnahmen = [
-        {"name": "Mieter Urfahn", "betrag": 750.00, "datum": "03.04.2026", "info": "Kaltmiete + NK"},
-        {"name": "Mieter Daniel Brand", "betrag": 850.00, "datum": "02.04.2026", "info": "Kaltmiete"}
+        {"Name": "Mieter Urfahn", "Betrag": "750,00 €", "Datum": "03.04.2026", "Details": "Kaltmiete + NK"},
+        {"Name": "Mieter Brand", "Betrag": "850,00 €", "Datum": "01.04.2026", "Details": "Kaltmiete"}
     ]
     
-    for item in einnahmen:
-        col_name, col_val = st.columns([2, 1])
-        with col_name:
-            if st.button(f"👤 {item['name']}", key=item['name']):
-                st.session_state.detail_view = item
-        with col_val:
-            st.markdown(f"<span style='color: #1B5E20; font-weight: bold;'>{item['betrag']} €</span>", unsafe_allow_html=True)
+    for e in einnahmen:
+        with st.container():
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                if st.button(f"👤 {e['Name']}", key=e['Name']): navigate("detail", e)
+            with col2:
+                st.markdown(f"<div style='padding-top: 25px; font-weight: 800; color: #27AE60 !important;'>{e['Betrag']}</div>", unsafe_allow_html=True)
 
-    # --- DETAIL OVERLAY (WENN GEKLICKT) ---
-    if st.session_state.detail_view:
-        view = st.session_state.detail_view
-        st.markdown("---")
-        st.markdown(f"""
-            <div class="overlay">
-                <h3 style="color: #D4AF37; margin-top: 0;">🔎 Details: {view['name']}</h3>
-                <p><b>Betrag:</b> {view['betrag']} €</p>
-                <p><b>Datum:</b> {view['datum']}</p>
-                <p><b>Notiz:</b> {view['info']}</p>
-            </div>
-        """, unsafe_allow_html=True)
-        # Platzhalter für das Belegfoto
-        st.image("https://via.placeholder.com/400x250.png?text=Beleg+Foto+Vorschau", caption="Hinterlegter Beleg")
-        if st.button("❌ Schließen"):
-            st.session_state.detail_view = None
-            st.rerun()
-
-    # --- DER FIXIERTE SCANNER-BUTTON ---
-    st.markdown("---")
-    if st.button("📸 BELEG JETZT SCANNEN", use_container_width=True):
-        st.session_state.show_cam = True
+    # --- AUSGABEN SEKTION (Puder-Rosa, Schwarze Schrift) ---
+    st.markdown("### 📉 Ausgaben")
+    ausgaben = [
+        {"Name": "Handwerker Schulze", "Betrag": "-553,00 €", "Datum": "12.04.2026", "Details": "Dachrinnenreinigung, Rechnung Nr. 442"},
+        {"Name": "Versicherung", "Betrag": "-45,20 €", "Datum": "05.04.2026", "Details": "Gebäudeversicherung Allianz"}
+    ]
     
-    if "show_cam" in st.session_state and st.session_state.show_cam:
-        pic = st.camera_input("Foto aufnehmen")
-        if pic:
-            st.balloons()
-            st.audio("https://www.soundjay.com/misc/sounds/cash-register-05.mp3")
-            st.success("Beleg erkannt! +1000 Dopamin-Punkte")
-            st.session_state.show_cam = False
+    for a in ausgaben:
+        with st.container():
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                if st.button(f"🛠️ {a['Name']}", key=a['Name']): navigate("detail", a)
+            with col2:
+                st.markdown(f"<div style='padding-top: 25px; font-weight: 800; color: #C0392B !important;'>{a['Betrag']}</div>", unsafe_allow_html=True)
+
+    st.write("---")
+    if st.button("📸 BELEG SCANNEN"): navigate("cam")
+    if st.button("⬅️ Zurück"): navigate("home")
+
+# --- DETAIL ANSICHT (OVERLAY) ---
+elif st.session_state.page == "detail":
+    item = st.session_state.selected_item
+    st.markdown(f"<h2 style='font-weight: 800;'>Details: {item['Name']}</h2>", unsafe_allow_html=True)
+    
+    st.markdown(f"""
+        <div class="detail-box">
+            <p><b>Betrag:</b> <span style="font-size: 24px;">{item['Betrag']}</span></p>
+            <p><b>Datum:</b> {item['Datum']}</p>
+            <p><b>Beschreibung:</b> {item['Details']}</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Platzhalter für das Beleg-Bild
+    st.image("https://via.placeholder.com/600x400.png?text=FOTO+DES+BELEGS", use_container_width=True)
+    
+    if st.button("✅ Verstanden"): navigate("dash", "Zurück")
+
+# --- KAMERA ---
+elif st.session_state.page == "cam":
+    st.markdown("<h2 style='text-align: center;'>Beleg fotografieren</h2>", unsafe_allow_html=True)
+    img = st.camera_input("Kamera")
+    if img:
+        st.balloons()
+        st.success("Beleg gespeichert!")
+        time.sleep(2)
+        navigate("dash", "Konto A")
