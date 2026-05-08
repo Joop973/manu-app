@@ -1,8 +1,14 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import time
 import random
+
+# Sicherer Import für Plotly
+try:
+    import plotly.express as px
+except ImportError:
+    st.error("Bitte trage 'plotly' in deine requirements.txt ein und mache einen Reboot.")
+
 
 # --- HIGH-END KONFIGURATION ---
 st.set_page_config(page_title="Manu Finance OS", layout="centered", page_icon="🏦")
