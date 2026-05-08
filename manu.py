@@ -1,99 +1,117 @@
 import streamlit as st
 import pandas as pd
-import random
-from datetime import datetime
+import time
 
-# --- KONFIGURATION & CASINO-STYLING ---
-st.set_page_config(page_title="Manu - Finanz-Casino", layout="wide", page_icon="🎰")
+# --- MOBILE-OPTIMIERTES DESIGN ---
+st.set_page_config(page_title="Manu Mobile", layout="centered", page_icon="📱")
 
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; color: white; }
-    .stButton>button { background-color: #f1c40f; color: black; font-weight: bold; border-radius: 10px; border: none; }
-    .thick-line { border: 5px solid gold; margin-top: 25px; margin-bottom: 25px; box-shadow: 0px 0px 15px gold; }
-    .thermometer-container {
-        width: 100%; background-color: #333; border-radius: 20px; padding: 5px; border: 2px solid gold;
+    /* Verhindert horizontales Scrollen komplett */
+    .stApp { overflow-x: hidden; background-color: #FFFFFF; }
+    
+    /* Edle Karten für das Handy */
+    .data-card {
+        background: #FFFFFF; border-radius: 15px; padding: 15px;
+        margin-bottom: 10px; border-left: 5px solid #D4AF37;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        display: flex; justify-content: space-between; align-items: center;
     }
-    .thermometer-bar {
-        height: 35px; border-radius: 15px; 
-        background: linear-gradient(90deg, #f1c40f, #27ae60);
-        text-align: center; color: black; font-weight: bold; line-height: 35px;
-        box-shadow: 0px 0px 10px #2ecc71;
+    .card-title { font-weight: bold; font-size: 16px; color: #333; }
+    .card-value { font-family: 'Courier New', monospace; font-weight: bold; }
+    
+    /* Overlay Styling */
+    .overlay {
+        background-color: #FDFCF0; border: 1px solid #D4AF37;
+        border-radius: 20px; padding: 20px; margin-top: 10px;
     }
-    h1, h2, h3 { color: gold !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNKTIONEN: ANIMATIONEN ---
-def trigger_jackpot():
-    st.balloons()
-    münzen = ["💰", "🪙", "✨", "💎", "🎰"]
-    regen = " ".join(random.choice(münzen) for _ in range(50))
-    st.markdown(f"<h2 style='text-align: center;'>{regen}</h2>", unsafe_allow_html=True)
-    st.toast("JACKPOT! Du hast das Monatsziel geknackt!", icon="🎰")
+# --- NAVIGATION ---
+if "page" not in st.session_state:
+    st.session_state.page = "home"
+if "detail_view" not in st.session_state:
+    st.session_state.detail_view = None
 
-# --- APP LOGIK & DATEN ---
-if "kontostand" not in st.session_state:
-    st.session_state.kontostand = 32450.0
-    st.session_state.ziel_gesamt = 40000.0
+# --- SIDEBAR ---
+with st.sidebar:
+    st.title("💎 Manu")
+    if st.button("🏠 Startseite"): 
+        st.session_state.page = "home"
+        st.session_state.detail_view = None
+    selected_month = st.select_slider("Wähle den Monat", options=["Jan", "Feb", "Mär", "Apr", "Mai", "Jun"])
 
-# Obere Statuszeile
-col_a, col_b, col_c = st.columns(3)
-with col_a: st.write(f"📅 {datetime.now().strftime('%d.%m.%Y')}")
-with col_b: st.write(f"⏰ {datetime.now().strftime('%H:%M')} Uhr")
-with col_c: st.write("👤 User: Manu-Admin")
+# --- HOME: KONTOAUSWAHL ---
+if st.session_state.page == "home":
+    st.markdown("<h1 style='text-align: center; color: #D4AF37;'>Konto wählen</h1>", unsafe_allow_html=True)
+    if st.button("🏦 Haus A (Annaveen)", use_container_width=True):
+        st.session_state.page = "dash"
+    if st.button("🏦 Haus B (Südstraße)", use_container_width=True):
+        st.session_state.page = "dash"
 
-st.title("🎰 Manu - Das Finanz-Casino")
-
-# Seitenleiste für Navigation
-st.sidebar.header("🕹️ Spielhalle")
-objekt = st.sidebar.selectbox("Wähle dein Haus:", ["Konto A (Annaveen/Finkenstr.)", "Konto B (Südstraße)"])
-monats_ziel = st.sidebar.number_input("Dein Monatsziel (€)", value=2000)
-
-# Dashboard Layout
-main_col, side_col = st.columns([3, 1])
-
-with side_col:
-    st.markdown("### 🏆 Spar-Thermometer")
-    prozent = min(int((st.session_state.kontostand / st.session_state.ziel_gesamt) * 100), 100)
-    st.markdown(f"""
-        <div class="thermometer-container">
-            <div class="thermometer-bar" style="width: {prozent}%;">{st.session_state.kontostand:,.0f}€</div>
-        </div>
-        <p style='text-align: center; color: gold;'>Ziel: {st.session_state.ziel_gesamt:,.0f}€</p>
-    """, unsafe_allow_html=True)
+# --- DASHBOARD: MOBILE ANSICHT ---
+elif st.session_state.page == "dash":
+    st.markdown(f"<h2 style='text-align: center;'>{selected_month} Übersicht</h2>", unsafe_allow_html=True)
     
-    if st.button("📸 Beleg scannen (+XP)"):
-        st.success("Kaching! +50 XP")
-        st.snow()
-
-with main_col:
-    # Beispiel-Daten für die Tabelle
-    data = [
-        {"Datum": "01.05.", "Name": "Daniel Brand", "Betrag": 850.0, "Kategorie": "Miete", "Typ": "Einnahme"},
-        {"Datum": "02.05.", "Name": "Urfahn", "Betrag": 750.0, "Kategorie": "Miete", "Typ": "Einnahme"},
-        {"Datum": "05.05.", "Name": "Stadtwerke", "Betrag": -150.0, "Kategorie": "Energie", "Typ": "Umlegbar"},
-        {"Datum": "12.05.", "Name": "Dachdecker", "Betrag": -450.0, "Kategorie": "Reparatur", "Typ": "Erhaltung"},
+    # --- AUSGABEN SEKTION ---
+    st.markdown("### ➖ Ausgaben")
+    # Beispiel-Daten
+    ausgaben = [
+        {"name": "Handwerker Schulze", "betrag": -553.00, "datum": "12.04.2026", "info": "Dachrinnenreinigung"},
+        {"name": "Stadtwerke", "betrag": -120.50, "datum": "01.04.2026", "info": "Abschlag Strom"}
     ]
-    df = pd.DataFrame(data)
+    
+    for item in ausgaben:
+        col_name, col_val = st.columns([2, 1])
+        with col_name:
+            if st.button(f"📍 {item['name']}", key=item['name']):
+                st.session_state.detail_view = item
+        with col_val:
+            st.markdown(f"<span style='color: #B71C1C; font-weight: bold;'>{item['betrag']} €</span>", unsafe_allow_html=True)
 
-    st.write("### 💎 Umlegbare Kosten & Miete")
-    # Hier kannst du Namen wie Urfahn direkt korrigieren!
-    st.data_editor(df[df['Typ'].isin(['Einnahme', 'Umlegbar'])], use_container_width=True)
+    # --- EINNAHMEN SEKTION ---
+    st.markdown("### ➕ Einnahmen")
+    einnahmen = [
+        {"name": "Mieter Urfahn", "betrag": 750.00, "datum": "03.04.2026", "info": "Kaltmiete + NK"},
+        {"name": "Mieter Daniel Brand", "betrag": 850.00, "datum": "02.04.2026", "info": "Kaltmiete"}
+    ]
+    
+    for item in einnahmen:
+        col_name, col_val = st.columns([2, 1])
+        with col_name:
+            if st.button(f"👤 {item['name']}", key=item['name']):
+                st.session_state.detail_view = item
+        with col_val:
+            st.markdown(f"<span style='color: #1B5E20; font-weight: bold;'>{item['betrag']} €</span>", unsafe_allow_html=True)
 
-    st.markdown("<div class='thick-line'></div>", unsafe_allow_html=True)
+    # --- DETAIL OVERLAY (WENN GEKLICKT) ---
+    if st.session_state.detail_view:
+        view = st.session_state.detail_view
+        st.markdown("---")
+        st.markdown(f"""
+            <div class="overlay">
+                <h3 style="color: #D4AF37; margin-top: 0;">🔎 Details: {view['name']}</h3>
+                <p><b>Betrag:</b> {view['betrag']} €</p>
+                <p><b>Datum:</b> {view['datum']}</p>
+                <p><b>Notiz:</b> {view['info']}</p>
+            </div>
+        """, unsafe_allow_html=True)
+        # Platzhalter für das Belegfoto
+        st.image("https://via.placeholder.com/400x250.png?text=Beleg+Foto+Vorschau", caption="Hinterlegter Beleg")
+        if st.button("❌ Schließen"):
+            st.session_state.detail_view = None
+            st.rerun()
 
-    st.write("### 🛠️ Erhaltung & Extras")
-    st.data_editor(df[df['Typ'].isin(['Erhaltung', 'Extra'])], use_container_width=True)
-
-    # Jackpot Check
-    überschuss = df[df['Typ'] == 'Einnahme']['Betrag'].sum() - abs(df[df['Typ'] != 'Einnahme']['Betrag'].sum())
-    if st.button("🎰 Monatsabschluss berechnen"):
-        if überschuss >= monats_ziel:
-            trigger_jackpot()
-        else:
-            st.info(f"Noch {monats_ziel - überschuss}€ bis zum Jackpot!")
-
-st.sidebar.markdown("---")
-if st.sidebar.button("💌 Bericht an Mutter"):
-    st.sidebar.success("Bericht versendet! 🚀")
+    # --- DER FIXIERTE SCANNER-BUTTON ---
+    st.markdown("---")
+    if st.button("📸 BELEG JETZT SCANNEN", use_container_width=True):
+        st.session_state.show_cam = True
+    
+    if "show_cam" in st.session_state and st.session_state.show_cam:
+        pic = st.camera_input("Foto aufnehmen")
+        if pic:
+            st.balloons()
+            st.audio("https://www.soundjay.com/misc/sounds/cash-register-05.mp3")
+            st.success("Beleg erkannt! +1000 Dopamin-Punkte")
+            st.session_state.show_cam = False
