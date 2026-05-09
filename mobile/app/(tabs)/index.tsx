@@ -5,9 +5,11 @@ import { CasinoButton } from '@/components/CasinoButton';
 import { EmptyState } from '@/components/EmptyState';
 import { MonthSlider } from '@/components/MonthSlider';
 import { ObjectCard } from '@/components/ObjectCard';
+import { OracleCard } from '@/components/OracleCard';
 import { Screen } from '@/components/Screen';
 import { formatEuro } from '@/lib/calc';
 import { isInMonth } from '@/lib/dates';
+import { generateOracleTips } from '@/lib/oracle';
 import { selectPropertyMonthSummary, useAppStore } from '@/store/useAppStore';
 import { palette, radii, shadows, spacing, text } from '@/theme';
 
@@ -25,10 +27,20 @@ export default function DashboardScreen() {
   const totalExpense = monthBookings.filter((b) => b.type === 'expense').reduce((s, b) => s + b.amount, 0);
   const balance = totalIncome - totalExpense;
 
+  const oracleTips = generateOracleTips({ bookings, monthIso: currentMonth });
+
   return (
     <View style={{ flex: 1 }}>
       <Screen>
-        <Text style={text.imperialHeadline}>Marcus Aurelius</Text>
+        <View style={styles.headRow}>
+          <Pressable onPress={() => router.push('/search')} style={styles.iconBtn}>
+            <Text style={{ fontSize: 22, color: palette.imperialGold }}>🔍</Text>
+          </Pressable>
+          <Text style={text.imperialHeadline}>Marcus Aurelius</Text>
+          <Pressable onPress={() => router.push('/year')} style={styles.iconBtn}>
+            <Text style={{ fontSize: 22, color: palette.imperialGold }}>📊</Text>
+          </Pressable>
+        </View>
         <Text style={[text.subhead, { textAlign: 'center' }]}>
           Imperialer Tresor · {properties.length} Objekt{properties.length === 1 ? '' : 'e'}
         </Text>
@@ -36,9 +48,7 @@ export default function DashboardScreen() {
         {clipboardHint ? (
           <View style={styles.clipboard}>
             <View style={{ flex: 1 }}>
-              <Text style={[text.caption, { color: palette.imperialGold }]}>
-                ZWISCHENABLAGE
-              </Text>
+              <Text style={[text.caption, { color: palette.imperialGold }]}>ZWISCHENABLAGE</Text>
               <Text style={text.bodyBold}>
                 {clipboardHint.amount !== undefined
                   ? formatEuro(clipboardHint.amount)
@@ -94,6 +104,37 @@ export default function DashboardScreen() {
 
         <MonthSlider value={currentMonth} onChange={setCurrentMonth} />
 
+        {oracleTips.length > 0 ? (
+          <View style={{ gap: spacing.md }}>
+            <View style={styles.sectionHead}>
+              <Text style={text.sectionTitle}>👁 Das Orakel</Text>
+              <Pressable onPress={() => router.push('/oracle')}>
+                <Text style={{ color: palette.imperialGold, fontFamily: 'Lato_700Bold' }}>
+                  Alle ›
+                </Text>
+              </Pressable>
+            </View>
+            {oracleTips.map((t) => (
+              <OracleCard key={t.id} tip={t} />
+            ))}
+          </View>
+        ) : null}
+
+        <View style={styles.actionRow}>
+          <CasinoButton
+            label="📸 Beleg scannen"
+            variant="gold"
+            onPress={() => router.push('/receipt/scan')}
+            style={{ flex: 1 }}
+          />
+          <CasinoButton
+            label="🪙 Tresore"
+            variant="ghost"
+            onPress={() => router.push('/tresore')}
+            style={{ flex: 1 }}
+          />
+        </View>
+
         <View style={styles.sectionHead}>
           <Text style={text.sectionTitle}>Imperien</Text>
           <Pressable onPress={() => router.push('/object/new')}>
@@ -123,7 +164,6 @@ export default function DashboardScreen() {
         })}
       </Screen>
 
-      {/* Floating Action Button — F-019 Schnellerfassung */}
       <Pressable
         accessibilityLabel="Schnellerfassung"
         onPress={() => router.push('/booking/quick')}
@@ -136,6 +176,21 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
+  headRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(212,175,55,0.10)',
+    borderWidth: 1,
+    borderColor: palette.cardBorder,
+  },
   balanceCard: {
     backgroundColor: palette.royalBlue,
     borderRadius: radii.lg,
@@ -143,16 +198,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.cardBorder,
   },
-  balanceRow: {
-    flexDirection: 'row',
-    marginTop: spacing.lg,
-    gap: spacing.lg,
-  },
+  balanceRow: { flexDirection: 'row', marginTop: spacing.lg, gap: spacing.lg },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  actionRow: { flexDirection: 'row', gap: spacing.sm },
   clipboard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -176,10 +228,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fabIcon: {
-    fontSize: 36,
-    color: '#000',
-    fontFamily: 'Lato_900Black',
-    marginTop: -2,
-  },
+  fabIcon: { fontSize: 36, color: '#000', fontFamily: 'Lato_900Black', marginTop: -2 },
 });

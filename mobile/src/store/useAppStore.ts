@@ -8,67 +8,154 @@ import { today, monthKey, isInMonth } from '@/lib/dates';
 import { applyRules } from '@/lib/rules';
 import { nextDueDate } from '@/lib/recurring';
 import { ClipboardHint } from '@/lib/clipboard';
+import { hashPin, newSalt, verifyPin } from '@/lib/pin';
 import { objectColors } from '@/theme/colors';
 import {
   Booking,
   Category,
+  Craftsman,
+  DocumentEntry,
+  FontScale,
+  MeterReading,
   Property,
+  Receipt,
   Rule,
+  Settings,
   Template,
+  Tenant,
 } from '@/types';
 
 interface AppState {
   hydrated: boolean;
+  unlocked: boolean;
   currentMonth: string;
   properties: Property[];
   categories: Category[];
   bookings: Booking[];
   templates: Template[];
   rules: Rule[];
+  tenants: Tenant[];
+  craftsmen: Craftsman[];
+  receipts: Receipt[];
+  documents: DocumentEntry[];
+  meterReadings: MeterReading[];
+  settings: Settings;
   clipboardHint: ClipboardHint | null;
 
-  setCurrentMonth: (monthIso: string) => void;
-  setClipboardHint: (hint: ClipboardHint | null) => void;
+  setCurrentMonth: (m: string) => void;
+  setClipboardHint: (h: ClipboardHint | null) => void;
+  setUnlocked: (b: boolean) => void;
 
+  // Settings
+  setPin: (pin: string | null) => void;
+  verifyAppPin: (pin: string) => boolean;
+  setBiometric: (enabled: boolean) => void;
+  setFontScale: (s: FontScale) => void;
+  setHaptic: (b: boolean) => void;
+  setSound: (b: boolean) => void;
+  markOnboardingDone: () => void;
+
+  // Properties
   addProperty: (input: Omit<Property, 'id' | 'createdAt' | 'color'> & { color?: string }) => Property;
   updateProperty: (id: string, patch: Partial<Property>) => void;
   removeProperty: (id: string) => void;
 
+  // Categories
   addCategory: (input: Omit<Category, 'id' | 'builtin'>) => Category;
   removeCategory: (id: string) => void;
 
+  // Bookings
   addBooking: (input: Omit<Booking, 'id' | 'createdAt'>) => Booking;
   updateBooking: (id: string, patch: Partial<Booking>) => void;
   removeBooking: (id: string) => void;
 
+  // Templates
   addTemplate: (input: Omit<Template, 'id' | 'createdAt'>) => Template;
   removeTemplate: (id: string) => void;
-  bookFromTemplate: (templateId: string) => Booking | null;
+  bookFromTemplate: (id: string) => Booking | null;
 
+  // Rules
   addRule: (input: Omit<Rule, 'id' | 'createdAt'>) => Rule;
   removeRule: (id: string) => void;
+
+  // Tenants
+  addTenant: (input: Omit<Tenant, 'id' | 'createdAt'>) => Tenant;
+  updateTenant: (id: string, patch: Partial<Tenant>) => void;
+  removeTenant: (id: string) => void;
+
+  // Craftsmen
+  addCraftsman: (input: Omit<Craftsman, 'id' | 'createdAt'>) => Craftsman;
+  updateCraftsman: (id: string, patch: Partial<Craftsman>) => void;
+  removeCraftsman: (id: string) => void;
+
+  // Receipts
+  addReceipt: (input: Omit<Receipt, 'id' | 'createdAt'>) => Receipt;
+  updateReceipt: (id: string, patch: Partial<Receipt>) => void;
+  removeReceipt: (id: string) => void;
+
+  // Documents
+  addDocument: (input: Omit<DocumentEntry, 'id' | 'createdAt'>) => DocumentEntry;
+  removeDocument: (id: string) => void;
+
+  // MeterReadings
+  addMeterReading: (input: Omit<MeterReading, 'id' | 'createdAt'>) => MeterReading;
+  removeMeterReading: (id: string) => void;
 
   runAutoBookings: () => number;
 }
 
-const initialState = {
-  hydrated: false,
-  currentMonth: monthKey(new Date()),
-  properties: [] as Property[],
-  categories: [...builtinCategories],
-  bookings: [] as Booking[],
-  templates: [] as Template[],
-  rules: [] as Rule[],
-  clipboardHint: null as ClipboardHint | null,
+const defaultSettings: Settings = {
+  biometricEnabled: false,
+  fontScale: 'normal',
+  hapticEnabled: true,
+  soundEnabled: true,
+  onboardingDone: false,
 };
 
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
-      ...initialState,
+      hydrated: false,
+      unlocked: false,
+      currentMonth: monthKey(new Date()),
+      properties: [],
+      categories: [...builtinCategories],
+      bookings: [],
+      templates: [],
+      rules: [],
+      tenants: [],
+      craftsmen: [],
+      receipts: [],
+      documents: [],
+      meterReadings: [],
+      settings: { ...defaultSettings },
+      clipboardHint: null,
 
-      setCurrentMonth: (monthIso) => set({ currentMonth: monthIso }),
-      setClipboardHint: (hint) => set({ clipboardHint: hint }),
+      setCurrentMonth: (m) => set({ currentMonth: m }),
+      setClipboardHint: (h) => set({ clipboardHint: h }),
+      setUnlocked: (b) => set({ unlocked: b }),
+
+      setPin: (pin) => {
+        if (pin === null) {
+          set((s) => ({ settings: { ...s.settings, pinHash: undefined, biometricEnabled: false } }));
+          return;
+        }
+        const salt = newSalt();
+        const hash = hashPin(pin, salt);
+        set((s) => ({ settings: { ...s.settings, pinHash: hash } }));
+      },
+      verifyAppPin: (pin) => {
+        const stored = get().settings.pinHash;
+        if (!stored) return true;
+        return verifyPin(pin, stored);
+      },
+      setBiometric: (enabled) =>
+        set((s) => ({ settings: { ...s.settings, biometricEnabled: enabled } })),
+      setFontScale: (scale) => set((s) => ({ settings: { ...s.settings, fontScale: scale } })),
+      setHaptic: (b) => set((s) => ({ settings: { ...s.settings, hapticEnabled: b } })),
+      setSound: (b) => set((s) => ({ settings: { ...s.settings, soundEnabled: b } })),
+      markOnboardingDone: () =>
+        set((s) => ({ settings: { ...s.settings, onboardingDone: true } })),
 
       addProperty: (input) => {
         const usedColors = new Set(get().properties.map((p) => p.color));
@@ -91,6 +178,8 @@ export const useAppStore = create<AppState>()(
         set((s) => ({
           properties: s.properties.filter((p) => p.id !== id),
           bookings: s.bookings.filter((b) => b.propertyId !== id),
+          tenants: s.tenants.filter((t) => t.propertyId !== id),
+          meterReadings: s.meterReadings.filter((r) => r.propertyId !== id),
         })),
 
       addCategory: (input) => {
@@ -146,22 +235,74 @@ export const useAppStore = create<AppState>()(
       },
 
       addRule: (input) => {
-        const rule: Rule = {
-          ...input,
-          id: uid('rul'),
-          createdAt: new Date().toISOString(),
-        };
+        const rule: Rule = { ...input, id: uid('rul'), createdAt: new Date().toISOString() };
         set((s) => ({ rules: [...s.rules, rule] }));
         return rule;
       },
       removeRule: (id) => set((s) => ({ rules: s.rules.filter((r) => r.id !== id) })),
 
+      addTenant: (input) => {
+        const tenant: Tenant = { ...input, id: uid('tnt'), createdAt: new Date().toISOString() };
+        set((s) => ({ tenants: [...s.tenants, tenant] }));
+        return tenant;
+      },
+      updateTenant: (id, patch) =>
+        set((s) => ({ tenants: s.tenants.map((t) => (t.id === id ? { ...t, ...patch } : t)) })),
+      removeTenant: (id) => set((s) => ({ tenants: s.tenants.filter((t) => t.id !== id) })),
+
+      addCraftsman: (input) => {
+        const c: Craftsman = { ...input, id: uid('crf'), createdAt: new Date().toISOString() };
+        set((s) => ({ craftsmen: [...s.craftsmen, c] }));
+        return c;
+      },
+      updateCraftsman: (id, patch) =>
+        set((s) => ({
+          craftsmen: s.craftsmen.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+        })),
+      removeCraftsman: (id) =>
+        set((s) => ({ craftsmen: s.craftsmen.filter((c) => c.id !== id) })),
+
+      addReceipt: (input) => {
+        const r: Receipt = { ...input, id: uid('rcp'), createdAt: new Date().toISOString() };
+        set((s) => ({ receipts: [...s.receipts, r] }));
+        return r;
+      },
+      updateReceipt: (id, patch) =>
+        set((s) => ({
+          receipts: s.receipts.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+        })),
+      removeReceipt: (id) =>
+        set((s) => ({ receipts: s.receipts.filter((r) => r.id !== id) })),
+
+      addDocument: (input) => {
+        const d: DocumentEntry = {
+          ...input,
+          id: uid('dcm'),
+          createdAt: new Date().toISOString(),
+        };
+        set((s) => ({ documents: [...s.documents, d] }));
+        return d;
+      },
+      removeDocument: (id) =>
+        set((s) => ({ documents: s.documents.filter((d) => d.id !== id) })),
+
+      addMeterReading: (input) => {
+        const r: MeterReading = {
+          ...input,
+          id: uid('mtr'),
+          createdAt: new Date().toISOString(),
+        };
+        set((s) => ({ meterReadings: [...s.meterReadings, r] }));
+        return r;
+      },
+      removeMeterReading: (id) =>
+        set((s) => ({ meterReadings: s.meterReadings.filter((r) => r.id !== id) })),
+
       runAutoBookings: () => {
         const todayIso = today();
         let created = 0;
-        const { bookings } = get();
         const lastByTemplate = new Map<string, Booking>();
-        for (const b of bookings) {
+        for (const b of get().bookings) {
           if (!b.templateId) continue;
           const prev = lastByTemplate.get(b.templateId);
           if (!prev || b.date > prev.date) lastByTemplate.set(b.templateId, b);
@@ -191,7 +332,7 @@ export const useAppStore = create<AppState>()(
       },
     }),
     {
-      name: 'manu-imperial-store-v1',
+      name: 'manu-imperial-store-v2',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         currentMonth: state.currentMonth,
@@ -200,9 +341,17 @@ export const useAppStore = create<AppState>()(
         bookings: state.bookings,
         templates: state.templates,
         rules: state.rules,
+        tenants: state.tenants,
+        craftsmen: state.craftsmen,
+        receipts: state.receipts,
+        documents: state.documents,
+        meterReadings: state.meterReadings,
+        settings: state.settings,
       }),
       onRehydrateStorage: () => (state) => {
-        if (state) state.hydrated = true;
+        if (!state) return;
+        state.hydrated = true;
+        state.unlocked = !state.settings.pinHash;
       },
     },
   ),

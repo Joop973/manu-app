@@ -32,6 +32,19 @@
         {
           "cameraPermission": "Damit Du Belege fotografieren und QR-Codes scannen kannst."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Damit Du gespeicherte Belege importieren kannst.",
+          "cameraPermission": "Damit Du Belege direkt fotografieren kannst."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Damit Du den Tresor per Face ID öffnen kannst."
+        }
       ]
     ],
     "experiments": {

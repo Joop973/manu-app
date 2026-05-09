@@ -17,6 +17,7 @@ export interface Category {
   label: string;
   emoji: string;
   builtin?: boolean;
+  fixedCost?: boolean;
 }
 
 export interface Booking {
@@ -68,4 +69,115 @@ export interface Rule {
   conditions: RuleCondition[];
   actions: RuleAction;
   createdAt: string;
+}
+
+export interface Tenant {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  propertyId: string | null;
+  unit?: string;
+  rentCold?: number;
+  rentWarm?: number;
+  deposit?: number;
+  depositPaid?: boolean;
+  contractStart?: string;
+  contractEnd?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export type Trade =
+  | 'Heizung'
+  | 'Elektrik'
+  | 'Sanitär'
+  | 'Maler'
+  | 'Schreiner'
+  | 'Dach'
+  | 'Garten'
+  | 'Reinigung'
+  | 'Schädlingsbekämpfung'
+  | 'Schornsteinfeger'
+  | 'Sonstiges';
+
+export interface Craftsman {
+  id: string;
+  name: string;
+  trade: Trade;
+  phone?: string;
+  email?: string;
+  website?: string;
+  hours?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export type ReceiptKind = 'image' | 'pdf' | 'document';
+
+export interface ReceiptHint {
+  amount?: number;
+  date?: string;
+  counterparty?: string;
+  categoryId?: string;
+  confidence: number;
+  parsedFrom: 'filename' | 'text' | 'qr' | 'manual';
+}
+
+export interface Receipt {
+  id: string;
+  filename: string;
+  kind: ReceiptKind;
+  uri: string;
+  size?: number;
+  extractedText?: string;
+  hint?: ReceiptHint;
+  bookingId?: string;
+  createdAt: string;
+}
+
+export type DocumentCategory =
+  | 'Mietvertrag'
+  | 'Versicherungspolice'
+  | 'Grundbuchauszug'
+  | 'Nebenkostenabrechnung'
+  | 'Handwerker-Rechnung'
+  | 'Sonstiges';
+
+export interface DocumentEntry {
+  id: string;
+  filename: string;
+  uri: string;
+  category: DocumentCategory;
+  propertyId?: string | null;
+  tenantId?: string | null;
+  expiresAt?: string;
+  notes?: string;
+  size?: number;
+  createdAt: string;
+}
+
+export type MeterType = 'strom' | 'gas' | 'wasser' | 'heizung';
+
+export interface MeterReading {
+  id: string;
+  propertyId: string;
+  type: MeterType;
+  value: number;
+  date: string;
+  unit?: string;
+  photoUri?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export type FontScale = 'normal' | 'large' | 'xlarge';
+
+export interface Settings {
+  pinHash?: string;
+  biometricEnabled: boolean;
+  fontScale: FontScale;
+  hapticEnabled: boolean;
+  soundEnabled: boolean;
+  onboardingDone: boolean;
 }

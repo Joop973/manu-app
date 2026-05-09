@@ -34,7 +34,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          title: 'Hauptsaal',
           tabBarIcon: ({ color }) => <Text style={{ fontSize: 22, color }}>🏛️</Text>,
         }}
       />
@@ -46,17 +46,24 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="rules"
+        name="tresore"
         options={{
-          title: 'Regeln',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 22, color }}>⚙️</Text>,
+          title: 'Tresore',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 22, color }}>🪙</Text>,
         }}
       />
       <Tabs.Screen
-        name="templates"
+        name="admin"
         options={{
-          title: 'Vorlagen',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 22, color }}>🪙</Text>,
+          title: 'Verwaltung',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 22, color }}>👥</Text>,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Einstellungen',
+          tabBarIcon: ({ color }) => <Text style={{ fontSize: 22, color }}>⚙️</Text>,
         }}
       />
     </Tabs>
