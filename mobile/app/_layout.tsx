@@ -13,6 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import LoginScreen from './login';
 import OnboardingScreen from './onboarding';
+import { bumpActivity, startAutoLock, stopAutoLock } from '@/lib/autoLock';
 import { parseClipboard } from '@/lib/clipboard';
 import { scheduleMonthlyReportReminder } from '@/lib/scheduler';
 import { useAppStore } from '@/store/useAppStore';
@@ -52,7 +53,15 @@ export default function RootLayout() {
       if (settings.monthlyReportReminderEnabled) {
         scheduleMonthlyReportReminder().catch(() => {});
       }
+
+      // F-130 Auto-Lock starten
+      startAutoLock();
+      bumpActivity();
+
+      // F-131 Papierkorb: alte Einträge automatisch bereinigen
+      useAppStore.getState().purgeOldTrash();
     }
+    return () => stopAutoLock();
   }, [fontsLoaded, hydrated, runAutoBookings, setClipboardHint, settings.monthlyReportReminderEnabled]);
 
   if (!fontsLoaded || !hydrated) return null;
@@ -118,6 +127,7 @@ export default function RootLayout() {
             <Stack.Screen name="anlage-v" options={{ title: 'Anlage V' }} />
             <Stack.Screen name="datev-mapping" options={{ title: 'DATEV-Konten' }} />
             <Stack.Screen name="handover/new" options={{ presentation: 'modal', title: 'Übergabeprotokoll' }} />
+            <Stack.Screen name="trash" options={{ title: 'Papierkorb' }} />
           </Stack>
         )}
         </BottomSheetModalProvider>

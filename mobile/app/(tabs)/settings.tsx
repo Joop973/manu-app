@@ -1,3 +1,4 @@
+import * as DocumentPicker from 'expo-document-picker';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -7,10 +8,12 @@ import { CasinoButton } from '@/components/CasinoButton';
 import { Field, TextField } from '@/components/Field';
 import { GoldChip } from '@/components/GoldChip';
 import { Screen } from '@/components/Screen';
+import { createBackup, readBackup } from '@/lib/backup';
+import { useT } from '@/lib/i18n';
 import { ensurePermission } from '@/lib/notifications';
 import { useAppStore } from '@/store/useAppStore';
 import { palette, radii, shadows, spacing, text } from '@/theme';
-import { FontScale } from '@/types';
+import { ColorScheme, FontScale, Locale } from '@/types';
 
 const SCALES: { value: FontScale; label: string }[] = [
   { value: 'normal', label: 'Normal' },
@@ -18,8 +21,22 @@ const SCALES: { value: FontScale; label: string }[] = [
   { value: 'xlarge', label: 'Sehr Groß' },
 ];
 
+const THEMES: { value: ColorScheme; labelKey: string }[] = [
+  { value: 'dark', labelKey: 'settings.theme.dark' },
+  { value: 'light', labelKey: 'settings.theme.light' },
+  { value: 'system', labelKey: 'settings.theme.system' },
+];
+
+const LOCALES: { value: Locale; labelKey: string }[] = [
+  { value: 'de', labelKey: 'settings.language.de' },
+  { value: 'en', labelKey: 'settings.language.en' },
+];
+
+const AUTO_LOCK_OPTIONS = [0, 1, 5, 15, 30];
+
 export default function SettingsScreen() {
   const router = useRouter();
+  const t = useT();
   const settings = useAppStore((s) => s.settings);
   const setPin = useAppStore((s) => s.setPin);
   const setBiometric = useAppStore((s) => s.setBiometric);
@@ -31,6 +48,85 @@ export default function SettingsScreen() {
   const setMonthlyReportReminder = useAppStore((s) => s.setMonthlyReportReminder);
   const resetOnboarding = useAppStore((s) => s.resetOnboarding);
   const setUnlocked = useAppStore((s) => s.setUnlocked);
+  const setColorScheme = useAppStore((s) => s.setColorScheme);
+  const setLocale = useAppStore((s) => s.setLocale);
+  const setAutoLockMinutes = useAppStore((s) => s.setAutoLockMinutes);
+  const trash = useAppStore((s) => s.trash);
+  const hydrateFromBackup = useAppStore((s) => s.hydrateFromBackup);
+
+  const [backupPwd, setBackupPwd] = useState('');
+
+  const handleBackup = async () => {
+    const state = useAppStore.getState();
+    const data = {
+      currentMonth: state.currentMonth,
+      properties: state.properties,
+      categories: state.categories,
+      bookings: state.bookings,
+      templates: state.templates,
+      rules: state.rules,
+      tenants: state.tenants,
+      craftsmen: state.craftsmen,
+      receipts: state.receipts,
+      documents: state.documents,
+      meterReadings: state.meterReadings,
+      tags: state.tags,
+      subscriptions: state.subscriptions,
+      contracts: state.contracts,
+      goals: state.goals,
+      assets: state.assets,
+      liabilities: state.liabilities,
+      budgets: state.budgets,
+      investments: state.investments,
+      debtPlans: state.debtPlans,
+      maintenanceLogs: state.maintenanceLogs,
+      splits: state.splits,
+      reminders: state.reminders,
+      handovers: state.handovers,
+      vacancies: state.vacancies,
+      datevMapping: state.datevMapping,
+      trash: state.trash,
+      settings: state.settings,
+    };
+    try {
+      await createBackup({
+        storeKey: 'manu-imperial-store-v5',
+        data,
+        password: backupPwd.trim() || undefined,
+      });
+    } catch (e) {
+      Alert.alert('Backup fehlgeschlagen', String(e));
+    }
+  };
+
+  const handleRestore = async () => {
+    const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+    if (result.canceled) return;
+    Alert.alert(
+      'Backup wiederherstellen?',
+      'Alle aktuellen Daten werden überschrieben. Lokal-Verschlüsselung bitte vorher angeben (falls verschlüsselt).',
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Wiederherstellen',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const bundle = await readBackup({
+                uri: result.assets[0].uri,
+                password: backupPwd.trim() || undefined,
+              });
+              hydrateFromBackup(bundle.data as Record<string, unknown>);
+              setBackupPwd('');
+              Alert.alert('Wiederhergestellt');
+            } catch (e) {
+              Alert.alert('Restore fehlgeschlagen', String(e));
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const toggleNotifications = async (next: boolean) => {
     if (!next) return setNotifications(false);
@@ -130,6 +226,73 @@ export default function SettingsScreen() {
             onPress={() => setUnlocked(false)}
           />
         ) : null}
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>{t('settings.autoLock')}</Text>
+        <View style={styles.row}>
+          {AUTO_LOCK_OPTIONS.map((m) => (
+            <GoldChip
+              key={m}
+              label={m === 0 ? t('settings.autoLock.off') : `${m} min`}
+              selected={settings.autoLockMinutes === m}
+              onPress={() => setAutoLockMinutes(m)}
+            />
+          ))}
+        </View>
+        <Text style={text.subhead}>
+          App sperrt sich nach Inaktivität — und sofort beim Wechsel in den Hintergrund (wenn ein PIN gesetzt ist).
+        </Text>
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>{t('settings.theme')}</Text>
+        <View style={styles.row}>
+          {THEMES.map((th) => (
+            <GoldChip
+              key={th.value}
+              label={t(th.labelKey)}
+              selected={settings.colorScheme === th.value}
+              onPress={() => setColorScheme(th.value)}
+            />
+          ))}
+        </View>
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>{t('settings.language')}</Text>
+        <View style={styles.row}>
+          {LOCALES.map((l) => (
+            <GoldChip
+              key={l.value}
+              label={t(l.labelKey)}
+              selected={settings.locale === l.value}
+              onPress={() => setLocale(l.value)}
+            />
+          ))}
+        </View>
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>{t('settings.backup')}</Text>
+        <Text style={text.subhead}>
+          Voll-Backup als Datei zum Teilen (iCloud Drive, Google Drive, AirDrop). Optional verschlüsselt mit Passwort.
+        </Text>
+        <Field label="Passwort (optional, mind. 4 Zeichen)">
+          <TextField value={backupPwd} onChangeText={setBackupPwd} secureTextEntry />
+        </Field>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <CasinoButton label={t('settings.backup.create')} onPress={handleBackup} style={{ flex: 1 }} />
+          <CasinoButton label={t('settings.backup.restore')} variant="ghost" onPress={handleRestore} style={{ flex: 1 }} />
+        </View>
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>{t('settings.trash')}</Text>
+        <Pressable onPress={() => router.push('/trash')} style={styles.linkRow}>
+          <Text style={text.body}>{t('trash.title')} ({trash.length})</Text>
+          <Text style={{ color: palette.imperialGold }}>›</Text>
+        </Pressable>
       </View>
 
       <View style={[styles.card, shadows.card]}>

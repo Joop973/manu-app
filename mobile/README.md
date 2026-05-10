@@ -128,9 +128,24 @@ mobile/
 
 ## Daten-Persistenz
 
-Alles in `AsyncStorage` (`manu-imperial-store-v4`). Belege, Dokumente und Zähler-Fotos
+Alles in `AsyncStorage` (`manu-imperial-store-v5`). Belege, Dokumente und Zähler-Fotos
 liegen als reale Dateien im `FileSystem.documentDirectory`. Migration auf SQLite
 sinnvoll ab ~10k Buchungen oder bei aktiver Volltextsuche über Datei-Inhalte.
+
+## Phase 5.1 — Sicherheit + Komfort
+
+| F-Nr | Feature |
+|------|---------|
+| **F-130** Auto-Lock | App sperrt sich nach Inaktivität (1/5/15/30 min einstellbar) und sofort beim Wechsel in den Hintergrund |
+| **F-131** Papierkorb | Soft-Delete für 11 Entitäten, 30-Tage-Wiederherstellung, Auto-Purge |
+| **F-132** Voll-Backup | JSON-Export inkl. aller Daten, optional verschlüsselt mit Passwort, Restore aus geteilter Datei |
+| **F-133** Bulk-Edit | Mehrere Buchungen markieren, Kategorie/Objekt zuweisen oder löschen |
+| **F-134** Light/Dark/System-Theme | Schaltbar in Einstellungen, eigene helle Palette |
+| **F-135** Mehrsprachigkeit DE/EN | Schlanker eigener i18n-Layer, sofort umschaltbar |
+| **F-136** Verschlüsselung at-rest | PIN-Hash + Backup-Hint via `expo-secure-store` (iOS Keychain / Android EncryptedSharedPreferences) |
+
+Verschoben in Phase 5.2 (folgt): SQLite-Migration, Drag&Drop-Dashboard,
+Sprachdiktat, ML-Kit-OCR.
 
 ## Phase 4 — UX-Politur + Vermieter-Power
 

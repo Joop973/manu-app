@@ -188,6 +188,9 @@ export interface MeterReading {
 
 export type FontScale = 'normal' | 'large' | 'xlarge';
 
+export type ColorScheme = 'dark' | 'light' | 'system';
+export type Locale = 'de' | 'en';
+
 export interface Settings {
   pinHash?: string;
   biometricEnabled: boolean;
@@ -198,6 +201,31 @@ export interface Settings {
   notificationsEnabled: boolean;
   helpHintsEnabled: boolean;
   monthlyReportReminderEnabled: boolean;
+  /** F-130 Auto-Lock: Inaktivität in Minuten (0 = aus). */
+  autoLockMinutes: number;
+  /** Phase 5: Theme. */
+  colorScheme: ColorScheme;
+  /** Phase 5: Sprache. */
+  locale: Locale;
+}
+
+/** F-131 Papierkorb-Eintrag — generisch. */
+export interface TrashEntry {
+  id: string;
+  entityType:
+    | 'booking'
+    | 'tenant'
+    | 'craftsman'
+    | 'receipt'
+    | 'document'
+    | 'meterReading'
+    | 'maintenance'
+    | 'subscription'
+    | 'contract'
+    | 'goal'
+    | 'tag';
+  payload: unknown;
+  deletedAt: string;
 }
 
 // === Phase 3: neue Entitäten ===

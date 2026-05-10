@@ -18,6 +18,7 @@ import {
   Booking,
   Budget,
   Category,
+  ColorScheme,
   Contract,
   Craftsman,
   DatevMapping,
@@ -28,6 +29,8 @@ import {
   HandoverProtocol,
   Investment,
   Liability,
+  Locale,
+  TrashEntry,
   MaintenanceLog,
   MeterReading,
   Property,
@@ -76,6 +79,8 @@ interface AppState {
   // Phase 4 UI-State
   lastTab: string;
   scrollPositions: Record<string, number>;
+  // Phase 5
+  trash: TrashEntry[];
 
   settings: Settings;
   clipboardHint: ClipboardHint | null;
@@ -98,6 +103,9 @@ interface AppState {
   resetOnboarding: () => void;
   setLastTab: (tab: string) => void;
   setScrollPosition: (key: string, y: number) => void;
+  setColorScheme: (s: ColorScheme) => void;
+  setLocale: (l: Locale) => void;
+  setAutoLockMinutes: (m: number) => void;
 
   // Properties
   addProperty: (input: Omit<Property, 'id' | 'createdAt' | 'color'> & { color?: string }) => Property;
@@ -214,6 +222,29 @@ interface AppState {
   setDatevMapping: (categoryId: string, account: string, accountName?: string) => void;
   removeDatevMapping: (categoryId: string) => void;
 
+  // Phase 5: Papierkorb
+  trashBooking: (id: string) => void;
+  trashTenant: (id: string) => void;
+  trashCraftsman: (id: string) => void;
+  trashReceipt: (id: string) => void;
+  trashDocument: (id: string) => void;
+  trashMaintenance: (id: string) => void;
+  trashSubscription: (id: string) => void;
+  trashContract: (id: string) => void;
+  trashGoal: (id: string) => void;
+  trashTag: (id: string) => void;
+  trashMeterReading: (id: string) => void;
+  restoreFromTrash: (entryId: string) => void;
+  emptyTrash: () => void;
+  purgeOldTrash: () => number;
+
+  // Phase 5: Bulk-Edit
+  bulkUpdateBookings: (ids: string[], patch: Partial<Booking>) => void;
+  bulkTrashBookings: (ids: string[]) => void;
+
+  // Phase 5: Backup
+  hydrateFromBackup: (data: Record<string, unknown>) => void;
+
   runAutoBookings: () => number;
 }
 
@@ -226,6 +257,9 @@ const defaultSettings: Settings = {
   notificationsEnabled: false,
   helpHintsEnabled: true,
   monthlyReportReminderEnabled: false,
+  autoLockMinutes: 0,
+  colorScheme: 'dark',
+  locale: 'de',
 };
 
 const defaultAchievements: AchievementState = {
@@ -268,6 +302,7 @@ export const useAppStore = create<AppState>()(
       datevMapping: [],
       lastTab: 'index',
       scrollPositions: {},
+      trash: [],
       settings: { ...defaultSettings },
       clipboardHint: null,
 
@@ -302,6 +337,9 @@ export const useAppStore = create<AppState>()(
       setLastTab: (tab) => set({ lastTab: tab }),
       setScrollPosition: (key, y) =>
         set((s) => ({ scrollPositions: { ...s.scrollPositions, [key]: y } })),
+      setColorScheme: (scheme) => set((s) => ({ settings: { ...s.settings, colorScheme: scheme } })),
+      setLocale: (locale) => set((s) => ({ settings: { ...s.settings, locale } })),
+      setAutoLockMinutes: (m) => set((s) => ({ settings: { ...s.settings, autoLockMinutes: m } })),
 
       addProperty: (input) => {
         const used = new Set(get().properties.map((p) => p.color));
@@ -657,6 +695,188 @@ export const useAppStore = create<AppState>()(
       removeDatevMapping: (categoryId) =>
         set((s) => ({ datevMapping: s.datevMapping.filter((m) => m.categoryId !== categoryId) })),
 
+      // Phase 5: Soft-Delete in Papierkorb
+      trashBooking: (id) =>
+        set((s) => {
+          const item = s.bookings.find((b) => b.id === id);
+          if (!item) return s;
+          return {
+            bookings: s.bookings.filter((b) => b.id !== id),
+            trash: [
+              ...s.trash,
+              { id: uid('trash'), entityType: 'booking', payload: item, deletedAt: new Date().toISOString() },
+            ],
+          };
+        }),
+      trashTenant: (id) =>
+        set((s) => {
+          const item = s.tenants.find((t) => t.id === id);
+          if (!item) return s;
+          return {
+            tenants: s.tenants.filter((t) => t.id !== id),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'tenant', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+      trashCraftsman: (id) =>
+        set((s) => {
+          const item = s.craftsmen.find((c) => c.id === id);
+          if (!item) return s;
+          return {
+            craftsmen: s.craftsmen.filter((c) => c.id !== id),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'craftsman', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+      trashReceipt: (id) =>
+        set((s) => {
+          const item = s.receipts.find((r) => r.id === id);
+          if (!item) return s;
+          return {
+            receipts: s.receipts.filter((r) => r.id !== id),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'receipt', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+      trashDocument: (id) =>
+        set((s) => {
+          const item = s.documents.find((d) => d.id === id);
+          if (!item) return s;
+          return {
+            documents: s.documents.filter((d) => d.id !== id),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'document', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+      trashMaintenance: (id) =>
+        set((s) => {
+          const item = s.maintenanceLogs.find((m) => m.id === id);
+          if (!item) return s;
+          return {
+            maintenanceLogs: s.maintenanceLogs.filter((m) => m.id !== id),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'maintenance', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+      trashSubscription: (id) =>
+        set((s) => {
+          const item = s.subscriptions.find((sub) => sub.id === id);
+          if (!item) return s;
+          return {
+            subscriptions: s.subscriptions.filter((sub) => sub.id !== id),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'subscription', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+      trashContract: (id) =>
+        set((s) => {
+          const item = s.contracts.find((c) => c.id === id);
+          if (!item) return s;
+          return {
+            contracts: s.contracts.filter((c) => c.id !== id),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'contract', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+      trashGoal: (id) =>
+        set((s) => {
+          const item = s.goals.find((g) => g.id === id);
+          if (!item) return s;
+          return {
+            goals: s.goals.filter((g) => g.id !== id),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'goal', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+      trashTag: (id) =>
+        set((s) => {
+          const item = s.tags.find((t) => t.id === id);
+          if (!item) return s;
+          return {
+            tags: s.tags.filter((t) => t.id !== id),
+            bookings: s.bookings.map((b) => ({ ...b, tagIds: b.tagIds?.filter((tid) => tid !== id) })),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'tag', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+      trashMeterReading: (id) =>
+        set((s) => {
+          const item = s.meterReadings.find((m) => m.id === id);
+          if (!item) return s;
+          return {
+            meterReadings: s.meterReadings.filter((m) => m.id !== id),
+            trash: [...s.trash, { id: uid('trash'), entityType: 'meterReading', payload: item, deletedAt: new Date().toISOString() }],
+          };
+        }),
+
+      restoreFromTrash: (entryId) =>
+        set((s) => {
+          const entry = s.trash.find((t) => t.id === entryId);
+          if (!entry) return s;
+          const trash = s.trash.filter((t) => t.id !== entryId);
+          switch (entry.entityType) {
+            case 'booking':
+              return { trash, bookings: [...s.bookings, entry.payload as Booking] };
+            case 'tenant':
+              return { trash, tenants: [...s.tenants, entry.payload as Tenant] };
+            case 'craftsman':
+              return { trash, craftsmen: [...s.craftsmen, entry.payload as Craftsman] };
+            case 'receipt':
+              return { trash, receipts: [...s.receipts, entry.payload as Receipt] };
+            case 'document':
+              return { trash, documents: [...s.documents, entry.payload as DocumentEntry] };
+            case 'maintenance':
+              return { trash, maintenanceLogs: [...s.maintenanceLogs, entry.payload as MaintenanceLog] };
+            case 'subscription':
+              return { trash, subscriptions: [...s.subscriptions, entry.payload as Subscription] };
+            case 'contract':
+              return { trash, contracts: [...s.contracts, entry.payload as Contract] };
+            case 'goal':
+              return { trash, goals: [...s.goals, entry.payload as Goal] };
+            case 'tag':
+              return { trash, tags: [...s.tags, entry.payload as Tag] };
+            case 'meterReading':
+              return { trash, meterReadings: [...s.meterReadings, entry.payload as MeterReading] };
+          }
+          return { trash };
+        }),
+
+      emptyTrash: () => set({ trash: [] }),
+
+      purgeOldTrash: () => {
+        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        let removed = 0;
+        set((s) => ({
+          trash: s.trash.filter((t) => {
+            const keep = new Date(t.deletedAt).getTime() >= cutoff;
+            if (!keep) removed += 1;
+            return keep;
+          }),
+        }));
+        return removed;
+      },
+
+      bulkUpdateBookings: (ids, patch) =>
+        set((s) => ({
+          bookings: s.bookings.map((b) => (ids.includes(b.id) ? { ...b, ...patch } : b)),
+        })),
+
+      bulkTrashBookings: (ids) =>
+        set((s) => {
+          const matched = s.bookings.filter((b) => ids.includes(b.id));
+          return {
+            bookings: s.bookings.filter((b) => !ids.includes(b.id)),
+            trash: [
+              ...s.trash,
+              ...matched.map<TrashEntry>((b) => ({
+                id: uid('trash'),
+                entityType: 'booking',
+                payload: b,
+                deletedAt: new Date().toISOString(),
+              })),
+            ],
+          };
+        }),
+
+      hydrateFromBackup: (data) =>
+        set((state) => ({
+          ...state,
+          ...(data as Partial<typeof state>),
+          hydrated: true,
+          unlocked: state.unlocked,
+        })),
+
       runAutoBookings: () => {
         const todayIso = today();
         let created = 0;
@@ -691,7 +911,7 @@ export const useAppStore = create<AppState>()(
       },
     }),
     {
-      name: 'manu-imperial-store-v4',
+      name: 'manu-imperial-store-v5',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         currentMonth: state.currentMonth,
@@ -723,6 +943,7 @@ export const useAppStore = create<AppState>()(
         datevMapping: state.datevMapping,
         lastTab: state.lastTab,
         scrollPositions: state.scrollPositions,
+        trash: state.trash,
         settings: state.settings,
       }),
       onRehydrateStorage: () => (state) => {
