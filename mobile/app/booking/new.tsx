@@ -10,6 +10,7 @@ import { GoldChip } from '@/components/GoldChip';
 import { PropertyPicker } from '@/components/PropertyPicker';
 import { Screen } from '@/components/Screen';
 import { Suggestions } from '@/components/Suggestions';
+import { TagPicker } from '@/components/TagPicker';
 import { TypeToggle } from '@/components/TypeToggle';
 import { evaluateExpression, formatEuro } from '@/lib/calc';
 import { today } from '@/lib/dates';
@@ -38,6 +39,7 @@ export default function NewBookingScreen() {
   const categories = useAppStore((s) => s.categories);
   const bookings = useAppStore((s) => s.bookings);
   const rules = useAppStore((s) => s.rules);
+  const tags = useAppStore((s) => s.tags);
   const addBooking = useAppStore((s) => s.addBooking);
   const addTemplate = useAppStore((s) => s.addTemplate);
 
@@ -52,6 +54,7 @@ export default function NewBookingScreen() {
   const [counterparty, setCounterparty] = useState<string>(params.prefillCounterparty ?? '');
   const [note, setNote] = useState<string>('');
   const [recurrence, setRecurrence] = useState<Recurrence>('none');
+  const [tagIds, setTagIds] = useState<string[]>([]);
 
   // F-021: Smarte Autovervollständigung — bisherige Empfänger
   const counterpartySuggestions = useMemo(() => {
@@ -121,6 +124,7 @@ export default function NewBookingScreen() {
                 counterparty: counterparty.trim() || undefined,
                 note: note.trim() || undefined,
                 recurrence,
+                tagIds: tagIds.length ? tagIds : undefined,
               });
               router.back();
             },
@@ -220,6 +224,10 @@ export default function NewBookingScreen() {
 
       <Field label="Notiz">
         <TextField value={note} onChangeText={setNote} placeholder="frei…" />
+      </Field>
+
+      <Field label="Tags (F-100)">
+        <TagPicker value={tagIds} tags={tags} onChange={setTagIds} />
       </Field>
 
       <Field label="Wiederkehrend">

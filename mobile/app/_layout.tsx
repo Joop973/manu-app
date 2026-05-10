@@ -88,6 +88,20 @@ export default function RootLayout() {
             <Stack.Screen name="oracle" options={{ title: 'Das Orakel' }} />
             <Stack.Screen name="search" options={{ title: 'Suche' }} />
             <Stack.Screen name="year" options={{ title: 'Jahres-Checkup' }} />
+            <Stack.Screen name="tag/new" options={{ presentation: 'modal', title: 'Tag' }} />
+            <Stack.Screen name="subscriptions" options={{ title: 'Abos' }} />
+            <Stack.Screen name="contracts" options={{ title: 'Verträge' }} />
+            <Stack.Screen name="goals" options={{ title: 'Sparziele' }} />
+            <Stack.Screen name="networth" options={{ title: 'Net Worth' }} />
+            <Stack.Screen name="budgets" options={{ title: 'Budgets' }} />
+            <Stack.Screen name="investments" options={{ title: 'Investments' }} />
+            <Stack.Screen name="debt" options={{ title: 'Tilgungsplaner' }} />
+            <Stack.Screen name="splits" options={{ title: 'Splits' }} />
+            <Stack.Screen name="whatif" options={{ title: 'Was-wäre-wenn' }} />
+            <Stack.Screen name="brutto-netto" options={{ title: 'Brutto / Netto' }} />
+            <Stack.Screen name="csv-import" options={{ presentation: 'modal', title: 'CSV-Import' }} />
+            <Stack.Screen name="reports" options={{ title: 'Reports' }} />
+            <Stack.Screen name="maintenance/new" options={{ presentation: 'modal', title: 'Wartung' }} />
           </Stack>
         )}
       </SafeAreaProvider>

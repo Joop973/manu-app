@@ -13,7 +13,7 @@ import { buildFixedTresor, buildRentTresor } from '@/lib/tresore';
 import { useAppStore } from '@/store/useAppStore';
 import { palette, radii, shadows, spacing, text } from '@/theme';
 
-type Section = 'miete' | 'fix' | 'belege' | 'dokumente';
+type Section = 'miete' | 'fix' | 'belege' | 'dokumente' | 'finanzen';
 
 export default function TresoreScreen() {
   const router = useRouter();
@@ -21,6 +21,12 @@ export default function TresoreScreen() {
   const categories = useAppStore((s) => s.categories);
   const receipts = useAppStore((s) => s.receipts);
   const documents = useAppStore((s) => s.documents);
+  const goals = useAppStore((s) => s.goals);
+  const subscriptions = useAppStore((s) => s.subscriptions);
+  const contracts = useAppStore((s) => s.contracts);
+  const assets = useAppStore((s) => s.assets);
+  const liabilities = useAppStore((s) => s.liabilities);
+  const investments = useAppStore((s) => s.investments);
   const currentMonth = useAppStore((s) => s.currentMonth);
   const setCurrentMonth = useAppStore((s) => s.setCurrentMonth);
   const removeDocument = useAppStore((s) => s.removeDocument);
@@ -31,6 +37,9 @@ export default function TresoreScreen() {
   const rentBuckets = buildRentTresor(bookings, currentMonth, lastMonth);
   const fixBuckets = buildFixedTresor(bookings, categories, currentMonth, lastMonth);
 
+  const netWorth = assets.reduce((s, a) => s + a.value, 0) - liabilities.reduce((s, l) => s + l.balance, 0);
+  const portfolioValue = investments.reduce((s, i) => s + (i.currentPrice ?? i.buyPrice) * i.shares, 0);
+
   return (
     <Screen>
       <Text style={text.imperialHeadline}>Tresore</Text>
@@ -40,6 +49,7 @@ export default function TresoreScreen() {
         <GoldChip label="Fixkosten" selected={section === 'fix'} onPress={() => setSection('fix')} />
         <GoldChip label="Belege" selected={section === 'belege'} onPress={() => setSection('belege')} />
         <GoldChip label="Dokumente" selected={section === 'dokumente'} onPress={() => setSection('dokumente')} />
+        <GoldChip label="Finanzen" selected={section === 'finanzen'} onPress={() => setSection('finanzen')} />
       </View>
 
       {(section === 'miete' || section === 'fix') && (
@@ -48,11 +58,7 @@ export default function TresoreScreen() {
 
       {section === 'miete' ? (
         rentBuckets.length === 0 ? (
-          <EmptyState
-            icon="💰"
-            title="Keine Mieteinnahmen"
-            description="Buchungen mit Kategorie 💰 Miete erscheinen hier nach Mieter gruppiert."
-          />
+          <EmptyState icon="💰" title="Keine Mieteinnahmen" />
         ) : (
           rentBuckets.map((b) => {
             const missing = b.hadLastMonth && !b.hasThisMonth;
@@ -68,8 +74,7 @@ export default function TresoreScreen() {
                   </Text>
                 </View>
                 <Text style={text.subhead}>
-                  {b.count} Zahlung(en)
-                  {missing ? ' · ⚠ diese Monat keine Zahlung' : ''}
+                  {b.count} Zahlung(en){missing ? ' · ⚠ diesen Monat keine Zahlung' : ''}
                 </Text>
               </View>
             );
@@ -79,11 +84,7 @@ export default function TresoreScreen() {
 
       {section === 'fix' ? (
         fixBuckets.length === 0 ? (
-          <EmptyState
-            icon="🛡"
-            title="Keine Fixkosten"
-            description="Buchungen mit Kategorien wie Strom, Wasser, Internet oder Versicherung zählen hier rein."
-          />
+          <EmptyState icon="🛡" title="Keine Fixkosten" />
         ) : (
           fixBuckets.map((b) => {
             const delta = b.sum - b.prevSum;
@@ -157,13 +158,7 @@ export default function TresoreScreen() {
                     <Text style={text.bodyBold} numberOfLines={1}>
                       📑 {d.filename}
                     </Text>
-                    <GoldChip
-                      compact
-                      label="Löschen"
-                      onPress={() => {
-                        removeDocument(d.id);
-                      }}
-                    />
+                    <GoldChip compact label="Löschen" onPress={() => removeDocument(d.id)} />
                   </View>
                   <Text style={text.caption}>
                     {d.category}
@@ -174,6 +169,85 @@ export default function TresoreScreen() {
               ))
           )}
         </>
+      ) : null}
+
+      {section === 'finanzen' ? (
+        <View style={{ gap: spacing.md }}>
+          <View style={[styles.card, shadows.card]}>
+            <View style={styles.rowSplit}>
+              <Text style={text.sectionTitle}>📊 Net Worth</Text>
+              <Text
+                style={[
+                  text.amountMedium,
+                  { color: netWorth >= 0 ? palette.successGreen : palette.dangerRed },
+                ]}
+              >
+                {formatEuro(netWorth)}
+              </Text>
+            </View>
+            <Text style={text.subhead}>{assets.length} Aktiva · {liabilities.length} Passiva</Text>
+            <CasinoButton label="Öffnen ›" variant="ghost" onPress={() => router.push('/networth')} />
+          </View>
+
+          <View style={[styles.card, shadows.card]}>
+            <View style={styles.rowSplit}>
+              <Text style={text.sectionTitle}>📈 Investments</Text>
+              <Text style={[text.amountMedium, { color: palette.imperialGold }]}>
+                {formatEuro(portfolioValue)}
+              </Text>
+            </View>
+            <Text style={text.subhead}>{investments.length} Position(en)</Text>
+            <CasinoButton label="Öffnen ›" variant="ghost" onPress={() => router.push('/investments')} />
+          </View>
+
+          <View style={[styles.card, shadows.card]}>
+            <View style={styles.rowSplit}>
+              <Text style={text.sectionTitle}>🎯 Sparziele</Text>
+              <Text style={text.bodyBold}>{goals.length}</Text>
+            </View>
+            <CasinoButton label="Öffnen ›" variant="ghost" onPress={() => router.push('/goals')} />
+          </View>
+
+          <View style={[styles.card, shadows.card]}>
+            <View style={styles.rowSplit}>
+              <Text style={text.sectionTitle}>📺 Abos</Text>
+              <Text style={text.bodyBold}>{subscriptions.filter((s) => s.active).length}</Text>
+            </View>
+            <CasinoButton label="Öffnen ›" variant="ghost" onPress={() => router.push('/subscriptions')} />
+          </View>
+
+          <View style={[styles.card, shadows.card]}>
+            <View style={styles.rowSplit}>
+              <Text style={text.sectionTitle}>📜 Verträge</Text>
+              <Text style={text.bodyBold}>{contracts.length}</Text>
+            </View>
+            <CasinoButton label="Öffnen ›" variant="ghost" onPress={() => router.push('/contracts')} />
+          </View>
+
+          <View style={[styles.card, shadows.card]}>
+            <View style={styles.rowSplit}>
+              <Text style={text.sectionTitle}>💼 Budgets</Text>
+              <Text style={text.bodyBold}>—</Text>
+            </View>
+            <CasinoButton label="Öffnen ›" variant="ghost" onPress={() => router.push('/budgets')} />
+          </View>
+
+          <View style={[styles.card, shadows.card]}>
+            <View style={styles.rowSplit}>
+              <Text style={text.sectionTitle}>💸 Tilgungsplaner</Text>
+              <Text style={text.bodyBold}>—</Text>
+            </View>
+            <CasinoButton label="Öffnen ›" variant="ghost" onPress={() => router.push('/debt')} />
+          </View>
+
+          <View style={[styles.card, shadows.card]}>
+            <View style={styles.rowSplit}>
+              <Text style={text.sectionTitle}>🤝 Splits</Text>
+              <Text style={text.bodyBold}>—</Text>
+            </View>
+            <CasinoButton label="Öffnen ›" variant="ghost" onPress={() => router.push('/splits')} />
+          </View>
+        </View>
       ) : null}
     </Screen>
   );

@@ -1,14 +1,21 @@
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { AchievementsCard } from '@/components/AchievementsCard';
 import { CasinoButton } from '@/components/CasinoButton';
 import { EmptyState } from '@/components/EmptyState';
+import { HeatmapCalendar } from '@/components/HeatmapCalendar';
 import { MonthSlider } from '@/components/MonthSlider';
 import { ObjectCard } from '@/components/ObjectCard';
 import { OracleCard } from '@/components/OracleCard';
+import { ProgressBar } from '@/components/ProgressBar';
 import { Screen } from '@/components/Screen';
 import { formatEuro } from '@/lib/calc';
+import { computeLeftover } from '@/lib/cashflow';
 import { isInMonth } from '@/lib/dates';
+import { evaluateGoal } from '@/lib/goals';
+import { buildMonthHeatmap } from '@/lib/heatmap';
 import { generateOracleTips } from '@/lib/oracle';
 import { selectPropertyMonthSummary, useAppStore } from '@/store/useAppStore';
 import { palette, radii, shadows, spacing, text } from '@/theme';
@@ -17,6 +24,9 @@ export default function DashboardScreen() {
   const router = useRouter();
   const properties = useAppStore((s) => s.properties);
   const bookings = useAppStore((s) => s.bookings);
+  const templates = useAppStore((s) => s.templates);
+  const subscriptions = useAppStore((s) => s.subscriptions);
+  const goals = useAppStore((s) => s.goals);
   const currentMonth = useAppStore((s) => s.currentMonth);
   const setCurrentMonth = useAppStore((s) => s.setCurrentMonth);
   const clipboardHint = useAppStore((s) => s.clipboardHint);
@@ -28,6 +38,19 @@ export default function DashboardScreen() {
   const balance = totalIncome - totalExpense;
 
   const oracleTips = generateOracleTips({ bookings, monthIso: currentMonth });
+  const heatmap = useMemo(() => buildMonthHeatmap(bookings, currentMonth), [bookings, currentMonth]);
+
+  // F-105 Leftover Daily-Spend
+  const leftover = useMemo(
+    () =>
+      computeLeftover({
+        bookings,
+        templates,
+        subscriptions,
+        today: new Date(),
+      }),
+    [bookings, templates, subscriptions],
+  );
 
   return (
     <View style={{ flex: 1 }}>
@@ -76,6 +99,7 @@ export default function DashboardScreen() {
           </View>
         ) : null}
 
+        {/* Bilanz */}
         <View style={[styles.balanceCard, shadows.card]}>
           <Text style={[text.caption, { color: palette.imperialGold }]}>GESAMT-BILANZ</Text>
           <Text
@@ -102,8 +126,31 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        {/* F-105 Leftover */}
+        <View style={[styles.leftoverCard, shadows.card]}>
+          <Text style={[text.caption, { color: palette.imperialGold }]}>HEUTE NOCH VERFÜGBAR</Text>
+          <Text
+            style={[
+              text.amountLarge,
+              { color: leftover.perDay >= 0 ? palette.successGreen : palette.dangerRed },
+            ]}
+          >
+            {formatEuro(Math.max(0, leftover.perDay))}
+          </Text>
+          <Text style={text.caption}>
+            {leftover.daysRemaining} Tg übrig · Pufferbedarf: {formatEuro(leftover.expectedExpenseRemaining)}
+          </Text>
+        </View>
+
         <MonthSlider value={currentMonth} onChange={setCurrentMonth} />
 
+        {/* F-104 Heatmap */}
+        <View style={[styles.card, shadows.card]}>
+          <Text style={text.sectionTitle}>📅 Ausgaben-Heatmap</Text>
+          <HeatmapCalendar days={heatmap} />
+        </View>
+
+        {/* Orakel-Tipps */}
         {oracleTips.length > 0 ? (
           <View style={{ gap: spacing.md }}>
             <View style={styles.sectionHead}>
@@ -120,21 +167,50 @@ export default function DashboardScreen() {
           </View>
         ) : null}
 
-        <View style={styles.actionRow}>
-          <CasinoButton
-            label="📸 Beleg scannen"
-            variant="gold"
-            onPress={() => router.push('/receipt/scan')}
-            style={{ flex: 1 }}
-          />
-          <CasinoButton
-            label="🪙 Tresore"
-            variant="ghost"
-            onPress={() => router.push('/tresore')}
-            style={{ flex: 1 }}
-          />
-        </View>
+        {/* Goals-Vorschau */}
+        {goals.length > 0 ? (
+          <View style={{ gap: spacing.md }}>
+            <View style={styles.sectionHead}>
+              <Text style={text.sectionTitle}>🎯 Sparziele</Text>
+              <Pressable onPress={() => router.push('/goals')}>
+                <Text style={{ color: palette.imperialGold, fontFamily: 'Lato_700Bold' }}>Alle ›</Text>
+              </Pressable>
+            </View>
+            {goals.slice(0, 3).map((g) => {
+              const status = evaluateGoal(g);
+              return (
+                <View key={g.id} style={[styles.card, shadows.card]}>
+                  <View style={styles.rowSplit}>
+                    <Text style={text.bodyBold}>{g.emoji} {g.label}</Text>
+                    <Text style={text.bodyBold}>
+                      {formatEuro(g.saved)} / {formatEuro(g.target)}
+                    </Text>
+                  </View>
+                  <ProgressBar percent={status.percent} />
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
 
+        {/* Quick Actions */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActions}>
+          <CasinoButton label="📸 Beleg" onPress={() => router.push('/receipt/scan')} style={{ width: 130 }} />
+          <CasinoButton label="📑 CSV" variant="ghost" onPress={() => router.push('/csv-import')} style={{ width: 130 }} />
+          <CasinoButton label="🪙 Tresore" variant="ghost" onPress={() => router.push('/tresore')} style={{ width: 130 }} />
+          <CasinoButton label="🎯 Ziele" variant="ghost" onPress={() => router.push('/goals')} style={{ width: 130 }} />
+          <CasinoButton label="📊 Net Worth" variant="ghost" onPress={() => router.push('/networth')} style={{ width: 150 }} />
+          <CasinoButton label="📺 Abos" variant="ghost" onPress={() => router.push('/subscriptions')} style={{ width: 130 }} />
+          <CasinoButton label="📜 Verträge" variant="ghost" onPress={() => router.push('/contracts')} style={{ width: 140 }} />
+          <CasinoButton label="💼 Budgets" variant="ghost" onPress={() => router.push('/budgets')} style={{ width: 140 }} />
+          <CasinoButton label="📈 Investments" variant="ghost" onPress={() => router.push('/investments')} style={{ width: 160 }} />
+          <CasinoButton label="📄 Reports" variant="ghost" onPress={() => router.push('/reports')} style={{ width: 130 }} />
+        </ScrollView>
+
+        {/* F-118 Achievements */}
+        <AchievementsCard />
+
+        {/* F-102 Property P&L als Karten */}
         <View style={styles.sectionHead}>
           <Text style={text.sectionTitle}>Imperien</Text>
           <Pressable onPress={() => router.push('/object/new')}>
@@ -176,11 +252,7 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  headRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
+  headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   iconBtn: {
     width: 40,
     height: 40,
@@ -198,13 +270,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.cardBorder,
   },
-  balanceRow: { flexDirection: 'row', marginTop: spacing.lg, gap: spacing.lg },
-  sectionHead: {
-    flexDirection: 'row',
+  leftoverCard: {
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: palette.imperialGold,
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  actionRow: { flexDirection: 'row', gap: spacing.sm },
+  balanceRow: { flexDirection: 'row', marginTop: spacing.lg, gap: spacing.lg },
+  card: {
+    backgroundColor: palette.royalBlue,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: palette.cardBorder,
+    gap: spacing.sm,
+  },
+  rowSplit: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  quickActions: { gap: spacing.sm, paddingVertical: spacing.sm },
   clipboard: {
     flexDirection: 'row',
     alignItems: 'center',

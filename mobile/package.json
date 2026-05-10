@@ -28,6 +28,7 @@
     "expo-print": "~14.0.0",
     "expo-sharing": "~13.0.0",
     "expo-av": "~15.0.0",
+    "expo-notifications": "~0.29.0",
     "@expo-google-fonts/cinzel": "^0.2.3",
     "@expo-google-fonts/cormorant-garamond": "^0.2.3",
     "@expo-google-fonts/lato": "^0.2.3",

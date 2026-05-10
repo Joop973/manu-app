@@ -1,11 +1,13 @@
 import * as LocalAuthentication from 'expo-local-authentication';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { CasinoButton } from '@/components/CasinoButton';
 import { Field, TextField } from '@/components/Field';
 import { GoldChip } from '@/components/GoldChip';
 import { Screen } from '@/components/Screen';
+import { ensurePermission } from '@/lib/notifications';
 import { useAppStore } from '@/store/useAppStore';
 import { palette, radii, shadows, spacing, text } from '@/theme';
 import { FontScale } from '@/types';
@@ -17,13 +19,22 @@ const SCALES: { value: FontScale; label: string }[] = [
 ];
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const settings = useAppStore((s) => s.settings);
   const setPin = useAppStore((s) => s.setPin);
   const setBiometric = useAppStore((s) => s.setBiometric);
   const setFontScale = useAppStore((s) => s.setFontScale);
   const setHaptic = useAppStore((s) => s.setHaptic);
   const setSound = useAppStore((s) => s.setSound);
+  const setNotifications = useAppStore((s) => s.setNotifications);
   const setUnlocked = useAppStore((s) => s.setUnlocked);
+
+  const toggleNotifications = async (next: boolean) => {
+    if (!next) return setNotifications(false);
+    const ok = await ensurePermission();
+    if (!ok) return Alert.alert('Berechtigung verweigert');
+    setNotifications(true);
+  };
 
   const [newPin, setNewPin] = useState('');
   const [newPin2, setNewPin2] = useState('');
@@ -155,6 +166,35 @@ export default function SettingsScreen() {
             thumbColor={palette.marbleWhite}
           />
         </View>
+        <View style={styles.toggle}>
+          <Text style={text.body}>📬 Lokale Erinnerungen</Text>
+          <Switch
+            value={settings.notificationsEnabled}
+            onValueChange={toggleNotifications}
+            trackColor={{ true: palette.imperialGold, false: palette.royalBlueAccent }}
+            thumbColor={palette.marbleWhite}
+          />
+        </View>
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>🛠 Tools</Text>
+        <Pressable onPress={() => router.push('/brutto-netto')} style={styles.linkRow}>
+          <Text style={text.body}>💶 Brutto / Netto-Rechner</Text>
+          <Text style={{ color: palette.imperialGold }}>›</Text>
+        </Pressable>
+        <Pressable onPress={() => router.push('/whatif')} style={styles.linkRow}>
+          <Text style={text.body}>🪄 Was-wäre-wenn</Text>
+          <Text style={{ color: palette.imperialGold }}>›</Text>
+        </Pressable>
+        <Pressable onPress={() => router.push('/csv-import')} style={styles.linkRow}>
+          <Text style={text.body}>📑 CSV-Import</Text>
+          <Text style={{ color: palette.imperialGold }}>›</Text>
+        </Pressable>
+        <Pressable onPress={() => router.push('/reports')} style={styles.linkRow}>
+          <Text style={text.body}>📄 Reports (PDF/CSV)</Text>
+          <Text style={{ color: palette.imperialGold }}>›</Text>
+        </Pressable>
       </View>
     </Screen>
   );
@@ -174,5 +214,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
   },
 });

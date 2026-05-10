@@ -11,7 +11,21 @@ import { useAppStore } from '@/store/useAppStore';
 import { palette, radii, shadows, spacing, text } from '@/theme';
 import { RuleCondition } from '@/types';
 
-type Section = 'mieter' | 'handwerker' | 'vorlagen' | 'regeln' | 'zaehler';
+type Section = 'mieter' | 'handwerker' | 'vorlagen' | 'regeln' | 'zaehler' | 'tags' | 'tools';
+
+function ToolCard({ title, subtitle, onPress }: { title: string; subtitle: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.card, shadows.card]}>
+      <View style={styles.rowSplit}>
+        <View style={{ flex: 1 }}>
+          <Text style={text.bodyBold}>{title}</Text>
+          <Text style={text.caption}>{subtitle}</Text>
+        </View>
+        <Text style={{ fontSize: 22, color: palette.imperialGold }}>›</Text>
+      </View>
+    </Pressable>
+  );
+}
 
 function describeCondition(c: RuleCondition): string {
   switch (c.field) {
@@ -31,10 +45,12 @@ export default function AdminScreen() {
   const meterReadings = useAppStore((s) => s.meterReadings);
   const properties = useAppStore((s) => s.properties);
   const categories = useAppStore((s) => s.categories);
+  const tags = useAppStore((s) => s.tags);
 
   const removeRule = useAppStore((s) => s.removeRule);
   const removeTemplate = useAppStore((s) => s.removeTemplate);
   const removeReading = useAppStore((s) => s.removeMeterReading);
+  const removeTag = useAppStore((s) => s.removeTag);
   const bookFromTemplate = useAppStore((s) => s.bookFromTemplate);
 
   const [section, setSection] = useState<Section>('mieter');
@@ -49,6 +65,8 @@ export default function AdminScreen() {
         <GoldChip label="Vorlagen" selected={section === 'vorlagen'} onPress={() => setSection('vorlagen')} />
         <GoldChip label="Regeln" selected={section === 'regeln'} onPress={() => setSection('regeln')} />
         <GoldChip label="Zähler" selected={section === 'zaehler'} onPress={() => setSection('zaehler')} />
+        <GoldChip label="Tags" selected={section === 'tags'} onPress={() => setSection('tags')} />
+        <GoldChip label="Tools" selected={section === 'tools'} onPress={() => setSection('tools')} />
       </View>
 
       {section === 'mieter' ? (
@@ -211,6 +229,94 @@ export default function AdminScreen() {
               })
           )}
         </>
+      ) : null}
+
+      {section === 'tags' ? (
+        <>
+          <CasinoButton label="+ Neuer Tag" onPress={() => router.push('/tag/new')} />
+          {tags.length === 0 ? (
+            <EmptyState icon="🏷" title="Noch keine Tags" description="Tags ergänzen Kategorien — z.B. „Steuerrelevant"" />
+          ) : (
+            tags.map((tag) => (
+              <View key={tag.id} style={[styles.card, shadows.card, { borderLeftColor: tag.color, borderLeftWidth: 4 }]}>
+                <View style={styles.rowSplit}>
+                  <Text style={text.bodyBold}>#{tag.label}</Text>
+                  <CasinoButton label="🗑" variant="ghost" style={{ width: 60 }} onPress={() => removeTag(tag.id)} />
+                </View>
+              </View>
+            ))
+          )}
+        </>
+      ) : null}
+
+      {section === 'tools' ? (
+        <View style={{ gap: spacing.md }}>
+          <ToolCard
+            title="📊 Net Worth"
+            subtitle="Aktiva minus Passiva"
+            onPress={() => router.push('/networth')}
+          />
+          <ToolCard
+            title="📈 Investments"
+            subtitle="Aktien · ETFs · Crypto"
+            onPress={() => router.push('/investments')}
+          />
+          <ToolCard
+            title="🎯 Sparziele"
+            subtitle="Mit Fortschrittsbalken"
+            onPress={() => router.push('/goals')}
+          />
+          <ToolCard
+            title="📺 Abos"
+            subtitle="Auto-erkannt aus Buchungen"
+            onPress={() => router.push('/subscriptions')}
+          />
+          <ToolCard
+            title="📜 Verträge"
+            subtitle="Mit Kündigungsfrist-Reminder"
+            onPress={() => router.push('/contracts')}
+          />
+          <ToolCard
+            title="💼 Budgets"
+            subtitle="Monatslimit pro Kategorie"
+            onPress={() => router.push('/budgets')}
+          />
+          <ToolCard
+            title="💸 Tilgungsplaner"
+            subtitle="Restlaufzeit + Zinslast"
+            onPress={() => router.push('/debt')}
+          />
+          <ToolCard
+            title="🤝 Splits"
+            subtitle="Rechnungen aufteilen"
+            onPress={() => router.push('/splits')}
+          />
+          <ToolCard
+            title="🔧 Wartung"
+            subtitle="Reparatur dokumentieren"
+            onPress={() => router.push('/maintenance/new')}
+          />
+          <ToolCard
+            title="🪄 Was-wäre-wenn"
+            subtitle="Sparpotenzial simulieren"
+            onPress={() => router.push('/whatif')}
+          />
+          <ToolCard
+            title="💶 Brutto / Netto"
+            subtitle="Lohnrechner Deutschland"
+            onPress={() => router.push('/brutto-netto')}
+          />
+          <ToolCard
+            title="📑 CSV-Import"
+            subtitle="Bank-Export einlesen"
+            onPress={() => router.push('/csv-import')}
+          />
+          <ToolCard
+            title="📄 Reports (PDF/CSV)"
+            subtitle="Export für Steuerberater"
+            onPress={() => router.push('/reports')}
+          />
+        </View>
       ) : null}
     </Screen>
   );

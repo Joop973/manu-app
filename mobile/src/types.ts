@@ -34,6 +34,11 @@ export interface Booking {
   templateId?: string;
   ruleId?: string;
   receiptId?: string;
+  tagIds?: string[];
+  splitId?: string;
+  subscriptionId?: string;
+  goalId?: string;
+  loanId?: string;
   createdAt: string;
 }
 
@@ -61,6 +66,7 @@ export interface RuleAction {
   setCategoryId?: string;
   setPropertyId?: string;
   setRecurrence?: Recurrence;
+  addTagIds?: string[];
 }
 
 export interface Rule {
@@ -76,6 +82,7 @@ export interface Tenant {
   name: string;
   phone?: string;
   email?: string;
+  iban?: string;
   propertyId: string | null;
   unit?: string;
   rentCold?: number;
@@ -180,4 +187,168 @@ export interface Settings {
   hapticEnabled: boolean;
   soundEnabled: boolean;
   onboardingDone: boolean;
+  notificationsEnabled: boolean;
+}
+
+// === Phase 3: neue Entitäten ===
+
+/** F-100 Tags / Multi-Labels — flexibler als Kategorien */
+export interface Tag {
+  id: string;
+  label: string;
+  color: string;
+  createdAt: string;
+}
+
+/** F-101 Subscription Detector — vom Detector erkannt oder manuell angelegt */
+export interface Subscription {
+  id: string;
+  name: string;
+  amount: number;
+  cadence: 'monthly' | 'yearly';
+  dayOfMonth?: number;
+  categoryId?: string | null;
+  propertyId?: string | null;
+  active: boolean;
+  detectedAutomatically?: boolean;
+  cancelledAt?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** F-108 Vertrags-Tracker mit Kündigungsfrist */
+export interface Contract {
+  id: string;
+  label: string;
+  vendor?: string;
+  category: 'Strom' | 'Gas' | 'Internet' | 'Telefon' | 'Versicherung' | 'Streaming' | 'Sonstiges';
+  monthlyCost?: number;
+  startDate?: string;
+  noticePeriodDays?: number;
+  earliestEndDate?: string;
+  documentId?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** F-109 Savings Goals */
+export interface Goal {
+  id: string;
+  label: string;
+  target: number;
+  saved: number;
+  deadline?: string;
+  propertyId?: string | null;
+  emoji?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** F-112 Net Worth — Aktiva (Asset) und Passiva (Liability) */
+export type AssetKind = 'cash' | 'property' | 'investment' | 'vehicle' | 'other';
+
+export interface Asset {
+  id: string;
+  label: string;
+  kind: AssetKind;
+  value: number;
+  propertyId?: string;
+  notes?: string;
+  history: { date: string; value: number }[];
+  createdAt: string;
+}
+
+export type LiabilityKind = 'mortgage' | 'loan' | 'credit_card' | 'other';
+
+export interface Liability {
+  id: string;
+  label: string;
+  kind: LiabilityKind;
+  balance: number;
+  interestRate?: number;
+  monthlyPayment?: number;
+  propertyId?: string;
+  notes?: string;
+  history: { date: string; balance: number }[];
+  createdAt: string;
+}
+
+/** F-113 Envelope Budgeting */
+export interface Budget {
+  id: string;
+  categoryId: string;
+  monthlyLimit: number;
+  rolloverEnabled?: boolean;
+  createdAt: string;
+}
+
+/** F-115 Investment Portfolio */
+export type InvestmentKind = 'stock' | 'etf' | 'fund' | 'crypto' | 'other';
+
+export interface Investment {
+  id: string;
+  symbol: string;
+  name: string;
+  kind: InvestmentKind;
+  shares: number;
+  buyPrice: number;
+  currentPrice?: number;
+  currency: string;
+  notes?: string;
+  history: { date: string; price: number }[];
+  createdAt: string;
+}
+
+/** F-117 Debt-Payoff (separat von Liability für detaillierten Plan) */
+export interface DebtPlan {
+  id: string;
+  liabilityId: string;
+  monthlyPayment: number;
+  startDate: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** F-118 Achievements / Streaks */
+export interface AchievementState {
+  unlocked: string[]; // IDs
+  streak: number;
+  lastActiveDate?: string;
+  totalBookings: number;
+}
+
+/** F-120 Maintenance-Historie pro Objekt */
+export interface MaintenanceLog {
+  id: string;
+  propertyId: string;
+  date: string;
+  craftsmanId?: string;
+  description: string;
+  cost?: number;
+  bookingId?: string;
+  photoUri?: string;
+  createdAt: string;
+}
+
+/** F-122 Bill-Splitting */
+export interface BillSplit {
+  id: string;
+  bookingId: string;
+  totalAmount: number;
+  paidByMe: number;
+  participants: { name: string; share: number; settled: boolean }[];
+  notes?: string;
+  createdAt: string;
+}
+
+/** F-107 Lokale Notifications — Wiedervorlage */
+export interface ScheduledReminder {
+  id: string;
+  notificationId?: string;
+  label: string;
+  date: string;
+  kind: 'contract' | 'rent' | 'meter' | 'general';
+  targetId?: string;
+  done?: boolean;
+  createdAt: string;
 }

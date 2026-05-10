@@ -45,10 +45,16 @@
         {
           "faceIDPermission": "Damit Du den Tresor per Face ID öffnen kannst."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#D4AF37"
+        }
       ]
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": false
     }
   }
 }
