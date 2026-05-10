@@ -128,27 +128,36 @@ mobile/
 
 ## Daten-Persistenz
 
-Alles in `AsyncStorage` (`manu-imperial-store-v3`). Belege, Dokumente und Zähler-Fotos
+Alles in `AsyncStorage` (`manu-imperial-store-v4`). Belege, Dokumente und Zähler-Fotos
 liegen als reale Dateien im `FileSystem.documentDirectory`. Migration auf SQLite
 sinnvoll ab ~10k Buchungen oder bei aktiver Volltextsuche über Datei-Inhalte.
 
-## Roadmap (bewusst zurückgestellt)
+## Phase 4 — UX-Politur + Vermieter-Power
 
-Brauchen Backend / native Module / komplexe Drittanbieter-Logik:
+| F-Nr | Feature | Wo zu finden |
+|------|---------|--------------|
+| **F-007** | Bottom-Sheet via `@gorhom/bottom-sheet` | `Sheet` Komponente |
+| **F-009** | Swipe-Gesten links=Löschen / rechts=Bearbeiten | Buchungsliste |
+| **F-010** | 5-Schritt-Onboarding-Tutorial | Erststart + Settings → Wiederholen |
+| **F-011** | Kontextuelle Hilfe-Tooltips (`?`-Buttons) | Dashboard, ein-/ausschaltbar in Settings |
+| **F-013** | Tab-Memory + Scroll-Position | automatisch |
+| **F-014** | Globale Schriftgröße (skaliert Buttons + Felder) | Settings |
+| **F-039** | Monatsreport am 1. d. Mt. (lokale Notification + PDF) | Reports + Settings-Toggle |
+| **F-040** | NK-Abrechnungs-Generator pro Mieter+Jahr (PDF) | Reports → NK-Abrechnung |
+| **F-041** | Steuerreport Anlage V mit AfA (PDF) | Reports → Anlage V |
+| **F-042** | DATEV-CSV-Export + Konten-Mapping | Reports → DATEV |
+| **F-044** | Übergabeprotokoll-Wizard (Räume + Fotos + PDF) | Object-Detail → Übergabeprotokoll |
+| **F-045** | Leerstandstracker mit entgangener Miete | Object-Detail → Leerstand |
 
-- **F-003** Multi-User mit Rollen (Server-Auth)
-- **F-004** Cloud-Backup (Server-Storage; Workaround: Export zu iCloud/Drive via Share)
-- **F-005** Drag-and-drop-Dashboard
-- **F-007** Echtes Bottom-Sheet (`@gorhom/bottom-sheet`)
-- **F-009** Swipe-Gesten auf Listen
-- **F-010** Onboarding-Tutorial
-- **F-011** Kontextuelle Hilfe-Tooltips
+## Roadmap (jetzt nur noch Backend-Themen)
+
+Brauchen echten Server, native Module oder Drittanbieter-Service:
+
+- **F-003** Multi-User mit Rollen
+- **F-004** Cloud-Backup (Workaround: Share-Sheet zu iCloud/Drive)
+- **F-005** Drag-and-drop-Dashboard (komplexes Reorder-UI)
 - **F-012** Home-Screen Widgets (nativer Code)
-- **F-013** Tab-Memory mit Scroll-Position
-- **F-039 / F-040 / F-041 / F-042** Monatsreport-Mail / NK-Abrechnung / Anlage V / DATEV-Export (Geschäftslogik + Pflichtfelder)
-- **F-044** Übergabeprotokoll-Wizard (Foto pro Raum)
-- **F-045** Leerstandstracker (basiert auf F-035)
-- **F-047** Sprachdiktat
+- **F-047** Sprachdiktat (`expo-speech-recognition` ist beta)
 - **F-048 / F-049** Push-Notifications mit Server
 - **F-050** Geteilte Notizen (braucht F-003)
 

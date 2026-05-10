@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
-import { StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { StyleSheet, TextInput, TextInputProps, View } from 'react-native';
 
+import { ScaledText, useFontScale } from './ScaledText';
 import { palette, radii, spacing, text } from '@/theme';
 
 interface FieldProps {
@@ -12,9 +13,9 @@ interface FieldProps {
 export function Field({ label, hint, children }: FieldProps) {
   return (
     <View style={styles.wrap}>
-      <Text style={[text.sectionTitle, styles.label]}>{label}</Text>
+      <ScaledText style={[text.sectionTitle, styles.label]}>{label}</ScaledText>
       {children}
-      {hint ? <Text style={[text.caption, { marginTop: 4 }]}>{hint}</Text> : null}
+      {hint ? <ScaledText style={[text.caption, { marginTop: 4 }]}>{hint}</ScaledText> : null}
     </View>
   );
 }
@@ -24,11 +25,17 @@ interface TextFieldProps extends TextInputProps {
 }
 
 export function TextField({ multiline, style, ...rest }: TextFieldProps) {
+  const factor = useFontScale();
   return (
     <TextInput
       placeholderTextColor={palette.marbleWhiteMuted}
       multiline={multiline}
-      style={[styles.input, multiline && { minHeight: 80, textAlignVertical: 'top' }, style]}
+      style={[
+        styles.input,
+        { fontSize: Math.round(16 * factor) },
+        multiline && { minHeight: 80, textAlignVertical: 'top' },
+        style,
+      ]}
       {...rest}
     />
   );

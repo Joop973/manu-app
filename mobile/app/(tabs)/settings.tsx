@@ -27,6 +27,9 @@ export default function SettingsScreen() {
   const setHaptic = useAppStore((s) => s.setHaptic);
   const setSound = useAppStore((s) => s.setSound);
   const setNotifications = useAppStore((s) => s.setNotifications);
+  const setHelpHints = useAppStore((s) => s.setHelpHints);
+  const setMonthlyReportReminder = useAppStore((s) => s.setMonthlyReportReminder);
+  const resetOnboarding = useAppStore((s) => s.resetOnboarding);
   const setUnlocked = useAppStore((s) => s.setUnlocked);
 
   const toggleNotifications = async (next: boolean) => {
@@ -75,7 +78,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <Screen>
+    <Screen scrollKey="settings">
       <Text style={text.imperialHeadline}>Einstellungen</Text>
 
       <View style={[styles.card, shadows.card]}>
@@ -175,6 +178,46 @@ export default function SettingsScreen() {
             thumbColor={palette.marbleWhite}
           />
         </View>
+        <View style={styles.toggle}>
+          <Text style={text.body}>📄 Monatsreport-Reminder (1. d. Mt)</Text>
+          <Switch
+            value={settings.monthlyReportReminderEnabled}
+            onValueChange={async (b) => {
+              if (b) {
+                const ok = await ensurePermission();
+                if (!ok) return;
+              }
+              setMonthlyReportReminder(b);
+            }}
+            trackColor={{ true: palette.imperialGold, false: palette.royalBlueAccent }}
+            thumbColor={palette.marbleWhite}
+          />
+        </View>
+        <View style={styles.toggle}>
+          <Text style={text.body}>❓ Kontextuelle Hilfe</Text>
+          <Switch
+            value={settings.helpHintsEnabled}
+            onValueChange={setHelpHints}
+            trackColor={{ true: palette.imperialGold, false: palette.royalBlueAccent }}
+            thumbColor={palette.marbleWhite}
+          />
+        </View>
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>🎓 Onboarding</Text>
+        <Pressable
+          onPress={() => {
+            Alert.alert('Onboarding wiederholen?', 'Der Welcome-Assistent startet beim nächsten Tab-Wechsel.', [
+              { text: 'Abbrechen', style: 'cancel' },
+              { text: 'Starten', onPress: () => resetOnboarding() },
+            ]);
+          }}
+          style={styles.linkRow}
+        >
+          <Text style={text.body}>🪙 Tutorial wiederholen</Text>
+          <Text style={{ color: palette.imperialGold }}>›</Text>
+        </Pressable>
       </View>
 
       <View style={[styles.card, shadows.card]}>

@@ -20,10 +20,12 @@ import {
   Category,
   Contract,
   Craftsman,
+  DatevMapping,
   DebtPlan,
   DocumentEntry,
   FontScale,
   Goal,
+  HandoverProtocol,
   Investment,
   Liability,
   MaintenanceLog,
@@ -37,6 +39,7 @@ import {
   Tag,
   Template,
   Tenant,
+  VacancyMark,
 } from '@/types';
 
 interface AppState {
@@ -67,6 +70,12 @@ interface AppState {
   splits: BillSplit[];
   reminders: ScheduledReminder[];
   achievements: AchievementState;
+  handovers: HandoverProtocol[];
+  vacancies: VacancyMark[];
+  datevMapping: DatevMapping[];
+  // Phase 4 UI-State
+  lastTab: string;
+  scrollPositions: Record<string, number>;
 
   settings: Settings;
   clipboardHint: ClipboardHint | null;
@@ -83,7 +92,12 @@ interface AppState {
   setHaptic: (b: boolean) => void;
   setSound: (b: boolean) => void;
   setNotifications: (b: boolean) => void;
+  setHelpHints: (b: boolean) => void;
+  setMonthlyReportReminder: (b: boolean) => void;
   markOnboardingDone: () => void;
+  resetOnboarding: () => void;
+  setLastTab: (tab: string) => void;
+  setScrollPosition: (key: string, y: number) => void;
 
   // Properties
   addProperty: (input: Omit<Property, 'id' | 'createdAt' | 'color'> & { color?: string }) => Property;
@@ -189,6 +203,17 @@ interface AppState {
   // Achievements
   refreshAchievements: () => string[];
 
+  // Phase 4
+  addHandover: (input: Omit<HandoverProtocol, 'id' | 'createdAt'>) => HandoverProtocol;
+  updateHandover: (id: string, patch: Partial<HandoverProtocol>) => void;
+  removeHandover: (id: string) => void;
+
+  addVacancy: (input: Omit<VacancyMark, 'id' | 'createdAt'>) => VacancyMark;
+  removeVacancy: (id: string) => void;
+
+  setDatevMapping: (categoryId: string, account: string, accountName?: string) => void;
+  removeDatevMapping: (categoryId: string) => void;
+
   runAutoBookings: () => number;
 }
 
@@ -199,6 +224,8 @@ const defaultSettings: Settings = {
   soundEnabled: true,
   onboardingDone: false,
   notificationsEnabled: false,
+  helpHintsEnabled: true,
+  monthlyReportReminderEnabled: false,
 };
 
 const defaultAchievements: AchievementState = {
@@ -236,6 +263,11 @@ export const useAppStore = create<AppState>()(
       splits: [],
       reminders: [],
       achievements: { ...defaultAchievements },
+      handovers: [],
+      vacancies: [],
+      datevMapping: [],
+      lastTab: 'index',
+      scrollPositions: {},
       settings: { ...defaultSettings },
       clipboardHint: null,
 
@@ -262,7 +294,14 @@ export const useAppStore = create<AppState>()(
       setHaptic: (b) => set((s) => ({ settings: { ...s.settings, hapticEnabled: b } })),
       setSound: (b) => set((s) => ({ settings: { ...s.settings, soundEnabled: b } })),
       setNotifications: (b) => set((s) => ({ settings: { ...s.settings, notificationsEnabled: b } })),
+      setHelpHints: (b) => set((s) => ({ settings: { ...s.settings, helpHintsEnabled: b } })),
+      setMonthlyReportReminder: (b) =>
+        set((s) => ({ settings: { ...s.settings, monthlyReportReminderEnabled: b } })),
       markOnboardingDone: () => set((s) => ({ settings: { ...s.settings, onboardingDone: true } })),
+      resetOnboarding: () => set((s) => ({ settings: { ...s.settings, onboardingDone: false } })),
+      setLastTab: (tab) => set({ lastTab: tab }),
+      setScrollPosition: (key, y) =>
+        set((s) => ({ scrollPositions: { ...s.scrollPositions, [key]: y } })),
 
       addProperty: (input) => {
         const used = new Set(get().properties.map((p) => p.color));
@@ -594,6 +633,30 @@ export const useAppStore = create<AppState>()(
         return result.newlyUnlocked;
       },
 
+      addHandover: (input) => {
+        const h: HandoverProtocol = { ...input, id: uid('hov'), createdAt: new Date().toISOString() };
+        set((s) => ({ handovers: [...s.handovers, h] }));
+        return h;
+      },
+      updateHandover: (id, patch) =>
+        set((s) => ({ handovers: s.handovers.map((h) => (h.id === id ? { ...h, ...patch } : h)) })),
+      removeHandover: (id) => set((s) => ({ handovers: s.handovers.filter((h) => h.id !== id) })),
+
+      addVacancy: (input) => {
+        const v: VacancyMark = { ...input, id: uid('vac'), createdAt: new Date().toISOString() };
+        set((s) => ({ vacancies: [...s.vacancies, v] }));
+        return v;
+      },
+      removeVacancy: (id) => set((s) => ({ vacancies: s.vacancies.filter((v) => v.id !== id) })),
+
+      setDatevMapping: (categoryId, account, accountName) =>
+        set((s) => {
+          const others = s.datevMapping.filter((m) => m.categoryId !== categoryId);
+          return { datevMapping: [...others, { categoryId, account, accountName }] };
+        }),
+      removeDatevMapping: (categoryId) =>
+        set((s) => ({ datevMapping: s.datevMapping.filter((m) => m.categoryId !== categoryId) })),
+
       runAutoBookings: () => {
         const todayIso = today();
         let created = 0;
@@ -628,7 +691,7 @@ export const useAppStore = create<AppState>()(
       },
     }),
     {
-      name: 'manu-imperial-store-v3',
+      name: 'manu-imperial-store-v4',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         currentMonth: state.currentMonth,
@@ -655,6 +718,11 @@ export const useAppStore = create<AppState>()(
         splits: state.splits,
         reminders: state.reminders,
         achievements: state.achievements,
+        handovers: state.handovers,
+        vacancies: state.vacancies,
+        datevMapping: state.datevMapping,
+        lastTab: state.lastTab,
+        scrollPositions: state.scrollPositions,
         settings: state.settings,
       }),
       onRehydrateStorage: () => (state) => {

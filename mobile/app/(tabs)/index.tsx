@@ -6,6 +6,7 @@ import { AchievementsCard } from '@/components/AchievementsCard';
 import { CasinoButton } from '@/components/CasinoButton';
 import { EmptyState } from '@/components/EmptyState';
 import { HeatmapCalendar } from '@/components/HeatmapCalendar';
+import { HelpHint } from '@/components/HelpHint';
 import { MonthSlider } from '@/components/MonthSlider';
 import { ObjectCard } from '@/components/ObjectCard';
 import { OracleCard } from '@/components/OracleCard';
@@ -54,7 +55,7 @@ export default function DashboardScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      <Screen>
+      <Screen scrollKey="dashboard">
         <View style={styles.headRow}>
           <Pressable onPress={() => router.push('/search')} style={styles.iconBtn}>
             <Text style={{ fontSize: 22, color: palette.imperialGold }}>🔍</Text>
@@ -128,7 +129,13 @@ export default function DashboardScreen() {
 
         {/* F-105 Leftover */}
         <View style={[styles.leftoverCard, shadows.card]}>
-          <Text style={[text.caption, { color: palette.imperialGold }]}>HEUTE NOCH VERFÜGBAR</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={[text.caption, { color: palette.imperialGold }]}>HEUTE NOCH VERFÜGBAR</Text>
+            <HelpHint
+              title="Wieviel kann ich heute noch ausgeben?"
+              body="Manu rechnet: aktueller Saldo + erwartete Einnahmen − geplante Pflichten, geteilt durch Tage bis Monatsende. Eine Pufferzahl, kein Verbot."
+            />
+          </View>
           <Text
             style={[
               text.amountLarge,

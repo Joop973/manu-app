@@ -1,7 +1,8 @@
 import * as Haptics from 'expo-haptics';
 import { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, ViewStyle } from 'react-native';
 
+import { ScaledText } from './ScaledText';
 import { palette, radii, shadows, text } from '@/theme';
 
 interface Props {
@@ -45,7 +46,7 @@ export function CasinoButton({ label, onPress, variant = 'gold', disabled, style
       ]}
     >
       {icon}
-      <Text style={[text.buttonLabel, { color: p.fg }]}>{label}</Text>
+      <ScaledText style={[text.buttonLabel, { color: p.fg }]}>{label}</ScaledText>
     </Pressable>
   );
 }

@@ -9,6 +9,12 @@ export interface Property {
   description?: string;
   notes?: string;
   color: string;
+  totalLivingArea?: number; // m² für NK-Abrechnung
+  afa?: {
+    acquisitionValue?: number;
+    acquisitionDate?: string;
+    ratePercent?: number;
+  };
   createdAt: string;
 }
 
@@ -91,6 +97,8 @@ export interface Tenant {
   depositPaid?: boolean;
   contractStart?: string;
   contractEnd?: string;
+  livingArea?: number;
+  personCount?: number;
   notes?: string;
   createdAt: string;
 }
@@ -188,6 +196,8 @@ export interface Settings {
   soundEnabled: boolean;
   onboardingDone: boolean;
   notificationsEnabled: boolean;
+  helpHintsEnabled: boolean;
+  monthlyReportReminderEnabled: boolean;
 }
 
 // === Phase 3: neue Entitäten ===
@@ -347,8 +357,58 @@ export interface ScheduledReminder {
   notificationId?: string;
   label: string;
   date: string;
-  kind: 'contract' | 'rent' | 'meter' | 'general';
+  kind: 'contract' | 'rent' | 'meter' | 'general' | 'monthlyReport';
   targetId?: string;
   done?: boolean;
   createdAt: string;
+}
+
+// === Phase 4 ===
+
+/** F-044 Übergabeprotokoll — Räume mit Zustand, Mängeln, Fotos */
+export interface HandoverRoom {
+  name: string;
+  condition: string;
+  defects: string[];
+  photoUris: string[];
+  meterReadings?: { type: MeterType; value: number; unit?: string }[];
+}
+
+export interface HandoverProtocol {
+  id: string;
+  propertyId: string;
+  tenantId?: string;
+  kind: 'einzug' | 'auszug';
+  date: string;
+  rooms: HandoverRoom[];
+  keys: { type: string; count: number }[];
+  signatureUri?: string;
+  pdfUri?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+/** F-045 Manuelle Leerstands-Markierung */
+export interface VacancyMark {
+  id: string;
+  propertyId: string;
+  fromDate: string;
+  toDate?: string;
+  reason: 'planned' | 'unplanned';
+  notes?: string;
+  createdAt: string;
+}
+
+/** F-042 DATEV-Konten-Mapping pro Kategorie */
+export interface DatevMapping {
+  categoryId: string;
+  account: string;
+  accountName?: string;
+}
+
+/** F-041 AfA-Posten pro Property (für Anlage V) */
+export interface AfaInfo {
+  acquisitionValue?: number;
+  acquisitionDate?: string;
+  ratePercent?: number; // z.B. 2 oder 2.5
 }

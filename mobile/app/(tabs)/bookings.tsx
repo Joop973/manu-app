@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { BookingRow } from '@/components/BookingRow';
 import { CasinoButton } from '@/components/CasinoButton';
@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { GoldChip } from '@/components/GoldChip';
 import { MonthSlider } from '@/components/MonthSlider';
 import { Screen } from '@/components/Screen';
+import { SwipeRow } from '@/components/SwipeRow';
 import { formatEuro } from '@/lib/calc';
 import { isInMonth, monthLabel } from '@/lib/dates';
 import { useAppStore } from '@/store/useAppStore';
@@ -36,7 +37,7 @@ export default function BookingsScreen() {
   const total = monthBookings.reduce((s, b) => s + (b.type === 'income' ? b.amount : -b.amount), 0);
 
   return (
-    <Screen>
+    <Screen scrollKey="bookings">
       <Text style={text.imperialHeadline}>Buchungen</Text>
       <Text style={[text.subhead, { textAlign: 'center' }]}>{monthLabel(currentMonth)}</Text>
 
@@ -83,13 +84,12 @@ export default function BookingsScreen() {
         const property = properties.find((p) => p.id === b.propertyId);
         const category = categories.find((c) => c.id === b.categoryId);
         return (
-          <Pressable
+          <SwipeRow
             key={b.id}
-            onLongPress={() => removeBooking(b.id)}
-            android_ripple={{ color: 'rgba(212,175,55,0.1)' }}
+            onDelete={() => removeBooking(b.id)}
           >
             <BookingRow booking={b} property={property} category={category} />
-          </Pressable>
+          </SwipeRow>
         );
       })}
 

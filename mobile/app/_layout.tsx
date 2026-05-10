@@ -1,3 +1,4 @@
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { Cinzel_700Bold, Cinzel_900Black } from '@expo-google-fonts/cinzel';
 import { CormorantGaramond_500Medium_Italic } from '@expo-google-fonts/cormorant-garamond';
 import { Lato_400Regular, Lato_700Bold, Lato_900Black } from '@expo-google-fonts/lato';
@@ -11,7 +12,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import LoginScreen from './login';
+import OnboardingScreen from './onboarding';
 import { parseClipboard } from '@/lib/clipboard';
+import { scheduleMonthlyReportReminder } from '@/lib/scheduler';
 import { useAppStore } from '@/store/useAppStore';
 import { palette } from '@/theme/colors';
 
@@ -44,17 +47,25 @@ export default function RootLayout() {
       Clipboard.getStringAsync()
         .then((raw) => setClipboardHint(parseClipboard(raw)))
         .catch(() => {});
+
+      // F-039 Monatsreport-Reminder
+      if (settings.monthlyReportReminderEnabled) {
+        scheduleMonthlyReportReminder().catch(() => {});
+      }
     }
-  }, [fontsLoaded, hydrated, runAutoBookings, setClipboardHint]);
+  }, [fontsLoaded, hydrated, runAutoBookings, setClipboardHint, settings.monthlyReportReminderEnabled]);
 
   if (!fontsLoaded || !hydrated) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: palette.royalBlueDeep }}>
       <SafeAreaProvider>
+        <BottomSheetModalProvider>
         <StatusBar style="light" />
         {settings.pinHash && !unlocked ? (
           <LoginScreen />
+        ) : !settings.onboardingDone ? (
+          <OnboardingScreen />
         ) : (
           <Stack
             screenOptions={{
@@ -102,8 +113,14 @@ export default function RootLayout() {
             <Stack.Screen name="csv-import" options={{ presentation: 'modal', title: 'CSV-Import' }} />
             <Stack.Screen name="reports" options={{ title: 'Reports' }} />
             <Stack.Screen name="maintenance/new" options={{ presentation: 'modal', title: 'Wartung' }} />
+            <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+            <Stack.Screen name="nk-abrechnung" options={{ title: 'NK-Abrechnung' }} />
+            <Stack.Screen name="anlage-v" options={{ title: 'Anlage V' }} />
+            <Stack.Screen name="datev-mapping" options={{ title: 'DATEV-Konten' }} />
+            <Stack.Screen name="handover/new" options={{ presentation: 'modal', title: 'Übergabeprotokoll' }} />
           </Stack>
         )}
+        </BottomSheetModalProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -41,7 +41,7 @@ export default function TresoreScreen() {
   const portfolioValue = investments.reduce((s, i) => s + (i.currentPrice ?? i.buyPrice) * i.shares, 0);
 
   return (
-    <Screen>
+    <Screen scrollKey="tresore">
       <Text style={text.imperialHeadline}>Tresore</Text>
 
       <View style={styles.tabRow}>

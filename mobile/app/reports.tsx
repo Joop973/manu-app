@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -5,7 +6,8 @@ import { CasinoButton } from '@/components/CasinoButton';
 import { Field, TextField } from '@/components/Field';
 import { GoldChip } from '@/components/GoldChip';
 import { Screen } from '@/components/Screen';
-import { exportCsv, exportPdf } from '@/lib/reports';
+import { exportDatev } from '@/lib/datev';
+import { exportCsv, exportMonthlyOverviewPdf, exportPdf } from '@/lib/reports';
 import { useAppStore } from '@/store/useAppStore';
 import { palette, radii, shadows, spacing, text } from '@/theme';
 
@@ -13,9 +15,12 @@ import { palette, radii, shadows, spacing, text } from '@/theme';
  * F-111 Custom Report Generator (PDF + CSV).
  */
 export default function ReportsScreen() {
+  const router = useRouter();
   const bookings = useAppStore((s) => s.bookings);
   const properties = useAppStore((s) => s.properties);
   const categories = useAppStore((s) => s.categories);
+  const tenants = useAppStore((s) => s.tenants);
+  const datevMapping = useAppStore((s) => s.datevMapping);
 
   const now = new Date();
   const yearStart = `${now.getFullYear()}-01-01`;
@@ -105,6 +110,23 @@ export default function ReportsScreen() {
       <View style={[styles.card, shadows.card]}>
         <Text style={text.sectionTitle}>Schnell-Reports</Text>
         <CasinoButton
+          label="📄 Monatsreport (Vormonat)"
+          variant="gold"
+          onPress={() => {
+            const m = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const monthIso = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`;
+            wrap(() =>
+              exportMonthlyOverviewPdf({
+                bookings,
+                properties,
+                categories,
+                tenants,
+                monthIso,
+              }),
+            );
+          }}
+        />
+        <CasinoButton
           label="Aktueller Monat (PDF)"
           variant="ghost"
           onPress={() => {
@@ -141,6 +163,40 @@ export default function ReportsScreen() {
               }),
             );
           }}
+        />
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>📊 Steuer & DATEV</Text>
+        <CasinoButton
+          label="📑 DATEV-Export"
+          onPress={() =>
+            wrap(() =>
+              exportDatev({
+                bookings,
+                properties,
+                mapping: datevMapping,
+                fromDate,
+                toDate,
+              }),
+            )
+          }
+          disabled={busy}
+        />
+        <CasinoButton
+          label="DATEV-Konten konfigurieren"
+          variant="ghost"
+          onPress={() => router.push('/datev-mapping')}
+        />
+        <CasinoButton
+          label="📄 Anlage V (Vermietung)"
+          variant="ghost"
+          onPress={() => router.push('/anlage-v')}
+        />
+        <CasinoButton
+          label="📋 NK-Abrechnung"
+          variant="ghost"
+          onPress={() => router.push('/nk-abrechnung')}
         />
       </View>
     </Screen>

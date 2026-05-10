@@ -56,7 +56,7 @@ export default function AdminScreen() {
   const [section, setSection] = useState<Section>('mieter');
 
   return (
-    <Screen>
+    <Screen scrollKey="admin">
       <Text style={text.imperialHeadline}>Verwaltung</Text>
 
       <View style={styles.tabRow}>

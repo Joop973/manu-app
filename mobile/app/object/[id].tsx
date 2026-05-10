@@ -10,6 +10,7 @@ import { Field, TextField } from '@/components/Field';
 import { Screen } from '@/components/Screen';
 import { formatEuro } from '@/lib/calc';
 import { buildPropertyPnL, buildMeterTrend } from '@/lib/propertyAnalytics';
+import { buildVacancyPeriods, totalVacancy } from '@/lib/vacancy';
 import { useAppStore, selectPropertyMonthSummary } from '@/store/useAppStore';
 import { palette, radii, shadows, spacing, text } from '@/theme';
 import { MeterType } from '@/types';
@@ -31,6 +32,7 @@ export default function PropertyDetailScreen() {
   const meterReadings = useAppStore((s) => s.meterReadings);
   const maintenanceLogs = useAppStore((s) => s.maintenanceLogs);
   const craftsmen = useAppStore((s) => s.craftsmen);
+  const vacancies = useAppStore((s) => s.vacancies);
   const currentMonth = useAppStore((s) => s.currentMonth);
   const updateProperty = useAppStore((s) => s.updateProperty);
   const removeProperty = useAppStore((s) => s.removeProperty);
@@ -72,6 +74,12 @@ export default function PropertyDetailScreen() {
   const propertyMaintenance = maintenanceLogs
     .filter((m) => m.propertyId === property.id)
     .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  const vacancyPeriods = useMemo(
+    () => (property ? buildVacancyPeriods({ propertyId: property.id, tenants, vacancies }) : []),
+    [property, tenants, vacancies],
+  );
+  const vacancyTotal = totalVacancy(vacancyPeriods);
 
   const meterTrendByType = (Object.keys(METER_LABEL) as MeterType[]).map((t) => {
     const points = meterReadings
@@ -181,6 +189,39 @@ export default function PropertyDetailScreen() {
           <Text style={{ color: palette.dangerRed, fontFamily: 'Lato_900Black' }}>🗑️</Text>
         </Pressable>
       </View>
+
+      {/* F-045 Leerstand */}
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>🏚 Leerstand (12 Monate)</Text>
+        {vacancyPeriods.length === 0 ? (
+          <Text style={text.subhead}>✓ Keine Lücken erkannt</Text>
+        ) : (
+          <>
+            <Text style={text.body}>
+              {vacancyTotal.days} Tage {vacancyTotal.loss > 0 ? `· entgangene Miete: ${formatEuro(vacancyTotal.loss)}` : ''}
+            </Text>
+            {vacancyPeriods.slice(0, 5).map((p) => (
+              <Text
+                key={p.fromDate + p.toDate}
+                style={[
+                  text.caption,
+                  { color: p.reason === 'planned' ? palette.imperialGold : palette.dangerRed },
+                ]}
+              >
+                {p.reason === 'planned' ? '🛠 geplant' : '⚠'} {p.fromDate} → {p.toDate} ({p.days} Tg)
+                {p.estimatedLoss ? ` · ~${formatEuro(p.estimatedLoss)}` : ''}
+              </Text>
+            ))}
+          </>
+        )}
+      </View>
+
+      {/* F-044 Übergabeprotokoll */}
+      <CasinoButton
+        label="📋 Übergabeprotokoll erstellen"
+        variant="ghost"
+        onPress={() => router.push('/handover/new')}
+      />
 
       {/* F-110 Meter Trend */}
       <View style={[styles.card, shadows.card]}>
