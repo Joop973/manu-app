@@ -1,0 +1,2270 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#08140E" />
+<title>Manu — Deep Jungle Finance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet" />
+<style>
+:root{
+  /* Deep Jungle (Steuer-Edition) */
+  --bg-deep:#08140E;
+  --bg-card:#0F2419;
+  --bg-accent:#1A3525;
+  --bg-wood:#2B1B12;
+  --moss:#4A7C59;
+  --emerald:#1FAB89;
+  --sage:#8FA88B;
+  --gold:#D4AF37;
+  --gold-soft:rgba(212,175,55,.18);
+  --gold-dark:#8C7424;
+  --marble:#F4F0E8;
+  --muted:#9CA89B;
+  --berry:#C9302C;
+  --berry-soft:rgba(201,48,44,.18);
+  --border:rgba(143,168,139,.18);
+  --gold-border:rgba(212,175,55,.42);
+  --shadow:0 4px 14px rgba(0,0,0,.45);
+
+  --font-body:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  --font-serif:'Lora',Georgia,serif;
+  --radius:14px;
+  --radius-sm:8px;
+  --pad:16px;
+  --scale:1;
+}
+[data-theme="sage"]{
+  --bg-deep:#EFEFE8;
+  --bg-card:#FFFFFF;
+  --bg-accent:#E8EDE5;
+  --bg-wood:#D6CFC0;
+  --marble:#102018;
+  --muted:#465A4E;
+  --border:rgba(74,124,89,.32);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:var(--bg-deep);color:var(--marble);font-family:var(--font-body);font-size:calc(15px*var(--scale));line-height:1.45;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body.advisor{background:var(--bg-card)}
+body.advisor .hide-on-advisor{display:none !important}
+body.advisor .advisor-table{display:block}
+button,input,select,textarea{font-family:inherit;color:inherit;font-size:inherit}
+input,select,textarea{background:var(--bg-accent);color:var(--marble);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;width:100%}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--emerald);box-shadow:0 0 0 3px rgba(31,171,137,.16)}
+input::placeholder,textarea::placeholder{color:var(--muted)}
+button{cursor:pointer;background:var(--bg-accent);color:var(--marble);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;transition:all .15s;font-weight:500}
+button:hover{border-color:var(--emerald);background:rgba(31,171,137,.08)}
+button.primary{background:linear-gradient(180deg,var(--emerald),#178C71);border-color:var(--emerald);color:#06231B;font-weight:700}
+button.primary:hover{filter:brightness(1.05)}
+button.gold{background:linear-gradient(180deg,var(--gold),var(--gold-dark));border-color:var(--gold);color:#1B1308;font-weight:700}
+button.gold:hover{filter:brightness(1.08)}
+button.danger{background:transparent;border-color:var(--berry);color:var(--berry)}
+button.danger:hover{background:var(--berry-soft)}
+button.ghost{background:transparent;border-color:var(--border)}
+button.icon{padding:6px 10px}
+a{color:var(--emerald);text-decoration:none}
+
+/* Typografie */
+.serif{font-family:var(--font-serif)}
+h1,h2,h3,h4{margin:0;font-family:var(--font-serif);font-weight:600;letter-spacing:-.01em}
+h1{font-size:calc(28px*var(--scale))}
+h2{font-size:calc(20px*var(--scale))}
+h3{font-size:calc(16px*var(--scale))}
+.amount{font-family:var(--font-body);font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.amount.lg{font-size:calc(32px*var(--scale))}
+.amount.md{font-size:calc(20px*var(--scale))}
+.amount.income{color:var(--emerald)}
+.amount.expense{color:var(--berry)}
+.muted{color:var(--muted);font-size:calc(13px*var(--scale))}
+.gold-text{color:var(--gold)}
+
+/* App-Shell */
+.shell{display:grid;grid-template-rows:auto 1fr;min-height:100%}
+header.topbar{position:sticky;top:0;z-index:10;background:rgba(8,20,14,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:14px 20px;display:flex;align-items:center;gap:20px}
+.brand{display:flex;align-items:center;gap:12px}
+.brand .leaf{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 30% 30%,var(--emerald),var(--moss));display:flex;align-items:center;justify-content:center;color:#06231B;font-weight:800;font-family:var(--font-serif);font-size:18px;box-shadow:0 0 0 2px rgba(31,171,137,.25)}
+.brand-name{font-family:var(--font-serif);font-size:22px;font-weight:600;letter-spacing:.5px}
+nav.tabs{display:flex;gap:4px;flex:1;overflow-x:auto;scrollbar-width:none}
+nav.tabs::-webkit-scrollbar{display:none}
+nav.tabs button{background:transparent;border:1px solid transparent;padding:8px 14px;color:var(--muted);font-family:var(--font-serif);font-size:14px;border-radius:999px;white-space:nowrap}
+nav.tabs button.active{background:var(--bg-accent);border-color:var(--border);color:var(--marble)}
+nav.tabs button:hover{color:var(--marble)}
+.topbar .right{display:flex;gap:8px;align-items:center}
+.advisor-pill{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--gold-soft);border:1px solid var(--gold-border);border-radius:999px;font-size:13px;font-weight:600;color:var(--gold)}
+.advisor-pill input{display:none}
+main.content{padding:24px 20px 80px;max-width:1180px;margin:0 auto;width:100%}
+
+/* Karten */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:var(--pad);box-shadow:var(--shadow)}
+.card+.card{margin-top:14px}
+.card-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.card-title h2{font-size:calc(17px*var(--scale))}
+.card-title .actions{display:flex;gap:8px}
+.subtle{color:var(--muted);font-size:calc(12px*var(--scale))}
+
+/* Grid */
+.grid{display:grid;gap:14px}
+.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:760px){.cols-2,.cols-3,.cols-4{grid-template-columns:1fr}}
+
+/* Tabelle */
+table.data{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.data th,table.data td{padding:10px 8px;border-bottom:1px solid var(--border);text-align:left}
+table.data th{font-family:var(--font-serif);font-weight:600;color:var(--muted);font-size:13px;letter-spacing:.02em;text-transform:uppercase}
+table.data tr:hover{background:rgba(143,168,139,.05)}
+table.data td.right,table.data th.right{text-align:right}
+.gold-row{position:relative}
+.gold-row::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--gold),var(--gold-dark));border-radius:3px}
+.gold-row td:first-child{padding-left:14px}
+.tax-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--gold);margin-left:8px;vertical-align:middle;box-shadow:0 0 0 2px var(--gold-soft)}
+
+/* Pills + Tags */
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;background:var(--bg-accent);border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--marble)}
+.pill.moss{background:rgba(74,124,89,.16);border-color:rgba(74,124,89,.4);color:var(--moss)}
+.pill.emerald{background:rgba(31,171,137,.14);border-color:rgba(31,171,137,.4);color:var(--emerald)}
+.pill.sage{background:rgba(143,168,139,.14);border-color:rgba(143,168,139,.4);color:var(--sage)}
+.pill.gold{background:var(--gold-soft);border-color:var(--gold-border);color:var(--gold)}
+.pill.berry{background:var(--berry-soft);border-color:rgba(201,48,44,.4);color:var(--berry)}
+
+/* Form-Reihen */
+.form{display:grid;gap:12px}
+label{display:block;font-family:var(--font-serif);font-size:13px;color:var(--muted);margin-bottom:5px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+/* Floating-Button */
+.fab{position:fixed;right:24px;bottom:24px;width:60px;height:60px;border-radius:50%;background:linear-gradient(160deg,var(--gold),var(--gold-dark));color:#1B1308;border:2px solid var(--gold);box-shadow:0 8px 24px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;cursor:pointer;z-index:50}
+.fab:hover{transform:scale(1.05)}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+.modal h2{margin-bottom:16px}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+
+/* Eiche / Ast */
+.oak{position:relative;padding:16px;border-left:4px solid var(--moss);background:var(--bg-card);border-radius:var(--radius);margin-bottom:14px}
+.oak.taxed{border-left-color:var(--gold)}
+.oak-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
+.oak-name{font-family:var(--font-serif);font-size:16px;font-weight:600}
+.oak-meta{display:flex;gap:10px;font-size:12px;color:var(--muted);margin-bottom:8px}
+
+/* Beleg-Blatt */
+.leaf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.leaf{background:linear-gradient(135deg,var(--bg-wood),#1F140C);border:1px solid #4A3525;border-radius:var(--radius);padding:14px;cursor:pointer;position:relative;overflow:hidden;transition:transform .15s}
+.leaf:hover{transform:translateY(-2px);border-color:var(--emerald)}
+.leaf::before{content:'';position:absolute;top:-30px;right:-30px;width:80px;height:80px;background:radial-gradient(circle,rgba(31,171,137,.14),transparent 70%)}
+.leaf .leaf-name{font-family:var(--font-serif);font-size:14px;font-weight:600;color:var(--marble);margin-bottom:4px;word-break:break-word}
+.leaf .leaf-meta{font-size:11px;color:#A58F73}
+
+/* Empty State */
+.empty{text-align:center;padding:50px 20px;color:var(--muted)}
+.empty .icon{font-size:48px;display:block;margin-bottom:12px}
+.empty h3{font-size:18px;color:var(--marble);margin-bottom:6px}
+
+/* Lock-Screen */
+.lock-screen{position:fixed;inset:0;background:var(--bg-deep);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;padding:30px}
+.lock-screen .seal{width:120px;height:120px;border-radius:50%;background:radial-gradient(circle at 30% 30%,var(--emerald),var(--moss));display:flex;align-items:center;justify-content:center;color:#06231B;font-family:var(--font-serif);font-size:54px;font-weight:700;box-shadow:0 0 0 6px rgba(31,171,137,.16),0 10px 32px rgba(0,0,0,.5);margin-bottom:24px}
+.lock-screen input{max-width:300px;text-align:center;font-size:24px;letter-spacing:8px}
+
+/* Banner */
+.banner{padding:12px 16px;border-radius:var(--radius-sm);background:var(--gold-soft);border:1px solid var(--gold-border);color:var(--marble);display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.banner.warn{background:var(--berry-soft);border-color:rgba(201,48,44,.4)}
+
+/* Wurzel-Archiv (gedämpft) */
+.archive .card{opacity:.65}
+.archive .card:hover{opacity:1}
+
+/* Bar-Chart */
+.bar-chart{display:flex;align-items:flex-end;gap:6px;height:140px;padding:8px 0}
+.bar-chart .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:0}
+.bar-chart .bar-pair{display:flex;gap:2px;align-items:flex-end;width:100%;justify-content:center;height:100%}
+.bar-chart .bar{width:8px;border-radius:3px 3px 0 0;min-height:2px}
+.bar.income{background:var(--emerald)}
+.bar.expense{background:var(--berry)}
+.bar-chart .bar-label{font-size:10px;color:var(--muted)}
+
+/* Heatmap */
+.heatmap{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.heatmap-cell{aspect-ratio:1;border-radius:4px;background:rgba(143,168,139,.08);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted)}
+
+/* Tabs (Sub-Navigation) */
+.subtabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:18px;overflow-x:auto;scrollbar-width:none}
+.subtabs button{background:transparent;border:none;border-bottom:2px solid transparent;padding:10px 14px;color:var(--muted);font-family:var(--font-serif);border-radius:0;white-space:nowrap}
+.subtabs button.active{color:var(--gold);border-bottom-color:var(--gold)}
+.subtabs button:hover{color:var(--marble)}
+
+/* Toggle */
+.toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer}
+.toggle input{display:none}
+.toggle .switch{width:42px;height:24px;background:var(--bg-accent);border:1px solid var(--border);border-radius:999px;position:relative;transition:all .2s}
+.toggle .switch::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--muted);transition:all .2s}
+.toggle input:checked + .switch{background:var(--emerald);border-color:var(--emerald)}
+.toggle input:checked + .switch::after{transform:translateX(18px);background:#06231B}
+
+/* Advisor-Modus: nur reine Tabelle */
+body.advisor header.topbar{background:#FFFFFF;color:#1A2620;border-bottom:1px solid #ddd}
+body.advisor{background:#FFFFFF;color:#1A2620;font-family:var(--font-body)}
+body.advisor .card{background:#FFFFFF;border-color:#DDD;color:#1A2620;box-shadow:none}
+body.advisor h1,body.advisor h2,body.advisor h3{color:#1A2620;font-family:var(--font-serif)}
+body.advisor .brand-name{color:#1A2620}
+body.advisor .brand .leaf{background:var(--moss);color:#FFF}
+body.advisor table.data th{color:#555;text-transform:uppercase;font-size:12px}
+body.advisor table.data tr:hover{background:#FAFAFA}
+body.advisor table.data td,body.advisor table.data th{border-color:#E5E5E5}
+body.advisor nav.tabs button{color:#555}
+body.advisor nav.tabs button.active{background:#F4F0E8;color:#1A2620;border-color:#DDD}
+body.advisor .amount.income{color:#0F6E36}
+body.advisor .amount.expense{color:#9B1F1B}
+body.advisor .gold-row::before{background:var(--gold)}
+body.advisor .pill{background:#F4F0E8;color:#1A2620;border-color:#DDD}
+body.advisor button{background:#F4F0E8;color:#1A2620;border-color:#DDD}
+body.advisor button.primary{background:var(--moss);color:#FFF;border-color:var(--moss)}
+body.advisor button.gold{background:var(--gold);color:#1B1308;border-color:var(--gold)}
+body.advisor input,body.advisor select,body.advisor textarea{background:#FFF;color:#1A2620;border-color:#DDD}
+
+/* Print */
+@media print {
+  body{background:#FFFFFF !important;color:#000 !important}
+  header.topbar,nav.tabs,.fab,.banner,.modal-overlay,.no-print,nav,button{display:none !important}
+  main.content{padding:0;max-width:100%}
+  .card{box-shadow:none;border:1px solid #999;page-break-inside:avoid}
+  table.data{font-size:11px}
+  .gold-row::before{background:#999}
+}
+</style>
+</head>
+<body>
+<div id="app" class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <div class="leaf">M</div>
+      <div class="brand-name">Manu</div>
+    </div>
+    <nav class="tabs" id="tabs"></nav>
+    <div class="right">
+      <label class="advisor-pill" title="Berater-Modus aktivieren (steuer-druckfertige Ansicht)">
+        <input type="checkbox" id="advisorToggle" />
+        <span>★ Berater-Modus</span>
+      </label>
+    </div>
+  </header>
+  <main class="content" id="view"></main>
+</div>
+
+<!-- Modal-Container -->
+<div id="modal-host"></div>
+
+<script>
+// ============================================================
+// Manu — Deep Jungle Web-App
+// Single-file Vanilla-JS, localStorage + IndexedDB
+// ============================================================
+'use strict';
+
+// -------- Konstanten ----------
+const STORE_KEY = 'manu.v1';
+const DB_NAME = 'manu-files';
+const DB_VERSION = 1;
+const STORE_FILES = 'receipts';
+
+const FORMATTER = new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR'});
+const fmtEur = n => FORMATTER.format(n || 0);
+const fmtNum = n => new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n||0);
+const fmtDate = iso => {
+  if(!iso) return '';
+  const [y,m,d] = String(iso).slice(0,10).split('-');
+  return `${d}.${m}.${y}`;
+};
+const todayIso = () => new Date().toISOString().slice(0,10);
+const monthKey = (d=new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+const uid = (p='id') => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,9)}`;
+const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $ = sel => document.querySelector(sel);
+
+// -------- Built-in Kategorien ----------
+const BUILTIN_CATEGORIES = [
+  {id:'cat-miete',         label:'Mieteinnahmen',        emoji:'',  group:'emerald', taxRelevant:true,  income:true},
+  {id:'cat-nk',            label:'Nebenkosten',          emoji:'',  group:'emerald', taxRelevant:true,  income:true},
+  {id:'cat-strom',         label:'Strom',                emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-wasser',        label:'Wasser',               emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-gas',           label:'Gas / Heizung',        emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-hausgeld',      label:'Hausgeld',             emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-gez',           label:'Rundfunk (GEZ)',       emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-versicherung',  label:'Versicherung',         emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-grundsteuer',   label:'Grundsteuer',          emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-internet',      label:'Internet / Telefon',   emoji:'',  group:'moss',    taxRelevant:false},
+  {id:'cat-reparatur',     label:'Reparatur / Instandhaltung', emoji:'',  group:'sage', taxRelevant:true},
+  {id:'cat-renovierung',   label:'Renovierung',          emoji:'',  group:'sage',    taxRelevant:true},
+  {id:'cat-kredit',        label:'Kredit / Zinsen',      emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-afa',           label:'AfA',                  emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-steuerberater', label:'Steuerberater',        emoji:'',  group:'moss',    taxRelevant:true},
+  {id:'cat-werbung',       label:'Werbungskosten Sonstige', emoji:'', group:'moss',  taxRelevant:true},
+  {id:'cat-einkauf',       label:'Einkauf',              emoji:'',  group:'neutral', taxRelevant:false},
+  {id:'cat-freizeit',      label:'Freizeit',             emoji:'',  group:'neutral', taxRelevant:false},
+  {id:'cat-restaurant',    label:'Restaurant',           emoji:'',  group:'neutral', taxRelevant:false},
+  {id:'cat-sonstiges',     label:'Sonstiges',            emoji:'',  group:'neutral', taxRelevant:false},
+];
+
+// -------- Store ----------
+const Store = (() => {
+  const defaults = () => ({
+    version:1,
+    currentMonth: monthKey(),
+    properties:[],
+    bookings:[],
+    tenants:[],
+    craftsmen:[],
+    receipts:[],
+    documents:[],
+    categories: BUILTIN_CATEGORIES.map(c => ({...c})),
+    tags:[],
+    subscriptions:[],
+    contracts:[],
+    goals:[],
+    assets:[],
+    liabilities:[],
+    budgets:[],
+    investments:[],
+    debtPlans:[],
+    maintenanceLogs:[],
+    splits:[],
+    reminders:[],
+    handovers:[],
+    vacancies:[],
+    datevMapping:[],
+    meterReadings:[],
+    templates:[],
+    rules:[],
+    trash:[],
+    achievements:{ unlocked:[], streak:0, totalBookings:0 },
+    settings:{
+      pinHash: null,
+      autoLockMinutes:0,
+      onboardingDone:false,
+      colorScheme:'dark',
+      locale:'de',
+      advisorMode:false,
+      fontScale:'normal',
+      activeTab:'dashboard',
+      helpHintsEnabled:true,
+    },
+  });
+
+  let state = load();
+  const listeners = new Set();
+
+  function load(){
+    try{
+      const raw = localStorage.getItem(STORE_KEY);
+      if(!raw) return defaults();
+      const parsed = JSON.parse(raw);
+      // Migrations: stelle sicher dass neue Felder existieren
+      const base = defaults();
+      return {...base, ...parsed,
+        settings:{...base.settings, ...(parsed.settings||{})},
+        achievements:{...base.achievements, ...(parsed.achievements||{})},
+      };
+    }catch(e){ console.warn('Store load failed',e); return defaults(); }
+  }
+
+  function persist(){
+    try{
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    }catch(e){
+      alert('Speicher voll. Bitte alte Belege löschen oder Backup machen.');
+    }
+  }
+
+  function notify(){ for(const l of listeners) l(state); }
+
+  return {
+    get(){ return state; },
+    set(patch){ state = {...state, ...patch}; persist(); notify(); },
+    update(fn){ state = fn(state); persist(); notify(); },
+    on(fn){ listeners.add(fn); return () => listeners.delete(fn); },
+    reset(){ state = defaults(); persist(); notify(); },
+    replace(snapshot){
+      const base = defaults();
+      state = {...base, ...snapshot, settings:{...base.settings, ...(snapshot.settings||{})}};
+      persist(); notify();
+    },
+  };
+})();
+
+// -------- IndexedDB für Belege ----------
+const FilesDB = (() => {
+  let dbPromise = null;
+  function open(){
+    if(!dbPromise) dbPromise = new Promise((resolve,reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if(!db.objectStoreNames.contains(STORE_FILES)) db.createObjectStore(STORE_FILES);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return dbPromise;
+  }
+  async function put(id, blob){
+    const db = await open();
+    return new Promise((resolve,reject) => {
+      const tx = db.transaction(STORE_FILES,'readwrite');
+      tx.objectStore(STORE_FILES).put(blob, id);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function get(id){
+    const db = await open();
+    return new Promise((resolve,reject) => {
+      const tx = db.transaction(STORE_FILES,'readonly');
+      const r = tx.objectStore(STORE_FILES).get(id);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => reject(r.error);
+    });
+  }
+  async function remove(id){
+    const db = await open();
+    return new Promise((resolve,reject) => {
+      const tx = db.transaction(STORE_FILES,'readwrite');
+      tx.objectStore(STORE_FILES).delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function asDataURL(id){
+    const blob = await get(id);
+    if(!blob) return null;
+    return new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+  }
+  return { put, get, remove, asDataURL, open };
+})();
+
+// -------- Modal-Helper ----------
+function openModal(title, bodyHtml, onMount){
+  const host = $('#modal-host');
+  host.innerHTML = `
+    <div class="modal-overlay" data-overlay>
+      <div class="modal">
+        <div class="card-title"><h2>${escapeHtml(title)}</h2>
+          <button class="icon" data-close>×</button></div>
+        <div data-body>${bodyHtml}</div>
+      </div>
+    </div>`;
+  const close = () => host.innerHTML = '';
+  host.querySelector('[data-close]').onclick = close;
+  host.querySelector('[data-overlay]').onclick = (e) => { if(e.target.matches('[data-overlay]')) close(); };
+  if(onMount) onMount(host.querySelector('[data-body]'), close);
+  return close;
+}
+function confirmAlert(msg, onYes){
+  openModal('Bestätigen',`
+    <p style="margin:0 0 16px">${escapeHtml(msg)}</p>
+    <div class="row" style="justify-content:flex-end;gap:8px">
+      <button data-no>Abbrechen</button>
+      <button class="primary" data-yes>Bestätigen</button>
+    </div>
+  `, (body, close) => {
+    body.querySelector('[data-no]').onclick = close;
+    body.querySelector('[data-yes]').onclick = () => { close(); onYes(); };
+  });
+}
+
+// -------- PIN-Hash (lokal, simpel) ----------
+async function sha256(text){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// -------- Recurring & Auto-Booking ----------
+function runAutoBookings(){
+  const st = Store.get();
+  const today = todayIso();
+  let created = 0;
+  for(const tpl of st.templates){
+    if(!tpl.recurrence || tpl.recurrence === 'none' || !tpl.autoBook) continue;
+    const last = st.bookings.filter(b => b.templateId === tpl.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
+    if(!last) continue;
+    const next = nextDue(last.date, tpl.recurrence);
+    if(next && next <= today){
+      st.bookings.push({
+        ...newBookingDraft(),
+        id: uid('bkg'),
+        date: next,
+        type: tpl.type,
+        amount: tpl.amount,
+        propertyId: tpl.propertyId,
+        categoryId: tpl.categoryId,
+        counterparty: tpl.counterparty,
+        note: tpl.note,
+        recurrence: tpl.recurrence,
+        templateId: tpl.id,
+        autoBook: true,
+        createdAt: new Date().toISOString(),
+      });
+      created++;
+    }
+  }
+  if(created) Store.update(s => ({...s, bookings: st.bookings}));
+  return created;
+}
+function nextDue(lastDate, recurrence){
+  const [y,m,d] = lastDate.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  if(recurrence === 'monthly') dt.setMonth(dt.getMonth()+1);
+  else if(recurrence === 'yearly') dt.setFullYear(dt.getFullYear()+1);
+  else return null;
+  return dt.toISOString().slice(0,10);
+}
+function newBookingDraft(){
+  return {
+    id:'', type:'expense', amount:0, date: todayIso(),
+    propertyId: null, categoryId: null, counterparty:'', note:'',
+    recurrence:'none', tagIds:[], receiptId:null, createdAt:'',
+  };
+}
+
+// -------- Helpers ----------
+function categoryById(id){ return Store.get().categories.find(c => c.id === id) || null; }
+function propertyById(id){ return Store.get().properties.find(p => p.id === id) || null; }
+function isTaxRelevant(b){
+  const c = categoryById(b.categoryId);
+  return !!(c && c.taxRelevant);
+}
+function monthLabel(m){
+  const [y,mn] = m.split('-').map(Number);
+  return ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'][mn-1] + ' ' + y;
+}
+
+// -------- Calculator-Parser ----------
+function evalExpression(input){
+  if(!input) return null;
+  const norm = String(input).replace(/\s/g,'').replace(/,/g,'.');
+  if(!/^-?\d/.test(norm)) return null;
+  if(!/[+\-*/]/.test(norm)) {
+    const n = Number(norm);
+    return Number.isFinite(n) ? n : null;
+  }
+  const tokens = norm.split(/([+\-*/])/).map(s=>s.trim()).filter(Boolean);
+  if(!tokens.length) return null;
+  let acc = Number(tokens[0]);
+  if(!Number.isFinite(acc)) return null;
+  for(let i=1;i<tokens.length;i+=2){
+    const op = tokens[i], next = Number(tokens[i+1]);
+    if(!Number.isFinite(next)) return null;
+    if(op === '+') acc += next;
+    else if(op === '-') acc -= next;
+    else if(op === '*') acc *= next;
+    else if(op === '/'){ if(next === 0) return null; acc /= next; }
+  }
+  return Math.round(acc * 100) / 100;
+}
+
+// ============================================================
+// ROUTING + VIEWS
+// ============================================================
+const TABS = [
+  {id:'dashboard',  label:'Hauptsaal',    serif:true},
+  {id:'bookings',   label:'Buchungen',    serif:true},
+  {id:'oak',        label:'Eiche',        serif:true},
+  {id:'receipts',   label:'Belege',       serif:true},
+  {id:'advisor',    label:'Steuer',       serif:true},
+  {id:'tools',      label:'Werkzeuge',    serif:true},
+  {id:'settings',   label:'Einstellungen',serif:true},
+];
+
+function renderTabs(active){
+  const html = TABS.map(t => `<button data-tab="${t.id}" class="${active===t.id?'active':''}">${t.label}</button>`).join('');
+  $('#tabs').innerHTML = html;
+  $('#tabs').querySelectorAll('button').forEach(b => {
+    b.onclick = () => setTab(b.dataset.tab);
+  });
+}
+function setTab(id){
+  Store.update(s => ({...s, settings:{...s.settings, activeTab:id}}));
+  location.hash = '#/'+id;
+  render();
+}
+
+function render(){
+  const st = Store.get();
+  const lockNeeded = st.settings.pinHash && !sessionStorage.getItem('manu.unlocked');
+  if(lockNeeded){ renderLockScreen(); return; }
+  const tab = st.settings.activeTab || 'dashboard';
+  renderTabs(tab);
+  const view = $('#view');
+  const renderer = VIEWS[tab] || VIEWS.dashboard;
+  view.innerHTML = renderer(st);
+  // Bind nach jedem Render
+  if(BINDERS[tab]) BINDERS[tab](view, st);
+  bindCommonActions(view);
+  // Berater-Modus syncen
+  $('#advisorToggle').checked = !!st.settings.advisorMode;
+  document.body.classList.toggle('advisor', !!st.settings.advisorMode);
+  // Theme
+  document.documentElement.setAttribute('data-theme', st.settings.colorScheme === 'light' ? 'sage' : 'dark');
+  // Font-Scale
+  const scale = st.settings.fontScale === 'large' ? 1.15 : st.settings.fontScale === 'xlarge' ? 1.3 : 1;
+  document.documentElement.style.setProperty('--scale', String(scale));
+}
+
+function bindCommonActions(root){
+  root.querySelectorAll('[data-action="new-booking"]').forEach(b => b.onclick = () => openBookingModal());
+  root.querySelectorAll('[data-action="new-property"]').forEach(b => b.onclick = () => openPropertyModal());
+}
+
+// ============================================================
+// VIEWS
+// ============================================================
+const VIEWS = {};
+const BINDERS = {};
+
+// ---- Dashboard / Hauptsaal -----
+VIEWS.dashboard = (st) => {
+  const mb = st.bookings.filter(b => b.date.startsWith(st.currentMonth));
+  const income = mb.filter(b => b.type==='income').reduce((s,b)=>s+b.amount,0);
+  const expense = mb.filter(b => b.type==='expense').reduce((s,b)=>s+b.amount,0);
+  const saldo = income - expense;
+  const taxYearAmount = st.bookings.filter(b => b.date.startsWith(String(new Date().getFullYear())) && isTaxRelevant(b)).reduce((s,b)=>s+b.amount,0);
+
+  // Property cards
+  const propsHtml = st.properties.length ? st.properties.map(p => {
+    const pb = mb.filter(b => b.propertyId === p.id);
+    const pi = pb.filter(b => b.type==='income').reduce((s,b)=>s+b.amount,0);
+    const pe = pb.filter(b => b.type==='expense').reduce((s,b)=>s+b.amount,0);
+    return `<div class="oak ${pi+pe>0&&hasTax(pb)?'taxed':''}" data-property-id="${p.id}">
+      <div class="oak-head">
+        <span class="oak-name">${escapeHtml(p.name)}</span>
+        <span class="pill emerald">${fmtEur(pi-pe)}</span>
+      </div>
+      ${p.address ? `<div class="muted">${escapeHtml(p.address)}</div>` : ''}
+      <div class="oak-meta">
+        <span>+${fmtEur(pi)}</span>
+        <span>−${fmtEur(pe)}</span>
+        <span>${pb.length} Buchung(en)</span>
+      </div>
+    </div>`;
+  }).join('') : `<div class="empty">
+    <span class="icon">🌳</span>
+    <h3>Noch keine Imperien</h3>
+    <p class="muted">Lege Dein erstes Objekt an (Haus, Wohnung oder einfach „Privat-Beet").</p>
+    <button class="primary" style="margin-top:14px" data-action="new-property">+ Erstes Objekt</button>
+  </div>`;
+
+  // Bar Chart letzte 6 Monate
+  const months = [];
+  const now = new Date();
+  for(let i=5;i>=0;i--){ const d = new Date(now.getFullYear(), now.getMonth()-i, 1); months.push(monthKey(d)); }
+  const maxBar = Math.max(1, ...months.flatMap(m => {
+    const mm = st.bookings.filter(b=>b.date.startsWith(m));
+    return [mm.filter(b=>b.type==='income').reduce((s,b)=>s+b.amount,0), mm.filter(b=>b.type==='expense').reduce((s,b)=>s+b.amount,0)];
+  }));
+  const barsHtml = `<div class="bar-chart">${months.map(m => {
+    const mm = st.bookings.filter(b=>b.date.startsWith(m));
+    const ii = mm.filter(b=>b.type==='income').reduce((s,b)=>s+b.amount,0);
+    const ee = mm.filter(b=>b.type==='expense').reduce((s,b)=>s+b.amount,0);
+    return `<div class="bar-col"><div class="bar-pair">
+      <div class="bar income" style="height:${(ii/maxBar)*100}%" title="+${fmtEur(ii)}"></div>
+      <div class="bar expense" style="height:${(ee/maxBar)*100}%" title="−${fmtEur(ee)}"></div>
+    </div><div class="bar-label">${m.slice(5)}</div></div>`;
+  }).join('')}</div>`;
+
+  return `
+    <h1 class="serif" style="margin-bottom:6px">Hauptsaal</h1>
+    <div class="muted" style="margin-bottom:20px">${monthLabel(st.currentMonth)}</div>
+
+    <div class="grid cols-3 hide-on-advisor">
+      <div class="card"><div class="muted">Einnahmen</div><div class="amount lg income">${fmtEur(income)}</div></div>
+      <div class="card"><div class="muted">Ausgaben</div><div class="amount lg expense">${fmtEur(expense)}</div></div>
+      <div class="card" style="border-color:var(--gold-border);background:linear-gradient(160deg,var(--bg-card),rgba(212,175,55,.08))">
+        <div class="muted">Saldo</div>
+        <div class="amount lg" style="color:${saldo>=0?'var(--emerald)':'var(--berry)'}">${fmtEur(saldo)}</div>
+      </div>
+    </div>
+
+    <div class="grid cols-2 hide-on-advisor" style="margin-top:14px">
+      <div class="card">
+        <div class="card-title"><h2>Letzte 6 Monate</h2></div>
+        ${barsHtml}
+      </div>
+      <div class="card" style="border-color:var(--gold-border)">
+        <div class="card-title"><h2 class="gold-text">★ Steuerrelevant ${new Date().getFullYear()}</h2></div>
+        <div class="amount lg gold-text">${fmtEur(taxYearAmount)}</div>
+        <p class="muted" style="margin-top:8px">Summe aller Buchungen in steuerrelevanten Kategorien für ${new Date().getFullYear()}.</p>
+        <button class="gold" data-action="open-advisor" style="margin-top:10px">Berater-Modus öffnen →</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">
+        <h2>Immobilien-Eiche</h2>
+        <div class="actions"><button data-action="new-property">+ Objekt</button></div>
+      </div>
+      ${propsHtml}
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title"><h2>Schnellaktionen</h2></div>
+      <div class="row">
+        <button class="primary" data-action="new-booking">+ Neue Buchung</button>
+        <button data-action="goto-receipts">📄 Beleg hochladen</button>
+        <button data-action="goto-bookings">🎰 Alle Buchungen</button>
+        <button data-action="goto-tools">🛠 Werkzeuge</button>
+        <button class="gold" data-action="open-advisor">★ Berater-Modus</button>
+      </div>
+    </div>
+  `;
+};
+BINDERS.dashboard = (root, st) => {
+  root.querySelectorAll('[data-property-id]').forEach(el => el.onclick = () => {
+    Store.update(s => ({...s, _filterPropertyId: el.dataset.propertyId, settings:{...s.settings,activeTab:'oak'}}));
+    location.hash = '#/oak';
+    render();
+  });
+  root.querySelectorAll('[data-action="open-advisor"]').forEach(b => b.onclick = () => {
+    Store.update(s => ({...s, settings:{...s.settings, advisorMode:true, activeTab:'advisor'}}));
+    render();
+  });
+  root.querySelectorAll('[data-action="goto-bookings"]').forEach(b => b.onclick = () => setTab('bookings'));
+  root.querySelectorAll('[data-action="goto-receipts"]').forEach(b => b.onclick = () => setTab('receipts'));
+  root.querySelectorAll('[data-action="goto-tools"]').forEach(b => b.onclick = () => setTab('tools'));
+};
+function hasTax(bookings){ return bookings.some(b => isTaxRelevant(b)); }
+
+// ---- Buchungen -----
+let _bookingsFilter = { typ:'all', propId:'all', q:'', month:'', taxOnly:false };
+let _bulkMode = false;
+let _selected = new Set();
+
+VIEWS.bookings = (st) => {
+  if(!_bookingsFilter.month) _bookingsFilter.month = st.currentMonth;
+  const months = uniq(st.bookings.map(b => b.date.slice(0,7))).sort().reverse();
+  if(!months.includes(_bookingsFilter.month)) months.unshift(_bookingsFilter.month);
+
+  const propOpts = st.properties.map(p => `<option value="${p.id}" ${_bookingsFilter.propId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
+  const monthOpts = months.map(m => `<option value="${m}" ${_bookingsFilter.month===m?'selected':''}>${monthLabel(m)}</option>`).join('');
+
+  let list = st.bookings.slice();
+  if(_bookingsFilter.month && _bookingsFilter.month !== 'all') list = list.filter(b => b.date.startsWith(_bookingsFilter.month));
+  if(_bookingsFilter.typ !== 'all') list = list.filter(b => b.type === _bookingsFilter.typ);
+  if(_bookingsFilter.propId !== 'all') list = list.filter(b => b.propertyId === _bookingsFilter.propId);
+  if(_bookingsFilter.taxOnly) list = list.filter(isTaxRelevant);
+  if(_bookingsFilter.q){
+    const q = _bookingsFilter.q.toLowerCase();
+    list = list.filter(b => (b.counterparty||'').toLowerCase().includes(q) || (b.note||'').toLowerCase().includes(q));
+  }
+  list.sort((a,b) => b.date.localeCompare(a.date));
+
+  const sumIn = list.filter(b=>b.type==='income').reduce((s,b)=>s+b.amount,0);
+  const sumOut = list.filter(b=>b.type==='expense').reduce((s,b)=>s+b.amount,0);
+
+  const rows = list.length ? list.map(b => {
+    const cat = categoryById(b.categoryId);
+    const prop = propertyById(b.propertyId);
+    const tax = isTaxRelevant(b);
+    const sign = b.type==='income' ? '+' : '−';
+    const cls = b.type==='income' ? 'income' : 'expense';
+    const cb = _bulkMode ? `<input type="checkbox" data-bulk="${b.id}" ${_selected.has(b.id)?'checked':''} />` : '';
+    return `<tr class="${tax?'gold-row':''}" data-edit="${b.id}">
+      <td>${cb} <span class="serif">${fmtDate(b.date)}</span></td>
+      <td>${escapeHtml(b.counterparty || '—')}${b.note?`<div class="muted">${escapeHtml(b.note)}</div>`:''}</td>
+      <td>${cat ? `<span class="pill ${cat.group||'neutral'}">${escapeHtml(cat.label)}</span>${tax?'<span class="tax-dot" title="steuerrelevant"></span>':''}` : '—'}</td>
+      <td>${prop ? escapeHtml(prop.name) : '<span class="muted">Privat-Beet</span>'}</td>
+      <td class="right amount ${cls}">${sign} ${fmtEur(b.amount)}</td>
+      <td class="right"><button class="icon" data-del="${b.id}" title="In Papierkorb">🗑</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6"><div class="empty"><span class="icon">🎰</span><h3>Keine Buchungen</h3><p class="muted">Klick auf „+ Neue Buchung" zum Anlegen.</p></div></td></tr>`;
+
+  return `
+    <h1 class="serif">Buchungen</h1>
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="margin-bottom:14px">
+        <select id="f-month" style="max-width:200px"><option value="all">Alle Monate</option>${monthOpts}</select>
+        <select id="f-typ" style="max-width:160px">
+          <option value="all" ${_bookingsFilter.typ==='all'?'selected':''}>Alle Typen</option>
+          <option value="income" ${_bookingsFilter.typ==='income'?'selected':''}>Einnahmen</option>
+          <option value="expense" ${_bookingsFilter.typ==='expense'?'selected':''}>Ausgaben</option>
+        </select>
+        <select id="f-prop" style="max-width:200px">
+          <option value="all">Alle Objekte</option>
+          <option value="">Privat-Beet</option>
+          ${propOpts}
+        </select>
+        <input id="f-q" placeholder="🔍 Suche Empfänger oder Notiz…" value="${escapeHtml(_bookingsFilter.q)}" style="max-width:260px" />
+        <label class="toggle"><input type="checkbox" id="f-tax" ${_bookingsFilter.taxOnly?'checked':''} /><span class="switch"></span><span>nur ★ steuerrelevant</span></label>
+        <span style="flex:1"></span>
+        <label class="toggle"><input type="checkbox" id="bulk-toggle" ${_bulkMode?'checked':''} /><span class="switch"></span><span>Auswahl-Modus</span></label>
+        <button class="primary" data-action="new-booking">+ Neue Buchung</button>
+      </div>
+      ${_bulkMode && _selected.size > 0 ? `
+        <div class="banner">
+          <span>${_selected.size} ausgewählt</span>
+          <div class="row" style="gap:6px">
+            <button data-bulk-cat>Kategorie zuweisen</button>
+            <button data-bulk-prop>Objekt zuweisen</button>
+            <button class="danger" data-bulk-del>Löschen</button>
+          </div>
+        </div>` : ''}
+      <table class="data">
+        <thead><tr>
+          <th>${_bulkMode?`<input type="checkbox" id="bulk-all" ${list.length>0&&list.every(b=>_selected.has(b.id))?'checked':''} /> `:''}Datum</th>
+          <th>Empfänger / Notiz</th>
+          <th>Kategorie</th>
+          <th>Objekt</th>
+          <th class="right">Betrag</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr style="font-weight:700">
+            <td colspan="4" style="text-align:right">Summe sichtbar:</td>
+            <td class="right">
+              <span class="income">+${fmtEur(sumIn)}</span>
+              &nbsp;&nbsp;
+              <span class="expense">−${fmtEur(sumOut)}</span>
+            </td>
+            <td class="right amount" style="color:${sumIn-sumOut>=0?'var(--emerald)':'var(--berry)'}">${fmtEur(sumIn-sumOut)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <button class="fab" data-action="new-booking" title="Neue Buchung">+</button>
+  `;
+};
+BINDERS.bookings = (root, st) => {
+  const refilter = (patch) => { _bookingsFilter = {..._bookingsFilter, ...patch}; render(); };
+  root.querySelector('#f-month').onchange = e => refilter({month: e.target.value});
+  root.querySelector('#f-typ').onchange = e => refilter({typ: e.target.value});
+  root.querySelector('#f-prop').onchange = e => refilter({propId: e.target.value});
+  root.querySelector('#f-q').oninput = e => { _bookingsFilter.q = e.target.value; if(e.target.value.length===0 || e.target.value.length>=2) render(); };
+  root.querySelector('#f-tax').onchange = e => refilter({taxOnly: e.target.checked});
+  root.querySelector('#bulk-toggle').onchange = e => { _bulkMode = e.target.checked; _selected.clear(); render(); };
+  const allCb = root.querySelector('#bulk-all');
+  if(allCb) allCb.onchange = e => {
+    if(e.target.checked) root.querySelectorAll('[data-bulk]').forEach(c => _selected.add(c.dataset.bulk));
+    else _selected.clear();
+    render();
+  };
+  root.querySelectorAll('[data-bulk]').forEach(c => c.onchange = e => {
+    if(e.target.checked) _selected.add(c.dataset.bulk); else _selected.delete(c.dataset.bulk);
+    render();
+  });
+  root.querySelectorAll('[data-edit]').forEach(tr => tr.onclick = (e) => {
+    if(e.target.matches('input,button,a')) return;
+    if(_bulkMode){
+      const id = tr.dataset.edit;
+      if(_selected.has(id)) _selected.delete(id); else _selected.add(id);
+      render();
+      return;
+    }
+    openBookingModal(st.bookings.find(b => b.id === tr.dataset.edit));
+  });
+  root.querySelectorAll('[data-del]').forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    softDeleteBooking(b.dataset.del);
+  });
+  const bulkDel = root.querySelector('[data-bulk-del]');
+  if(bulkDel) bulkDel.onclick = () => {
+    confirmAlert(`${_selected.size} Buchungen wirklich löschen?`, () => {
+      const ids = Array.from(_selected);
+      Store.update(s => {
+        const trash = ids.map(id => ({
+          id: uid('trash'), entityType:'booking', deletedAt: new Date().toISOString(),
+          payload: s.bookings.find(b => b.id === id),
+        }));
+        return {...s, bookings: s.bookings.filter(b => !_selected.has(b.id)), trash:[...s.trash, ...trash]};
+      });
+      _selected.clear(); render();
+    });
+  };
+  const bulkCat = root.querySelector('[data-bulk-cat]');
+  if(bulkCat) bulkCat.onclick = () => pickCategoryModal(catId => {
+    Store.update(s => ({...s, bookings: s.bookings.map(b => _selected.has(b.id) ? {...b, categoryId: catId} : b)}));
+    _selected.clear(); render();
+  });
+  const bulkProp = root.querySelector('[data-bulk-prop]');
+  if(bulkProp) bulkProp.onclick = () => pickPropertyModal(pid => {
+    Store.update(s => ({...s, bookings: s.bookings.map(b => _selected.has(b.id) ? {...b, propertyId: pid} : b)}));
+    _selected.clear(); render();
+  });
+};
+
+function softDeleteBooking(id){
+  const st = Store.get();
+  const b = st.bookings.find(x => x.id === id);
+  if(!b) return;
+  Store.update(s => ({...s,
+    bookings: s.bookings.filter(x => x.id !== id),
+    trash:[...s.trash, {id: uid('trash'), entityType:'booking', deletedAt: new Date().toISOString(), payload: b}],
+  }));
+}
+
+function uniq(arr){ return Array.from(new Set(arr)); }
+
+// ---- Booking Modal -----
+function openBookingModal(booking){
+  const st = Store.get();
+  const draft = booking ? {...booking} : {...newBookingDraft(), propertyId: st.properties[0]?.id ?? null};
+  const cats = st.categories;
+  const props = st.properties;
+  const tags = st.tags;
+  const html = `
+    <div class="form">
+      <div>
+        <label>Typ</label>
+        <div class="row">
+          <label class="toggle"><input type="radio" name="type" value="income" ${draft.type==='income'?'checked':''} /><span class="pill emerald" style="cursor:pointer">+ Einnahme</span></label>
+          <label class="toggle"><input type="radio" name="type" value="expense" ${draft.type==='expense'?'checked':''} /><span class="pill berry" style="cursor:pointer">− Ausgabe</span></label>
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div>
+          <label>Betrag (€) — Rechnung erlaubt: <span class="muted">z.B. 100+50/2</span></label>
+          <input id="m-amount" placeholder="0,00" value="${draft.amount?fmtNum(draft.amount).replace(/\./g,''):''}" inputmode="decimal" />
+          <div class="muted" id="m-amount-preview"></div>
+        </div>
+        <div>
+          <label>Datum</label>
+          <input id="m-date" type="date" value="${draft.date}" />
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div>
+          <label>Kategorie</label>
+          <select id="m-cat">
+            <option value="">— keine —</option>
+            ${cats.map(c => `<option value="${c.id}" ${draft.categoryId===c.id?'selected':''}>${c.taxRelevant?'★ ':''}${escapeHtml(c.label)}</option>`).join('')}
+          </select>
+          <div class="muted" id="m-cat-tax"></div>
+        </div>
+        <div>
+          <label>Objekt (Ast)</label>
+          <select id="m-prop">
+            <option value="">Privat-Beet</option>
+            ${props.map(p => `<option value="${p.id}" ${draft.propertyId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Empfänger / Absender</label>
+        <input id="m-cp" value="${escapeHtml(draft.counterparty||'')}" placeholder="z.B. Stadtwerke, Müller, Amazon" />
+        <div id="m-cp-sug"></div>
+      </div>
+      <div>
+        <label>Notiz</label>
+        <textarea id="m-note" rows="2">${escapeHtml(draft.note||'')}</textarea>
+      </div>
+      <div class="grid cols-2">
+        <div>
+          <label>Wiederholung</label>
+          <select id="m-rec">
+            <option value="none" ${draft.recurrence==='none'?'selected':''}>Einmalig</option>
+            <option value="monthly" ${draft.recurrence==='monthly'?'selected':''}>Monatlich</option>
+            <option value="yearly" ${draft.recurrence==='yearly'?'selected':''}>Jährlich</option>
+          </select>
+        </div>
+        <div>
+          <label>Tags</label>
+          <select id="m-tags" multiple style="height:80px">
+            ${tags.map(t => `<option value="${t.id}" ${(draft.tagIds||[]).includes(t.id)?'selected':''}>#${escapeHtml(t.label)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      ${booking ? `<button class="danger" data-rm>🗑 Löschen</button>` : ''}
+      <button data-cancel>Abbrechen</button>
+      <button class="primary" data-save>${booking?'Speichern':'Buchen'}</button>
+    </div>
+  `;
+  openModal(booking?'Buchung bearbeiten':'Neue Buchung', html, (body, close) => {
+    const $a = body.querySelector('#m-amount');
+    const $aP = body.querySelector('#m-amount-preview');
+    const updatePreview = () => {
+      const v = evalExpression($a.value);
+      $aP.textContent = v !== null && /[+\-*/]/.test($a.value) ? `= ${fmtEur(v)}` : '';
+    };
+    $a.oninput = updatePreview;
+    updatePreview();
+    const $cp = body.querySelector('#m-cp');
+    const $cpS = body.querySelector('#m-cp-sug');
+    $cp.oninput = () => {
+      const q = $cp.value.trim().toLowerCase();
+      if(q.length < 2){ $cpS.innerHTML = ''; return; }
+      const matches = uniq(Store.get().bookings.map(b => b.counterparty).filter(Boolean).filter(c => c.toLowerCase().includes(q))).slice(0,5);
+      $cpS.innerHTML = matches.map(m => `<span class="pill" style="cursor:pointer;margin:6px 4px 0 0" data-pick="${escapeHtml(m)}">${escapeHtml(m)}</span>`).join('');
+      $cpS.querySelectorAll('[data-pick]').forEach(p => p.onclick = () => { $cp.value = p.dataset.pick; $cpS.innerHTML=''; });
+    };
+    const $cat = body.querySelector('#m-cat');
+    const updateTaxHint = () => {
+      const c = categoryById($cat.value);
+      const hint = body.querySelector('#m-cat-tax');
+      if(c?.taxRelevant) hint.innerHTML = `<span class="gold-text">★ Diese Buchung erscheint im Berater-Modus</span>`;
+      else hint.innerHTML = '';
+    };
+    $cat.onchange = updateTaxHint;
+    updateTaxHint();
+    body.querySelector('[data-cancel]').onclick = close;
+    if(booking){
+      body.querySelector('[data-rm]').onclick = () => { confirmAlert('Buchung in Papierkorb verschieben?', () => { softDeleteBooking(booking.id); close(); }); };
+    }
+    body.querySelector('[data-save]').onclick = () => {
+      const amount = evalExpression($a.value);
+      if(amount === null || amount <= 0){ alert('Bitte Betrag eingeben'); return; }
+      const type = body.querySelector('input[name="type"]:checked').value;
+      const date = body.querySelector('#m-date').value;
+      const categoryId = $cat.value || null;
+      const propertyId = body.querySelector('#m-prop').value || null;
+      const counterparty = $cp.value.trim();
+      const note = body.querySelector('#m-note').value.trim();
+      const recurrence = body.querySelector('#m-rec').value;
+      const tagIds = Array.from(body.querySelector('#m-tags').selectedOptions).map(o => o.value);
+      const data = {type, amount, date, categoryId, propertyId, counterparty, note, recurrence, tagIds};
+      if(booking){
+        Store.update(s => ({...s, bookings: s.bookings.map(b => b.id===booking.id ? {...b, ...data} : b)}));
+      } else {
+        Store.update(s => ({...s, bookings: [...s.bookings, {...newBookingDraft(), ...data, id: uid('bkg'), createdAt: new Date().toISOString()}]}));
+      }
+      close();
+    };
+  });
+}
+
+function pickCategoryModal(onPick){
+  const cats = Store.get().categories;
+  const html = `<div class="row">${cats.map(c => `<button data-cat="${c.id}" class="pill ${c.group||'neutral'}" style="cursor:pointer">${c.taxRelevant?'★ ':''}${escapeHtml(c.label)}</button>`).join('')}</div>`;
+  openModal('Kategorie auswählen', html, (body, close) => {
+    body.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { onPick(b.dataset.cat); close(); });
+  });
+}
+function pickPropertyModal(onPick){
+  const props = Store.get().properties;
+  const html = `<div class="row">
+    <button data-prop="" class="pill" style="cursor:pointer">Privat-Beet</button>
+    ${props.map(p => `<button data-prop="${p.id}" class="pill emerald" style="cursor:pointer">${escapeHtml(p.name)}</button>`).join('')}
+  </div>`;
+  openModal('Objekt auswählen', html, (body, close) => {
+    body.querySelectorAll('[data-prop]').forEach(b => b.onclick = () => { onPick(b.dataset.prop || null); close(); });
+  });
+}
+
+// ---- Property Modal -----
+function openPropertyModal(property){
+  const colors = ['#1FAB89','#4A7C59','#8FA88B','#D4AF37','#A88A4A','#9B5A4B','#4F73A8','#7A4F8B'];
+  const draft = property || {id:'', name:'', address:'', color: colors[0], totalLivingArea:null, afa:{}};
+  const html = `
+    <div class="form">
+      <div>
+        <label>Name *</label>
+        <input id="p-name" value="${escapeHtml(draft.name||'')}" placeholder="z.B. Südstraße 12" />
+      </div>
+      <div>
+        <label>Adresse</label>
+        <input id="p-addr" value="${escapeHtml(draft.address||'')}" placeholder="Straße, PLZ, Ort" />
+      </div>
+      <div class="grid cols-2">
+        <div>
+          <label>Wohnfläche gesamt (m²)</label>
+          <input id="p-area" type="number" value="${draft.totalLivingArea||''}" />
+        </div>
+        <div>
+          <label>Farbe (Ast)</label>
+          <div class="row" id="color-grid">
+            ${colors.map(c => `<button type="button" data-color="${c}" style="width:32px;height:32px;border-radius:50%;border:${draft.color===c?'3px solid var(--marble)':'1px solid var(--border)'};background:${c}"></button>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div>
+          <label>AfA-Anschaffungswert (€)</label>
+          <input id="p-afa-val" type="number" value="${draft.afa?.acquisitionValue||''}" placeholder="Gebäudewert" />
+        </div>
+        <div>
+          <label>AfA-Satz (%)</label>
+          <input id="p-afa-rate" type="number" step="0.1" value="${draft.afa?.ratePercent||'2'}" />
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      ${property ? `<button class="danger" data-rm>🗑 Löschen</button>` : ''}
+      <button data-cancel>Abbrechen</button>
+      <button class="primary" data-save>Speichern</button>
+    </div>
+  `;
+  openModal(property?'Objekt bearbeiten':'Neues Objekt', html, (body, close) => {
+    let pickedColor = draft.color;
+    body.querySelectorAll('[data-color]').forEach(b => b.onclick = () => {
+      pickedColor = b.dataset.color;
+      body.querySelectorAll('[data-color]').forEach(x => x.style.border = '1px solid var(--border)');
+      b.style.border = '3px solid var(--marble)';
+    });
+    body.querySelector('[data-cancel]').onclick = close;
+    if(property){
+      body.querySelector('[data-rm]').onclick = () => confirmAlert('Objekt + zugehörige Daten in Papierkorb?', () => {
+        Store.update(s => {
+          const trash = [{id:uid('trash'), entityType:'property', deletedAt: new Date().toISOString(), payload: property}];
+          return {...s,
+            properties: s.properties.filter(p => p.id !== property.id),
+            bookings: s.bookings.map(b => b.propertyId === property.id ? {...b, propertyId: null} : b),
+            tenants: s.tenants.filter(t => t.propertyId !== property.id),
+            trash: [...s.trash, ...trash],
+          };
+        });
+        close();
+      });
+    }
+    body.querySelector('[data-save]').onclick = () => {
+      const name = body.querySelector('#p-name').value.trim();
+      if(!name){ alert('Name fehlt'); return; }
+      const data = {
+        name,
+        address: body.querySelector('#p-addr').value.trim(),
+        totalLivingArea: Number(body.querySelector('#p-area').value) || null,
+        color: pickedColor,
+        afa: {
+          acquisitionValue: Number(body.querySelector('#p-afa-val').value) || null,
+          ratePercent: Number(body.querySelector('#p-afa-rate').value) || null,
+        },
+      };
+      if(property){
+        Store.update(s => ({...s, properties: s.properties.map(p => p.id===property.id?{...p, ...data}:p)}));
+      } else {
+        Store.update(s => ({...s, properties: [...s.properties, {...data, id: uid('obj'), createdAt: new Date().toISOString()}]}));
+      }
+      close();
+    };
+  });
+}
+
+// ---- Eiche (Objekt-Ansicht) -----
+VIEWS.oak = (st) => {
+  const filterPropId = st._filterPropertyId;
+  if(filterPropId && st.properties.find(p=>p.id===filterPropId)){
+    const p = st.properties.find(pp => pp.id === filterPropId);
+    const bks = st.bookings.filter(b => b.propertyId === p.id);
+    const tenants = st.tenants.filter(t => t.propertyId === p.id);
+    const maint = st.maintenanceLogs.filter(m => m.propertyId === p.id);
+    const meter = st.meterReadings.filter(m => m.propertyId === p.id);
+    const docs = st.documents.filter(d => d.propertyId === p.id);
+
+    const m1Iso = monthKey(), now = new Date();
+    const m3 = [m1Iso, monthKey(new Date(now.getFullYear(), now.getMonth()-1, 1)), monthKey(new Date(now.getFullYear(), now.getMonth()-2, 1))];
+    const y1 = []; for(let i=0;i<12;i++) y1.push(monthKey(new Date(now.getFullYear(), now.getMonth()-i, 1)));
+    const inc = ms => bks.filter(b => b.type==='income' && ms.some(m => b.date.startsWith(m))).reduce((s,b)=>s+b.amount,0);
+    const exp = ms => bks.filter(b => b.type==='expense' && ms.some(m => b.date.startsWith(m))).reduce((s,b)=>s+b.amount,0);
+
+    const recentBks = bks.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20).map(b => {
+      const tax = isTaxRelevant(b);
+      const cat = categoryById(b.categoryId);
+      return `<tr class="${tax?'gold-row':''}" data-edit="${b.id}">
+        <td>${fmtDate(b.date)}</td>
+        <td>${escapeHtml(b.counterparty||'—')}</td>
+        <td>${cat?escapeHtml(cat.label):'—'}${tax?'<span class="tax-dot"></span>':''}</td>
+        <td class="right amount ${b.type==='income'?'income':'expense'}">${b.type==='income'?'+':'−'} ${fmtEur(b.amount)}</td>
+      </tr>`;
+    }).join('');
+
+    return `
+      <button class="ghost" onclick="(function(){const s=Manu.Store.get();Manu.Store.update(x=>({...x,_filterPropertyId:null}));Manu.render();})()">← zurück zur Eiche</button>
+      <h1 class="serif" style="margin-top:14px">${escapeHtml(p.name)}</h1>
+      <div class="muted">${escapeHtml(p.address||'')}</div>
+
+      <div class="grid cols-3" style="margin-top:14px">
+        <div class="card"><div class="muted">1 Monat</div><div class="amount md income">+${fmtEur(inc([m1Iso]))}</div><div class="amount md expense">−${fmtEur(exp([m1Iso]))}</div></div>
+        <div class="card"><div class="muted">3 Monate</div><div class="amount md income">+${fmtEur(inc(m3))}</div><div class="amount md expense">−${fmtEur(exp(m3))}</div></div>
+        <div class="card"><div class="muted">12 Monate</div><div class="amount md income">+${fmtEur(inc(y1))}</div><div class="amount md expense">−${fmtEur(exp(y1))}</div></div>
+      </div>
+
+      <div class="grid cols-2" style="margin-top:14px">
+        <div class="card">
+          <div class="card-title"><h2>Mieter</h2><div class="actions"><button data-new-tenant>+ Mieter</button></div></div>
+          ${tenants.length ? tenants.map(t => `
+            <div class="row" style="justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+              <div>
+                <div class="serif">${escapeHtml(t.name)}</div>
+                <div class="muted">${t.unit?escapeHtml(t.unit):''} ${t.rentCold?` · Kalt: ${fmtEur(t.rentCold)}`:''}</div>
+              </div>
+              <button class="icon" data-edit-tenant="${t.id}">✏️</button>
+            </div>
+          `).join('') : '<div class="muted">Keine Mieter</div>'}
+        </div>
+        <div class="card">
+          <div class="card-title"><h2>Wartungs-Historie</h2><div class="actions"><button data-new-maint>+ Eintrag</button></div></div>
+          ${maint.length ? maint.slice(0,5).map(m => `
+            <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+              <div class="serif">${escapeHtml(m.description)}</div>
+              <div class="muted">${fmtDate(m.date)} ${m.cost?` · ${fmtEur(m.cost)}`:''}</div>
+            </div>
+          `).join('') : '<div class="muted">Noch keine Wartungen</div>'}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="card-title"><h2>Letzte Buchungen</h2></div>
+        <table class="data">
+          <thead><tr><th>Datum</th><th>Empfänger</th><th>Kategorie</th><th class="right">Betrag</th></tr></thead>
+          <tbody>${recentBks || '<tr><td colspan="4"><div class="muted">Noch keine Buchungen</div></td></tr>'}</tbody>
+        </table>
+      </div>
+
+      <div class="row" style="margin-top:14px;gap:8px">
+        <button data-edit-property>✏️ Objekt bearbeiten</button>
+        <button class="gold" data-anlage-v>★ Anlage V für ${new Date().getFullYear()-1}</button>
+        <button data-nk>NK-Abrechnung</button>
+      </div>
+    `;
+  }
+
+  // Eichen-Übersicht
+  const cards = st.properties.length ? st.properties.map(p => {
+    const bk = st.bookings.filter(b => b.propertyId === p.id);
+    const inc = bk.filter(b => b.type==='income').reduce((s,b)=>s+b.amount,0);
+    const exp = bk.filter(b => b.type==='expense').reduce((s,b)=>s+b.amount,0);
+    const tenantCount = st.tenants.filter(t => t.propertyId === p.id).length;
+    return `<div class="oak ${hasTax(bk)?'taxed':''}" style="border-left-color:${p.color||'var(--moss)'}" data-prop="${p.id}">
+      <div class="oak-head">
+        <span class="oak-name">${escapeHtml(p.name)}</span>
+        <div class="row" style="gap:8px"><span class="pill ${inc>=exp?'emerald':'berry'}">${fmtEur(inc-exp)}</span><button class="icon" data-edit-prop="${p.id}">✏️</button></div>
+      </div>
+      <div class="muted">${escapeHtml(p.address||'')}</div>
+      <div class="oak-meta"><span>${tenantCount} Mieter</span><span>+${fmtEur(inc)}</span><span>−${fmtEur(exp)}</span></div>
+    </div>`;
+  }).join('') : `<div class="empty"><span class="icon">🌳</span><h3>Noch keine Eichen</h3><p class="muted">Jeder Ast ist ein Objekt — leg den ersten an.</p></div>`;
+
+  return `
+    <h1 class="serif">Immobilien-Eiche</h1>
+    <div class="muted" style="margin-bottom:14px">Jedes Objekt ist ein Ast. Klick auf einen Ast für die Details.</div>
+    <div class="row" style="margin-bottom:14px"><button class="primary" data-action="new-property">+ Neuer Ast</button></div>
+    ${cards}
+  `;
+};
+BINDERS.oak = (root, st) => {
+  root.querySelectorAll('[data-prop]').forEach(el => el.onclick = (e) => {
+    if(e.target.matches('[data-edit-prop],[data-edit-prop] *')) return;
+    Store.update(s => ({...s, _filterPropertyId: el.dataset.prop}));
+    render();
+  });
+  root.querySelectorAll('[data-edit-prop]').forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    openPropertyModal(propertyById(b.dataset.editProp));
+  });
+  const ep = root.querySelector('[data-edit-property]');
+  if(ep) ep.onclick = () => openPropertyModal(propertyById(st._filterPropertyId));
+  const nt = root.querySelector('[data-new-tenant]');
+  if(nt) nt.onclick = () => openTenantModal(null, st._filterPropertyId);
+  root.querySelectorAll('[data-edit-tenant]').forEach(b => b.onclick = () => openTenantModal(st.tenants.find(t => t.id === b.dataset.editTenant)));
+  const nm = root.querySelector('[data-new-maint]');
+  if(nm) nm.onclick = () => openMaintenanceModal(st._filterPropertyId);
+  root.querySelectorAll('[data-edit]').forEach(tr => tr.onclick = (e) => {
+    if(e.target.matches('button')) return;
+    openBookingModal(st.bookings.find(b => b.id === tr.dataset.edit));
+  });
+  const av = root.querySelector('[data-anlage-v]');
+  if(av) av.onclick = () => openAnlageV(st._filterPropertyId);
+  const nk = root.querySelector('[data-nk]');
+  if(nk) nk.onclick = () => openNkAbrechnung(st._filterPropertyId);
+};
+
+// ---- Tenant Modal -----
+function openTenantModal(tenant, defaultPropId){
+  const st = Store.get();
+  const draft = tenant || {id:'', name:'', email:'', phone:'', iban:'', propertyId: defaultPropId||null, unit:'', rentCold:'', rentWarm:'', deposit:'', depositPaid:false, contractStart:'', contractEnd:'', livingArea:'', personCount:'', notes:''};
+  const html = `
+    <div class="form">
+      <div class="grid cols-2">
+        <div><label>Name *</label><input id="t-name" value="${escapeHtml(draft.name||'')}" /></div>
+        <div><label>Objekt</label>
+          <select id="t-prop">
+            <option value="">— keines —</option>
+            ${st.properties.map(p => `<option value="${p.id}" ${draft.propertyId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div><label>E-Mail</label><input id="t-email" value="${escapeHtml(draft.email||'')}" /></div>
+        <div><label>Telefon</label><input id="t-phone" value="${escapeHtml(draft.phone||'')}" /></div>
+      </div>
+      <div class="grid cols-2">
+        <div><label>IBAN</label><input id="t-iban" value="${escapeHtml(draft.iban||'')}" /></div>
+        <div><label>Wohneinheit</label><input id="t-unit" value="${escapeHtml(draft.unit||'')}" placeholder="z.B. EG links" /></div>
+      </div>
+      <div class="grid cols-3">
+        <div><label>Kaltmiete €</label><input id="t-rc" type="number" value="${draft.rentCold||''}" /></div>
+        <div><label>Warmmiete €</label><input id="t-rw" type="number" value="${draft.rentWarm||''}" /></div>
+        <div><label>Kaution €</label><input id="t-dep" type="number" value="${draft.deposit||''}" /></div>
+      </div>
+      <div class="grid cols-2">
+        <div><label>Vertragsbeginn</label><input id="t-start" type="date" value="${draft.contractStart||''}" /></div>
+        <div><label>Vertragsende</label><input id="t-end" type="date" value="${draft.contractEnd||''}" /></div>
+      </div>
+      <div class="grid cols-2">
+        <div><label>Wohnfläche m²</label><input id="t-area" type="number" value="${draft.livingArea||''}" /></div>
+        <div><label>Personen</label><input id="t-pers" type="number" value="${draft.personCount||''}" /></div>
+      </div>
+      <div><label>Notizen</label><textarea id="t-notes" rows="2">${escapeHtml(draft.notes||'')}</textarea></div>
+    </div>
+    <div class="modal-actions">
+      ${tenant ? `<button class="danger" data-rm>🗑 Löschen</button>` : ''}
+      <button data-cancel>Abbrechen</button>
+      <button class="primary" data-save>Speichern</button>
+    </div>
+  `;
+  openModal(tenant?'Mieter bearbeiten':'Neuer Mieter', html, (body, close) => {
+    body.querySelector('[data-cancel]').onclick = close;
+    if(tenant) body.querySelector('[data-rm]').onclick = () => confirmAlert('Mieter in Papierkorb?', () => {
+      Store.update(s => ({...s,
+        tenants: s.tenants.filter(t => t.id !== tenant.id),
+        trash:[...s.trash, {id:uid('trash'), entityType:'tenant', deletedAt: new Date().toISOString(), payload: tenant}],
+      }));
+      close();
+    });
+    body.querySelector('[data-save]').onclick = () => {
+      const name = body.querySelector('#t-name').value.trim();
+      if(!name){ alert('Name fehlt'); return; }
+      const data = {
+        name,
+        propertyId: body.querySelector('#t-prop').value || null,
+        email: body.querySelector('#t-email').value.trim(),
+        phone: body.querySelector('#t-phone').value.trim(),
+        iban: body.querySelector('#t-iban').value.trim(),
+        unit: body.querySelector('#t-unit').value.trim(),
+        rentCold: Number(body.querySelector('#t-rc').value) || null,
+        rentWarm: Number(body.querySelector('#t-rw').value) || null,
+        deposit: Number(body.querySelector('#t-dep').value) || null,
+        contractStart: body.querySelector('#t-start').value || null,
+        contractEnd: body.querySelector('#t-end').value || null,
+        livingArea: Number(body.querySelector('#t-area').value) || null,
+        personCount: Number(body.querySelector('#t-pers').value) || null,
+        notes: body.querySelector('#t-notes').value.trim(),
+      };
+      if(tenant){
+        Store.update(s => ({...s, tenants: s.tenants.map(t => t.id===tenant.id?{...t, ...data}:t)}));
+      } else {
+        Store.update(s => ({...s, tenants: [...s.tenants, {...data, id: uid('tnt'), createdAt: new Date().toISOString()}]}));
+      }
+      close();
+    };
+  });
+}
+
+// ---- Maintenance Modal -----
+function openMaintenanceModal(propId){
+  const st = Store.get();
+  const html = `
+    <div class="form">
+      <div class="grid cols-2">
+        <div><label>Datum</label><input id="ma-date" type="date" value="${todayIso()}" /></div>
+        <div><label>Objekt</label><select id="ma-prop">${st.properties.map(p=>`<option value="${p.id}" ${propId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}</select></div>
+      </div>
+      <div><label>Beschreibung</label><textarea id="ma-desc" rows="2"></textarea></div>
+      <div class="grid cols-2">
+        <div><label>Handwerker</label><select id="ma-cm"><option value="">—</option>${st.craftsmen.map(c=>`<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}</select></div>
+        <div><label>Kosten €</label><input id="ma-cost" type="number" /></div>
+      </div>
+      <label class="toggle"><input type="checkbox" id="ma-book" checked /><span class="switch"></span><span>Direkt als Buchung (★ Reparatur) erfassen</span></label>
+    </div>
+    <div class="modal-actions"><button data-cancel>Abbrechen</button><button class="primary" data-save>Speichern</button></div>
+  `;
+  openModal('Wartung erfassen', html, (body, close) => {
+    body.querySelector('[data-cancel]').onclick = close;
+    body.querySelector('[data-save]').onclick = () => {
+      const propertyId = body.querySelector('#ma-prop').value;
+      const date = body.querySelector('#ma-date').value;
+      const description = body.querySelector('#ma-desc').value.trim();
+      const cost = Number(body.querySelector('#ma-cost').value) || null;
+      const craftsmanId = body.querySelector('#ma-cm').value || null;
+      const bookIt = body.querySelector('#ma-book').checked;
+      if(!description){ alert('Beschreibung fehlt'); return; }
+      Store.update(s => {
+        let bookingId = null;
+        if(bookIt && cost){
+          const b = {...newBookingDraft(), id: uid('bkg'), type:'expense', amount:cost, date, propertyId, categoryId:'cat-reparatur', note: description, counterparty: craftsmanId ? s.craftsmen.find(c=>c.id===craftsmanId)?.name : '', createdAt: new Date().toISOString()};
+          bookingId = b.id;
+          s = {...s, bookings: [...s.bookings, b]};
+        }
+        return {...s, maintenanceLogs:[...s.maintenanceLogs, {id: uid('mnt'), propertyId, date, description, cost, craftsmanId, bookingId, createdAt: new Date().toISOString()}]};
+      });
+      close();
+    };
+  });
+}
+
+// ---- Belege (Receipts) -----
+VIEWS.receipts = (st) => {
+  const grid = st.receipts.length ? `<div class="leaf-grid">${st.receipts.slice().reverse().map(r => {
+    const cat = categoryById(r.categoryId);
+    const prop = propertyById(r.propertyId);
+    const tax = cat && cat.taxRelevant;
+    return `<div class="leaf" data-receipt="${r.id}">
+      <div class="leaf-name">${escapeHtml(r.filename)}</div>
+      <div class="leaf-meta">${fmtDate(r.createdAt)}${r.amount?` · ${fmtEur(r.amount)}`:''}${cat?` · ${escapeHtml(cat.label)}`:''}${prop?` · ${escapeHtml(prop.name)}`:''}</div>
+      ${tax?'<div style="margin-top:6px"><span class="pill gold">★ steuerrelevant</span></div>':''}
+    </div>`;
+  }).join('')}</div>` : `<div class="empty"><span class="icon">🍃</span><h3>Noch keine Belege</h3><p class="muted">Hänge Rechnungen als Blätter an Deine Eiche.</p></div>`;
+
+  return `
+    <h1 class="serif">Belege</h1>
+    <div class="muted">Belege werden als Blätter an die Äste geheftet — der Steuer-Akzent (★) kommt automatisch aus der Kategorie.</div>
+    <div class="card" style="margin-top:14px">
+      <div class="row">
+        <input id="rcp-file" type="file" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple style="max-width:340px" />
+        <button class="primary" id="rcp-upload">📎 Hochladen</button>
+        <span class="muted" id="rcp-info"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">${grid}</div>
+  `;
+};
+BINDERS.receipts = (root, st) => {
+  root.querySelector('#rcp-upload').onclick = async () => {
+    const files = root.querySelector('#rcp-file').files;
+    if(!files || files.length === 0){ alert('Bitte Datei wählen'); return; }
+    const info = root.querySelector('#rcp-info');
+    let n = 0;
+    for(const f of files){
+      const id = uid('rcp');
+      await FilesDB.put(id, f);
+      const parsed = parseFilename(f.name);
+      Store.update(s => ({...s, receipts: [...s.receipts, {
+        id, filename: f.name, size: f.size, mimeType: f.type,
+        amount: parsed.amount, date: parsed.date, counterparty: parsed.counterparty, categoryId: parsed.categoryId || null,
+        propertyId: null, bookingId: null, createdAt: new Date().toISOString(),
+      }]}));
+      n++;
+      info.textContent = `${n} von ${files.length} hochgeladen`;
+    }
+    info.textContent = `✓ ${n} Beleg(e) gespeichert`;
+    setTimeout(render, 600);
+  };
+  root.querySelectorAll('[data-receipt]').forEach(el => el.onclick = () => openReceiptModal(el.dataset.receipt));
+};
+function parseFilename(name){
+  const cleaned = name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ');
+  const amountMatch = cleaned.match(/(\d{1,5}[.,]\d{2})/);
+  const amount = amountMatch ? Number(amountMatch[1].replace(',','.')) : null;
+  const dateMatch = cleaned.match(/(\d{4})[-_./]?(\d{2})[-_./]?(\d{2})/);
+  const date = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : null;
+  const vendors = [
+    {k:['stadtwerk'],            cat:'cat-strom',         name:'Stadtwerke'},
+    {k:['telekom','vodafone'],    cat:'cat-internet',      name:'Telekom'},
+    {k:['versich','allianz','huk'], cat:'cat-versicherung', name:'Versicherung'},
+    {k:['gez','beitragsservice'], cat:'cat-gez',           name:'Rundfunkbeitrag'},
+    {k:['grundsteuer'],           cat:'cat-grundsteuer',   name:'Grundsteuer'},
+    {k:['hausgeld','verwalt'],    cat:'cat-hausgeld',      name:'Hausverwaltung'},
+    {k:['miete'],                 cat:'cat-miete',         name:'Mieteinnahme'},
+  ];
+  const lower = cleaned.toLowerCase();
+  let counterparty = null, categoryId = null;
+  for(const v of vendors){
+    if(v.k.some(k => lower.includes(k))){ counterparty = v.name; categoryId = v.cat; break; }
+  }
+  return {amount, date, counterparty, categoryId};
+}
+async function openReceiptModal(id){
+  const r = Store.get().receipts.find(x => x.id === id);
+  if(!r) return;
+  const dataUrl = await FilesDB.asDataURL(r.id);
+  const isPdf = (r.mimeType||'').includes('pdf') || r.filename.toLowerCase().endsWith('.pdf');
+  const preview = !dataUrl ? '<div class="muted">Datei nicht gefunden</div>' :
+    isPdf ? `<embed src="${dataUrl}" type="application/pdf" style="width:100%;height:380px;border-radius:8px;background:#fff" />` :
+    `<img src="${dataUrl}" style="max-width:100%;border-radius:8px;background:var(--bg-wood);padding:8px" />`;
+  const st = Store.get();
+  const html = `
+    <div style="background:linear-gradient(135deg,var(--bg-wood),#1F140C);padding:14px;border-radius:8px;margin-bottom:14px">
+      ${preview}
+    </div>
+    <div class="form">
+      <div class="grid cols-2">
+        <div><label>Betrag €</label><input id="r-amount" type="number" step="0.01" value="${r.amount||''}" /></div>
+        <div><label>Datum</label><input id="r-date" type="date" value="${r.date||''}" /></div>
+      </div>
+      <div><label>Empfänger</label><input id="r-cp" value="${escapeHtml(r.counterparty||'')}" /></div>
+      <div class="grid cols-2">
+        <div><label>Kategorie</label><select id="r-cat"><option value="">—</option>${st.categories.map(c=>`<option value="${c.id}" ${r.categoryId===c.id?'selected':''}>${c.taxRelevant?'★ ':''}${escapeHtml(c.label)}</option>`).join('')}</select></div>
+        <div><label>Objekt</label><select id="r-prop"><option value="">—</option>${st.properties.map(p=>`<option value="${p.id}" ${r.propertyId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('')}</select></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="danger" data-rm>🗑 Beleg löschen</button>
+      <button class="primary" data-book>📌 Als Buchung übernehmen</button>
+      <button class="primary" data-save>Speichern</button>
+    </div>
+  `;
+  openModal('Beleg: ' + r.filename, html, (body, close) => {
+    body.querySelector('[data-rm]').onclick = () => confirmAlert('Beleg endgültig löschen?', async () => {
+      await FilesDB.remove(r.id);
+      Store.update(s => ({...s, receipts: s.receipts.filter(x => x.id !== r.id)}));
+      close();
+    });
+    body.querySelector('[data-save]').onclick = () => {
+      const patch = {
+        amount: Number(body.querySelector('#r-amount').value) || null,
+        date: body.querySelector('#r-date').value || null,
+        counterparty: body.querySelector('#r-cp').value.trim(),
+        categoryId: body.querySelector('#r-cat').value || null,
+        propertyId: body.querySelector('#r-prop').value || null,
+      };
+      Store.update(s => ({...s, receipts: s.receipts.map(x => x.id === r.id ? {...x, ...patch} : x)}));
+      close();
+    };
+    body.querySelector('[data-book]').onclick = () => {
+      const amount = Number(body.querySelector('#r-amount').value);
+      const date = body.querySelector('#r-date').value || todayIso();
+      const counterparty = body.querySelector('#r-cp').value.trim();
+      const categoryId = body.querySelector('#r-cat').value || null;
+      const propertyId = body.querySelector('#r-prop').value || null;
+      if(!amount){ alert('Betrag fehlt'); return; }
+      Store.update(s => ({...s,
+        bookings: [...s.bookings, {...newBookingDraft(), id: uid('bkg'), type:'expense', amount, date, categoryId, propertyId, counterparty, note:'aus Beleg: '+r.filename, receiptId: r.id, createdAt: new Date().toISOString()}],
+        receipts: s.receipts.map(x => x.id === r.id ? {...x, amount, date, counterparty, categoryId, propertyId} : x),
+      }));
+      close();
+    };
+  });
+}
+
+// ---- Steuer-Berater-Modus -----
+VIEWS.advisor = (st) => {
+  const year = new Date().getFullYear();
+  const ranges = [year, year-1, year-2];
+  const currentYear = st._advisorYear || year;
+  const yearBks = st.bookings.filter(b => b.date.startsWith(String(currentYear)) && isTaxRelevant(b));
+  const byCat = {};
+  for(const b of yearBks){
+    const c = b.categoryId || 'sonstiges';
+    byCat[c] = byCat[c] || {sum:0, n:0};
+    byCat[c].sum += b.amount * (b.type==='income' ? 1 : -1);
+    byCat[c].n += 1;
+  }
+  const inc = yearBks.filter(b=>b.type==='income').reduce((s,b)=>s+b.amount,0);
+  const exp = yearBks.filter(b=>b.type==='expense').reduce((s,b)=>s+b.amount,0);
+
+  const rows = yearBks.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(b => {
+    const c = categoryById(b.categoryId);
+    const p = propertyById(b.propertyId);
+    return `<tr class="gold-row">
+      <td>${fmtDate(b.date)}</td>
+      <td>${escapeHtml(b.counterparty||'—')}</td>
+      <td>${c?escapeHtml(c.label):'—'}</td>
+      <td>${p?escapeHtml(p.name):''}</td>
+      <td class="right amount ${b.type==='income'?'income':'expense'}">${b.type==='income'?'+':'−'} ${fmtEur(b.amount)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5"><div class="muted">Keine steuerrelevanten Buchungen in '+currentYear+'</div></td></tr>';
+
+  const groupRows = Object.entries(byCat).sort((a,b) => Math.abs(b[1].sum) - Math.abs(a[1].sum)).map(([cid, {sum, n}]) => {
+    const c = categoryById(cid);
+    return `<tr>
+      <td>${c?escapeHtml(c.label):cid}</td>
+      <td class="right">${n}</td>
+      <td class="right amount ${sum>=0?'income':'expense'}">${fmtEur(sum)}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="card" style="margin-bottom:14px;border-color:var(--gold-border)">
+      <div class="card-title">
+        <h1 class="serif gold-text">★ Berater-Modus — Steuerjahr ${currentYear}</h1>
+        <div class="actions">
+          <select id="ad-year">${ranges.map(y => `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`).join('')}</select>
+          <button class="gold" id="ernte-pdf">🧺 Ernte-Korb → PDF</button>
+          <button id="ernte-csv">CSV</button>
+        </div>
+      </div>
+      <div class="grid cols-3">
+        <div><div class="muted">Mieteinnahmen / Einnahmen</div><div class="amount lg income">+${fmtEur(inc)}</div></div>
+        <div><div class="muted">Werbungskosten / Ausgaben</div><div class="amount lg expense">−${fmtEur(exp)}</div></div>
+        <div><div class="muted">Einkünfte aus V+V</div><div class="amount lg" style="color:${inc-exp>=0?'var(--emerald)':'var(--berry)'}">${fmtEur(inc-exp)}</div></div>
+      </div>
+    </div>
+
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="card-title"><h2>Pro Kategorie</h2></div>
+        <table class="data">
+          <thead><tr><th>Kategorie</th><th class="right">#</th><th class="right">Saldo</th></tr></thead>
+          <tbody>${groupRows || '<tr><td colspan="3" class="muted">Keine Daten</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="card-title"><h2>Pro Objekt</h2></div>
+        <table class="data">
+          <thead><tr><th>Objekt</th><th class="right">Einnahmen</th><th class="right">Ausgaben</th><th class="right">Saldo</th></tr></thead>
+          <tbody>${
+            st.properties.map(p => {
+              const yb = yearBks.filter(b => b.propertyId === p.id);
+              const pi = yb.filter(b=>b.type==='income').reduce((s,b)=>s+b.amount,0);
+              const pe = yb.filter(b=>b.type==='expense').reduce((s,b)=>s+b.amount,0);
+              return `<tr><td>${escapeHtml(p.name)}</td><td class="right">+${fmtEur(pi)}</td><td class="right">−${fmtEur(pe)}</td><td class="right amount ${pi-pe>=0?'income':'expense'}">${fmtEur(pi-pe)}</td></tr>`;
+            }).join('') || '<tr><td colspan="4" class="muted">Keine Objekte</td></tr>'
+          }</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title">
+        <h2>★ Alle steuerrelevanten Buchungen ${currentYear}</h2>
+        <span class="muted">${yearBks.length} Einträge</span>
+      </div>
+      <table class="data">
+        <thead><tr><th>Datum</th><th>Empfänger</th><th>Kategorie</th><th>Objekt</th><th class="right">Betrag</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top:14px;border-color:var(--gold-border)">
+      <div class="card-title"><h2 class="gold-text">🧺 Ernte-Korb (Berater-Export)</h2></div>
+      <div class="muted">Alle gold markierten Daten in einer Datei — schickfertig für den Steuerberater.</div>
+      <div class="row" style="margin-top:14px">
+        <button class="gold" id="export-pdf">📄 PDF drucken (window.print)</button>
+        <button id="export-csv">📊 CSV-Download</button>
+        <button id="export-datev">DATEV-CSV</button>
+        <button id="export-anlage-v">Anlage V (alle Objekte)</button>
+      </div>
+    </div>
+  `;
+};
+BINDERS.advisor = (root, st) => {
+  root.querySelector('#ad-year').onchange = e => { Store.update(s => ({...s, _advisorYear: Number(e.target.value)})); render(); };
+  const doPdf = () => { Store.update(s => ({...s, settings:{...s.settings, advisorMode:true}})); document.body.classList.add('advisor'); setTimeout(()=>window.print(), 100); };
+  root.querySelector('#ernte-pdf').onclick = doPdf;
+  root.querySelector('#export-pdf').onclick = doPdf;
+  root.querySelector('#ernte-csv').onclick = root.querySelector('#export-csv').onclick = () => exportCsv(st._advisorYear || new Date().getFullYear());
+  root.querySelector('#export-datev').onclick = () => exportDatev(st._advisorYear || new Date().getFullYear());
+  root.querySelector('#export-anlage-v').onclick = () => exportAnlageVAll(st._advisorYear || new Date().getFullYear());
+};
+function exportCsv(year){
+  const st = Store.get();
+  const list = st.bookings.filter(b => b.date.startsWith(String(year)) && isTaxRelevant(b));
+  const lines = ['Datum;Typ;Betrag;Empfänger;Kategorie;Objekt;Notiz'];
+  for(const b of list){
+    const c = categoryById(b.categoryId);
+    const p = propertyById(b.propertyId);
+    lines.push([
+      b.date,
+      b.type==='income'?'Einnahme':'Ausgabe',
+      b.amount.toFixed(2).replace('.',','),
+      csvEscape(b.counterparty),
+      csvEscape(c?c.label:''),
+      csvEscape(p?p.name:''),
+      csvEscape(b.note),
+    ].join(';'));
+  }
+  downloadBlob(lines.join('\r\n'), `manu-steuer-${year}.csv`, 'text/csv');
+}
+function csvEscape(s){ if(s==null) return ''; const str=String(s); return /[";\n]/.test(str) ? `"${str.replace(/"/g,'""')}"` : str; }
+function exportDatev(year){
+  const st = Store.get();
+  const list = st.bookings.filter(b => b.date.startsWith(String(year)) && isTaxRelevant(b));
+  const map = new Map(st.datevMapping.map(m => [m.categoryId, m.account]));
+  const lines = ['"Umsatz";"S/H";"Konto";"Gegenkonto";"Belegdatum";"Belegfeld 1";"Buchungstext";"Objekt"'];
+  for(const b of list){
+    const acc = (b.categoryId && map.get(b.categoryId)) || (b.type==='income' ? '8400' : '4900');
+    const date = b.date.slice(8,10)+b.date.slice(5,7);
+    lines.push([
+      `"${b.amount.toFixed(2).replace('.',',')}"`,
+      '"S"',
+      `"${b.type==='income'?'1200':acc}"`,
+      `"${b.type==='income'?acc:'1200'}"`,
+      `"${date}"`,
+      `"${b.id.slice(-10)}"`,
+      `"${(b.counterparty||b.note||'').slice(0,60).replace(/"/g,'""')}"`,
+      `"${propertyById(b.propertyId)?.name||''}"`,
+    ].join(';'));
+  }
+  downloadBlob(lines.join('\r\n'), `manu-datev-${year}.csv`, 'text/csv');
+}
+function downloadBlob(text, filename, type){
+  const blob = new Blob([text], {type});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function exportAnlageVAll(year){
+  const st = Store.get();
+  if(!st.properties.length){ alert('Keine Objekte angelegt'); return; }
+  for(const p of st.properties) openAnlageV(p.id, year);
+}
+
+// ---- Anlage V -----
+const ANLAGE_V_MAP = {
+  'cat-miete':       {row:'Zeile 9 — Mieteinnahmen', side:'income'},
+  'cat-nk':          {row:'Zeile 12 — Umlagen', side:'income'},
+  'cat-strom':       {row:'Zeile 47 — Sonstige Werbungskosten', side:'expense'},
+  'cat-wasser':      {row:'Zeile 47 — Sonstige Werbungskosten', side:'expense'},
+  'cat-gas':         {row:'Zeile 47 — Sonstige Werbungskosten', side:'expense'},
+  'cat-hausgeld':    {row:'Zeile 47 — Verwaltungskosten', side:'expense'},
+  'cat-gez':         {row:'Zeile 47 — Sonstige Werbungskosten', side:'expense'},
+  'cat-versicherung':{row:'Zeile 47 — Versicherungen', side:'expense'},
+  'cat-grundsteuer': {row:'Zeile 47 — Grundsteuer', side:'expense'},
+  'cat-reparatur':   {row:'Zeile 39 — Erhaltungsaufwand', side:'expense'},
+  'cat-renovierung': {row:'Zeile 39 — Erhaltungsaufwand', side:'expense'},
+  'cat-kredit':      {row:'Zeile 36 — Schuldzinsen', side:'expense'},
+  'cat-afa':         {row:'Zeile 35 — AfA', side:'expense'},
+  'cat-steuerberater':{row:'Zeile 47 — Sonstige Werbungskosten', side:'expense'},
+};
+function openAnlageV(propId, year){
+  const st = Store.get();
+  const p = propertyById(propId);
+  if(!p){ alert('Objekt nicht gefunden'); return; }
+  const yr = year || (st._advisorYear || new Date().getFullYear());
+  const bks = st.bookings.filter(b => b.propertyId === p.id && b.date.startsWith(String(yr)));
+  const grouped = {};
+  for(const b of bks){
+    const mapping = ANLAGE_V_MAP[b.categoryId] || {row:'Zeile 47 — Sonstige Werbungskosten', side:b.type};
+    grouped[mapping.row] = grouped[mapping.row] || {sum:0, side:mapping.side};
+    grouped[mapping.row].sum += b.amount;
+  }
+  // AfA addieren
+  if(p.afa?.acquisitionValue && p.afa?.ratePercent){
+    const afa = p.afa.acquisitionValue * p.afa.ratePercent / 100;
+    grouped['Zeile 35 — AfA'] = {sum: (grouped['Zeile 35 — AfA']?.sum||0) + afa, side:'expense'};
+  }
+  const incomeRows = Object.entries(grouped).filter(([,v])=>v.side==='income');
+  const expenseRows = Object.entries(grouped).filter(([,v])=>v.side==='expense');
+  const sumIn = incomeRows.reduce((s,[,v])=>s+v.sum,0);
+  const sumEx = expenseRows.reduce((s,[,v])=>s+v.sum,0);
+  const html = `
+    <h3>Anlage V · ${escapeHtml(p.name)} · ${yr}</h3>
+    <table class="data" style="margin-top:14px">
+      <thead><tr><th>Zeile</th><th class="right">Betrag</th></tr></thead>
+      <tbody>
+        <tr><th colspan="2">Einnahmen</th></tr>
+        ${incomeRows.map(([r,v]) => `<tr><td>${r}</td><td class="right">${fmtEur(v.sum)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">—</td></tr>'}
+        <tr style="font-weight:700"><td>Summe Einnahmen</td><td class="right income">${fmtEur(sumIn)}</td></tr>
+        <tr><th colspan="2">Werbungskosten</th></tr>
+        ${expenseRows.map(([r,v]) => `<tr><td>${r}</td><td class="right">${fmtEur(v.sum)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">—</td></tr>'}
+        <tr style="font-weight:700"><td>Summe Werbungskosten</td><td class="right expense">${fmtEur(sumEx)}</td></tr>
+        <tr style="font-weight:700;background:var(--gold-soft)"><td>Einkünfte aus V+V</td><td class="right amount ${sumIn-sumEx>=0?'income':'expense'}">${fmtEur(sumIn-sumEx)}</td></tr>
+      </tbody>
+    </table>
+    <div class="modal-actions"><button data-close-av>Schließen</button><button class="gold" data-print-av>🖨 Drucken</button></div>
+  `;
+  openModal('Anlage V', html, (body, close) => {
+    body.querySelector('[data-close-av]').onclick = close;
+    body.querySelector('[data-print-av]').onclick = () => window.print();
+  });
+}
+
+// ---- NK-Abrechnung -----
+function openNkAbrechnung(propId){
+  const st = Store.get();
+  const p = propertyById(propId);
+  if(!p){ alert('Objekt nicht gefunden'); return; }
+  const tenants = st.tenants.filter(t => t.propertyId === p.id);
+  if(!tenants.length){ alert('Keine Mieter für dieses Objekt'); return; }
+  const year = (st._advisorYear || new Date().getFullYear()) - 1;
+  const nkCats = ['cat-strom','cat-wasser','cat-gas','cat-hausgeld','cat-gez'];
+  const total = nkCats.reduce((acc, cid) => {
+    const sum = st.bookings.filter(b => b.propertyId === p.id && b.categoryId === cid && b.date.startsWith(String(year))).reduce((s,b)=>s+b.amount,0);
+    return {...acc, [cid]: sum};
+  }, {});
+  const totalArea = p.totalLivingArea || tenants.reduce((s,t)=>s+(t.livingArea||0),0) || 1;
+  const tenantsHtml = tenants.map(t => {
+    const share = (t.livingArea||0) / totalArea;
+    const cost = Object.values(total).reduce((s,v)=>s+v*share,0);
+    const prepay = ((t.rentWarm||0)-(t.rentCold||0)) * 12;
+    const diff = cost - prepay;
+    return `<tr>
+      <td>${escapeHtml(t.name)}</td>
+      <td class="right">${t.livingArea||0} m²</td>
+      <td class="right">${(share*100).toFixed(1)}%</td>
+      <td class="right">${fmtEur(cost)}</td>
+      <td class="right">${fmtEur(prepay)}</td>
+      <td class="right amount ${diff>0?'expense':'income'}">${diff>0?'+':''}${fmtEur(diff)}</td>
+    </tr>`;
+  }).join('');
+  const totalRow = nkCats.map(cid => `<tr><td>${categoryById(cid)?.label||cid}</td><td class="right">${fmtEur(total[cid])}</td></tr>`).join('');
+  const html = `
+    <h3>NK-Abrechnung · ${escapeHtml(p.name)} · ${year}</h3>
+    <table class="data" style="margin-top:12px">
+      <thead><tr><th>Kostenart</th><th class="right">Gesamt ${year}</th></tr></thead>
+      <tbody>${totalRow}<tr style="font-weight:700"><td>Summe umlagefähig</td><td class="right">${fmtEur(Object.values(total).reduce((s,v)=>s+v,0))}</td></tr></tbody>
+    </table>
+    <p class="muted" style="margin-top:14px">Verteilerschlüssel: Wohnfläche</p>
+    <table class="data">
+      <thead><tr><th>Mieter</th><th class="right">m²</th><th class="right">Anteil</th><th class="right">Kosten</th><th class="right">Vorauszahlung</th><th class="right">Nach-/Rückzahlung</th></tr></thead>
+      <tbody>${tenantsHtml}</tbody>
+    </table>
+    <div class="modal-actions"><button data-close-nk>Schließen</button><button class="gold" data-print-nk>🖨 Drucken</button></div>
+  `;
+  openModal('NK-Abrechnung', html, (body, close) => {
+    body.querySelector('[data-close-nk]').onclick = close;
+    body.querySelector('[data-print-nk]').onclick = () => window.print();
+  });
+}
+
+// ---- Tools -----
+VIEWS.tools = (st) => {
+  // Subscription Detection
+  const counterpartyMap = {};
+  for(const b of st.bookings){
+    if(b.type !== 'expense' || !b.counterparty) continue;
+    const k = b.counterparty.trim().toLowerCase();
+    counterpartyMap[k] = counterpartyMap[k] || {name:b.counterparty, count:0, sum:0, months:new Set()};
+    counterpartyMap[k].count++;
+    counterpartyMap[k].sum += b.amount;
+    counterpartyMap[k].months.add(b.date.slice(0,7));
+  }
+  const subs = Object.values(counterpartyMap).filter(s => s.months.size >= 2 && s.count >= 2).slice(0,10);
+
+  // Top Kategorien (12 Monate)
+  const yearAgo = new Date(); yearAgo.setMonth(yearAgo.getMonth()-12);
+  const yearAgoIso = yearAgo.toISOString().slice(0,10);
+  const catSum = {};
+  for(const b of st.bookings){
+    if(b.type !== 'expense' || b.date < yearAgoIso) continue;
+    const c = categoryById(b.categoryId);
+    if(!c) continue;
+    catSum[c.label] = (catSum[c.label]||0) + b.amount;
+  }
+  const topCats = Object.entries(catSum).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const maxCat = topCats[0]?.[1] || 1;
+
+  return `
+    <h1 class="serif">Werkzeuge</h1>
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="card-title"><h2>🔍 Erkannte Abos</h2></div>
+        ${subs.length ? subs.map(s => `
+          <div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+            <div><div class="serif">${escapeHtml(s.name)}</div><div class="muted">${s.count}× in ${s.months.size} Monaten</div></div>
+            <div class="amount md expense">${fmtEur(s.sum/s.count)}/Mt</div>
+          </div>`).join('') : '<div class="muted">Noch keine wiederkehrenden Empfänger erkannt.</div>'}
+      </div>
+      <div class="card">
+        <div class="card-title"><h2>Top-Ausgaben Kategorien (12 Mt)</h2></div>
+        ${topCats.length ? topCats.map(([n,v]) => `
+          <div style="padding:6px 0">
+            <div class="row" style="justify-content:space-between"><span>${escapeHtml(n)}</span><span class="amount md">${fmtEur(v)}</span></div>
+            <div style="height:6px;background:var(--bg-accent);border-radius:3px;margin-top:4px"><div style="width:${(v/maxCat)*100}%;height:100%;background:var(--moss);border-radius:3px"></div></div>
+          </div>`).join('') : '<div class="muted">Noch keine Daten</div>'}
+      </div>
+    </div>
+
+    <div class="grid cols-3" style="margin-top:14px">
+      <div class="card">
+        <h2>📊 Sparziele</h2>
+        ${st.goals.length ? st.goals.map(g => `
+          <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+            <div class="row" style="justify-content:space-between"><span class="serif">${escapeHtml(g.label)}</span><span>${fmtEur(g.saved)}/${fmtEur(g.target)}</span></div>
+            <div style="height:6px;background:var(--bg-accent);border-radius:3px;margin-top:4px"><div style="width:${Math.min(100,(g.saved/g.target)*100)}%;height:100%;background:var(--emerald);border-radius:3px"></div></div>
+          </div>`).join('') : '<div class="muted">Keine Sparziele</div>'}
+        <button class="primary" data-new-goal style="margin-top:10px">+ Sparziel</button>
+      </div>
+      <div class="card">
+        <h2>📜 Verträge</h2>
+        ${st.contracts.length ? st.contracts.map(c => `
+          <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+            <div class="serif">${escapeHtml(c.label)}</div>
+            <div class="muted">${c.category}${c.earliestEndDate?` · Ende: ${fmtDate(c.earliestEndDate)}`:''}</div>
+          </div>`).join('') : '<div class="muted">Keine Verträge</div>'}
+        <button class="primary" data-new-contract style="margin-top:10px">+ Vertrag</button>
+      </div>
+      <div class="card">
+        <h2>🔧 Handwerker</h2>
+        ${st.craftsmen.length ? st.craftsmen.map(c => `
+          <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+            <div class="serif">${escapeHtml(c.name)}</div>
+            <div class="muted">${escapeHtml(c.trade||'')}${c.phone?` · ${escapeHtml(c.phone)}`:''}</div>
+          </div>`).join('') : '<div class="muted">Keine Einträge</div>'}
+        <button class="primary" data-new-cm style="margin-top:10px">+ Handwerker</button>
+      </div>
+    </div>
+
+    <div class="grid cols-2" style="margin-top:14px">
+      <div class="card">
+        <h2>🧮 Brutto / Netto Rechner</h2>
+        <div class="form" style="margin-top:8px">
+          <input id="bn-brutto" type="number" placeholder="Brutto monatlich €" />
+          <select id="bn-class"><option value="1">Steuerklasse 1</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option></select>
+          <div id="bn-result" class="muted"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>📥 CSV-Import</h2>
+        <p class="muted">Bank-Export einlesen (DKB / Sparkasse / ING / N26)</p>
+        <input id="csv-file" type="file" accept=".csv,text/csv,text/plain" />
+        <button class="primary" id="csv-import" style="margin-top:10px">Importieren</button>
+        <div id="csv-info" class="muted" style="margin-top:8px"></div>
+      </div>
+    </div>
+  `;
+};
+BINDERS.tools = (root, st) => {
+  root.querySelector('[data-new-goal]').onclick = () => openSimpleEntityModal('Sparziel', [
+    {key:'label', label:'Bezeichnung'}, {key:'target', label:'Zielbetrag €', type:'number'}, {key:'saved', label:'Bereits gespart €', type:'number'}, {key:'deadline', label:'Deadline', type:'date'},
+  ], data => Store.update(s => ({...s, goals:[...s.goals, {...data, target:Number(data.target)||0, saved:Number(data.saved)||0, id:uid('gol'), emoji:'🎯', createdAt: new Date().toISOString()}]})));
+  root.querySelector('[data-new-contract]').onclick = () => openSimpleEntityModal('Vertrag', [
+    {key:'label', label:'Bezeichnung'}, {key:'category', label:'Kategorie', type:'select', options:['Strom','Gas','Internet','Telefon','Versicherung','Streaming','Sonstiges']}, {key:'vendor', label:'Anbieter'}, {key:'monthlyCost', label:'Monatskosten €', type:'number'}, {key:'earliestEndDate', label:'Vertragsende', type:'date'}, {key:'noticePeriodDays', label:'Kündigungsfrist (Tage)', type:'number'},
+  ], data => Store.update(s => ({...s, contracts:[...s.contracts, {...data, monthlyCost:Number(data.monthlyCost)||null, noticePeriodDays:Number(data.noticePeriodDays)||90, id:uid('ctr'), createdAt: new Date().toISOString()}]})));
+  root.querySelector('[data-new-cm]').onclick = () => openSimpleEntityModal('Handwerker', [
+    {key:'name', label:'Name'}, {key:'trade', label:'Gewerk', type:'select', options:['Heizung','Elektrik','Sanitär','Maler','Schreiner','Dach','Garten','Reinigung','Schornsteinfeger','Sonstiges']}, {key:'phone', label:'Telefon'}, {key:'email', label:'E-Mail'}, {key:'website', label:'Website'}, {key:'hours', label:'Öffnungszeiten'},
+  ], data => Store.update(s => ({...s, craftsmen:[...s.craftsmen, {...data, id:uid('crf'), createdAt: new Date().toISOString()}]})));
+  const bnB = root.querySelector('#bn-brutto');
+  const bnC = root.querySelector('#bn-class');
+  const bnR = root.querySelector('#bn-result');
+  const compute = () => {
+    const b = Number(bnB.value);
+    if(!b){ bnR.textContent=''; return; }
+    const cls = Number(bnC.value);
+    const sv = b * (cls===3?0.04:cls===5?0.10:cls===6?0.16:0.07);
+    const sva = b * 0.205;
+    const netto = b - sv - sva;
+    bnR.innerHTML = `<div>Lohnsteuer ca: <b>${fmtEur(sv)}</b></div><div>Sozialversicherung ca: <b>${fmtEur(sva)}</b></div><div class="amount md income" style="margin-top:6px">Netto ≈ ${fmtEur(netto)}</div>`;
+  };
+  bnB.oninput = compute; bnC.onchange = compute;
+
+  root.querySelector('#csv-import').onclick = async () => {
+    const f = root.querySelector('#csv-file').files[0];
+    const info = root.querySelector('#csv-info');
+    if(!f){ alert('Datei wählen'); return; }
+    const text = await f.text();
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    let imported = 0;
+    const buchungen = [];
+    // Einfache Heuristik: finde Header-Zeile mit "Datum" und "Betrag"
+    let delim = ';'; let headerIdx = -1;
+    for(let i=0;i<Math.min(15,lines.length);i++){
+      const l = lines[i].toLowerCase();
+      if(l.includes('datum') && (l.includes('betrag')||l.includes('umsatz')||l.includes('wert'))){
+        headerIdx = i;
+        delim = lines[i].split(';').length > lines[i].split(',').length ? ';' : ',';
+        break;
+      }
+    }
+    if(headerIdx < 0){ info.textContent='Kein Banking-Format erkannt'; return; }
+    const headers = splitCSV(lines[headerIdx], delim).map(h => h.toLowerCase());
+    const idxDate = headers.findIndex(h => h.includes('datum')||h.includes('buchungstag'));
+    const idxAmount = headers.findIndex(h => h.includes('betrag')||h.includes('umsatz'));
+    const idxCp = headers.findIndex(h => h.includes('empfänger')||h.includes('auftraggeber')||h.includes('name'));
+    const idxNote = headers.findIndex(h => h.includes('verwendung')||h.includes('text'));
+    for(let i=headerIdx+1;i<lines.length;i++){
+      const cols = splitCSV(lines[i], delim);
+      if(cols.length < 2) continue;
+      const d = parseGermanDate(cols[idxDate]);
+      const amount = parseGermanAmount(cols[idxAmount]);
+      if(!d || amount==null) continue;
+      buchungen.push({...newBookingDraft(), id:uid('imp'), type: amount<0?'expense':'income', amount: Math.abs(amount), date:d, counterparty: cols[idxCp]||'', note: cols[idxNote]||'', createdAt: new Date().toISOString()});
+      imported++;
+    }
+    if(!imported){ info.textContent='Keine Buchungen erkannt'; return; }
+    confirmAlert(`${imported} Buchungen importieren?`, () => {
+      Store.update(s => ({...s, bookings:[...s.bookings, ...buchungen]}));
+      info.textContent = `✓ ${imported} importiert`;
+    });
+  };
+};
+function splitCSV(line, d){
+  const out=[]; let cur=''; let q=false;
+  for(let i=0;i<line.length;i++){
+    const ch=line[i];
+    if(ch==='"'){ if(q && line[i+1]==='"'){ cur+='"'; i++; } else q=!q; }
+    else if(ch===d && !q){ out.push(cur); cur=''; }
+    else cur+=ch;
+  }
+  out.push(cur); return out.map(s=>s.trim());
+}
+function parseGermanDate(s){
+  if(!s) return null;
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+  if(!m) return null;
+  let y = m[3]; if(y.length===2) y = (Number(y)>50?'19':'20')+y;
+  return `${y}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+}
+function parseGermanAmount(s){
+  if(!s) return null;
+  const c = String(s).replace(/\s/g,'').replace(/\./g,'').replace(',','.').replace(/[^0-9.\-+]/g,'');
+  const n = Number(c); return Number.isFinite(n) ? n : null;
+}
+
+function openSimpleEntityModal(title, fields, onSave){
+  const html = `
+    <div class="form">${fields.map(f => `
+      <div>
+        <label>${escapeHtml(f.label)}</label>
+        ${f.type==='select' ? `<select id="se-${f.key}">${(f.options||[]).map(o=>`<option>${escapeHtml(o)}</option>`).join('')}</select>` :
+          f.type==='date' ? `<input id="se-${f.key}" type="date" />` :
+          f.type==='number' ? `<input id="se-${f.key}" type="number" step="0.01" />` :
+          `<input id="se-${f.key}" />`}
+      </div>`).join('')}
+    </div>
+    <div class="modal-actions"><button data-cancel>Abbrechen</button><button class="primary" data-save>Speichern</button></div>
+  `;
+  openModal(title, html, (body, close) => {
+    body.querySelector('[data-cancel]').onclick = close;
+    body.querySelector('[data-save]').onclick = () => {
+      const data = {};
+      for(const f of fields){
+        const el = body.querySelector('#se-'+f.key);
+        data[f.key] = el ? el.value.trim() : '';
+      }
+      onSave(data);
+      close();
+    };
+  });
+}
+
+// ---- Settings -----
+VIEWS.settings = (st) => {
+  return `
+    <h1 class="serif">Einstellungen</h1>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title"><h2>🔒 Sicherheit</h2></div>
+      <div class="row">
+        ${st.settings.pinHash ? '<span class="pill emerald">✓ PIN gesetzt</span>' : '<span class="pill berry">Kein PIN</span>'}
+        <button id="pin-set">${st.settings.pinHash?'PIN ändern':'PIN setzen'}</button>
+        ${st.settings.pinHash ? '<button class="danger" id="pin-rm">PIN entfernen</button>' : ''}
+      </div>
+      <div class="row" style="margin-top:14px">
+        <label>Auto-Lock</label>
+        <select id="auto-lock">
+          ${[0,1,5,15,30].map(m => `<option value="${m}" ${st.settings.autoLockMinutes===m?'selected':''}>${m===0?'Aus':m+' Minuten'}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title"><h2>🎨 Erscheinungsbild</h2></div>
+      <div class="row" style="margin-bottom:10px">
+        <label>Thema</label>
+        ${['dark','light'].map(t => `<button class="${st.settings.colorScheme===t?'primary':''}" data-theme="${t}">${t==='dark'?'Deep Jungle (dunkel)':'Salbei (hell)'}</button>`).join('')}
+      </div>
+      <div class="row" style="margin-bottom:10px">
+        <label>Sprache</label>
+        ${['de','en'].map(l => `<button class="${st.settings.locale===l?'primary':''}" data-lang="${l}">${l==='de'?'Deutsch':'English'}</button>`).join('')}
+      </div>
+      <div class="row">
+        <label>Schriftgröße</label>
+        ${['normal','large','xlarge'].map(s => `<button class="${st.settings.fontScale===s?'primary':''}" data-font="${s}">${s==='normal'?'Normal':s==='large'?'Groß':'Sehr Groß'}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title"><h2>📦 Daten</h2></div>
+      <p class="muted">Backup als JSON-Datei mit allen Buchungen, Mietern, Belegen. Lokal speichern oder per AirDrop verschicken.</p>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="bk-export">📤 Backup erstellen</button>
+        <input id="bk-file" type="file" accept=".json,application/json" style="max-width:260px" />
+        <button id="bk-import">📥 Backup laden</button>
+      </div>
+      <div class="row" style="margin-top:18px">
+        <span class="pill ${st.trash.length?'berry':''}">🗑 Papierkorb: ${st.trash.length}</span>
+        <button id="trash-open">Öffnen</button>
+        <button id="trash-purge">Auto-Bereinigung (>30 Tg)</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title"><h2>🧰 Kategorien</h2></div>
+      <p class="muted">Goldener Stern (★) = steuerrelevant. Diese Buchungen erscheinen automatisch im Berater-Modus.</p>
+      <table class="data" style="margin-top:10px">
+        <thead><tr><th>Kategorie</th><th>Gruppe</th><th class="right">★ Steuerrelevant</th></tr></thead>
+        <tbody>${st.categories.map(c => `
+          <tr><td>${escapeHtml(c.label)}</td><td><span class="pill ${c.group||'neutral'}">${c.group||'neutral'}</span></td>
+            <td class="right"><label class="toggle"><input type="checkbox" data-tax="${c.id}" ${c.taxRelevant?'checked':''} /><span class="switch"></span></label></td></tr>
+        `).join('')}</tbody>
+      </table>
+      <button id="cat-add" style="margin-top:10px">+ Eigene Kategorie</button>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="card-title"><h2>⚠ Zurücksetzen</h2></div>
+      <p class="muted">Löscht alle lokalen Daten. Bitte vorher Backup machen!</p>
+      <button class="danger" id="reset-all">🗑 Alle Daten löschen</button>
+    </div>
+  `;
+};
+BINDERS.settings = (root, st) => {
+  root.querySelector('#pin-set').onclick = () => {
+    openModal('PIN setzen', `
+      <div class="form">
+        <div><label>Neuer PIN (min. 4 Stellen)</label><input id="np" type="password" inputmode="numeric" /></div>
+        <div><label>Wiederholen</label><input id="np2" type="password" inputmode="numeric" /></div>
+      </div>
+      <div class="modal-actions"><button data-cancel>Abbrechen</button><button class="primary" data-save>Setzen</button></div>
+    `, (body, close) => {
+      body.querySelector('[data-cancel]').onclick = close;
+      body.querySelector('[data-save]').onclick = async () => {
+        const p = body.querySelector('#np').value; const p2 = body.querySelector('#np2').value;
+        if(p.length < 4){ alert('Mindestens 4 Zeichen'); return; }
+        if(p !== p2){ alert('PIN stimmt nicht überein'); return; }
+        const h = await sha256(p + '|manu-salt');
+        Store.update(s => ({...s, settings:{...s.settings, pinHash: h}}));
+        sessionStorage.setItem('manu.unlocked','1');
+        close();
+      };
+    });
+  };
+  const pinRm = root.querySelector('#pin-rm');
+  if(pinRm) pinRm.onclick = () => confirmAlert('PIN entfernen — die App startet danach ohne Schutz', () => {
+    Store.update(s => ({...s, settings:{...s.settings, pinHash:null}}));
+  });
+  root.querySelector('#auto-lock').onchange = e => Store.update(s => ({...s, settings:{...s.settings, autoLockMinutes: Number(e.target.value)}}));
+
+  root.querySelectorAll('[data-theme]').forEach(b => b.onclick = () => Store.update(s => ({...s, settings:{...s.settings, colorScheme: b.dataset.theme}})));
+  root.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => Store.update(s => ({...s, settings:{...s.settings, locale: b.dataset.lang}})));
+  root.querySelectorAll('[data-font]').forEach(b => b.onclick = () => Store.update(s => ({...s, settings:{...s.settings, fontScale: b.dataset.font}})));
+
+  root.querySelector('#bk-export').onclick = async () => {
+    const st2 = Store.get();
+    // Belege als Base64 inline
+    const receipts = await Promise.all(st2.receipts.map(async r => {
+      const dataUri = await FilesDB.asDataURL(r.id);
+      return {...r, dataUri};
+    }));
+    const snapshot = {...st2, receipts};
+    delete snapshot.hydrated; delete snapshot.unlocked; delete snapshot.clipboardHint; delete snapshot._filterPropertyId;
+    const json = JSON.stringify({app:'manu-web', version:1, createdAt: new Date().toISOString(), data: snapshot}, null, 2);
+    downloadBlob(json, `manu-backup-${todayIso()}.json`, 'application/json');
+  };
+  root.querySelector('#bk-import').onclick = async () => {
+    const f = root.querySelector('#bk-file').files[0];
+    if(!f){ alert('Backup-Datei wählen'); return; }
+    confirmAlert('Backup einspielen? Alle aktuellen Daten werden ersetzt.', async () => {
+      const text = await f.text();
+      try{
+        const parsed = JSON.parse(text);
+        const data = parsed.data || parsed; // tolerant
+        const receipts = data.receipts || [];
+        // Belege aus Base64 zurück in IndexedDB
+        for(const r of receipts){
+          if(r.dataUri){
+            const blob = await (await fetch(r.dataUri)).blob();
+            await FilesDB.put(r.id, blob);
+            delete r.dataUri;
+          }
+        }
+        Store.replace(data);
+        alert('Backup eingespielt');
+      }catch(e){ alert('Backup ungültig: '+e.message); }
+    });
+  };
+
+  root.querySelector('#trash-open').onclick = () => {
+    const st2 = Store.get();
+    const html = st2.trash.length ? `<table class="data"><thead><tr><th>Typ</th><th>Beschreibung</th><th>Gelöscht am</th><th></th></tr></thead><tbody>${st2.trash.map(t => `
+      <tr><td>${t.entityType}</td><td>${escapeHtml(t.payload?.label || t.payload?.name || t.payload?.counterparty || t.id)}</td><td class="muted">${fmtDate(t.deletedAt)}</td>
+        <td class="right"><button data-restore="${t.id}">↩ Wiederherstellen</button> <button class="danger" data-purge="${t.id}">×</button></td></tr>`).join('')}</tbody></table>` : '<div class="muted">Papierkorb ist leer</div>';
+    openModal('Papierkorb', html + '<div class="modal-actions"><button data-empty>Alles löschen</button><button data-close>Schließen</button></div>', (body, close) => {
+      body.querySelector('[data-close]').onclick = close;
+      body.querySelector('[data-empty]').onclick = () => confirmAlert('Papierkorb leeren?', () => Store.update(s => ({...s, trash:[]})));
+      body.querySelectorAll('[data-restore]').forEach(b => b.onclick = () => restoreFromTrash(b.dataset.restore));
+      body.querySelectorAll('[data-purge]').forEach(b => b.onclick = () => Store.update(s => ({...s, trash: s.trash.filter(t => t.id !== b.dataset.purge)})));
+    });
+  };
+  root.querySelector('#trash-purge').onclick = () => {
+    const cutoff = Date.now() - 30*86400000;
+    let n = 0;
+    Store.update(s => ({...s, trash: s.trash.filter(t => { const keep = new Date(t.deletedAt).getTime() >= cutoff; if(!keep) n++; return keep; })}));
+    alert(`${n} alte Einträge entfernt`);
+  };
+
+  root.querySelectorAll('[data-tax]').forEach(c => c.onchange = e => {
+    const id = c.dataset.tax;
+    Store.update(s => ({...s, categories: s.categories.map(x => x.id===id?{...x, taxRelevant: e.target.checked}:x)}));
+  });
+  root.querySelector('#cat-add').onclick = () => openSimpleEntityModal('Neue Kategorie', [
+    {key:'label', label:'Bezeichnung'}, {key:'group', label:'Gruppe', type:'select', options:['neutral','moss','emerald','sage']}
+  ], data => Store.update(s => ({...s, categories:[...s.categories, {id: uid('cat'), label: data.label, group: data.group, taxRelevant:false}]})));
+
+  root.querySelector('#reset-all').onclick = () => confirmAlert('WIRKLICH alles löschen? Diese Aktion kann nicht rückgängig gemacht werden.', () => {
+    Store.reset();
+    sessionStorage.removeItem('manu.unlocked');
+    location.reload();
+  });
+};
+function restoreFromTrash(trashId){
+  const st = Store.get();
+  const t = st.trash.find(x => x.id === trashId);
+  if(!t) return;
+  const collectionMap = {booking:'bookings', tenant:'tenants', craftsman:'craftsmen', property:'properties', receipt:'receipts', document:'documents'};
+  const key = collectionMap[t.entityType];
+  if(!key) return;
+  Store.update(s => ({...s, [key]: [...s[key], t.payload], trash: s.trash.filter(x => x.id !== trashId)}));
+}
+
+// ---- Lock Screen -----
+function renderLockScreen(){
+  $('#view').innerHTML = `
+    <div class="lock-screen">
+      <div class="seal">M</div>
+      <h2 class="serif" style="margin-bottom:8px">Manu</h2>
+      <p class="muted" style="margin-bottom:24px">Bitte PIN eingeben</p>
+      <input id="lock-pin" type="password" inputmode="numeric" autofocus />
+      <button class="primary" id="lock-go" style="margin-top:14px;min-width:240px">Tresor öffnen</button>
+      <p id="lock-err" class="muted" style="margin-top:14px;color:var(--berry)"></p>
+    </div>
+  `;
+  document.body.classList.remove('advisor');
+  const tryUnlock = async () => {
+    const v = $('#lock-pin').value;
+    const h = await sha256(v + '|manu-salt');
+    if(h === Store.get().settings.pinHash){
+      sessionStorage.setItem('manu.unlocked','1');
+      render();
+    } else {
+      $('#lock-err').textContent = 'PIN falsch';
+    }
+  };
+  $('#lock-go').onclick = tryUnlock;
+  $('#lock-pin').onkeydown = e => { if(e.key === 'Enter') tryUnlock(); };
+}
+
+// ============================================================
+// EVENTS + BOOT
+// ============================================================
+$('#advisorToggle').onchange = (e) => {
+  Store.update(s => ({...s, settings:{...s.settings, advisorMode: e.target.checked}}));
+};
+
+// Auto-Lock
+let idleTimer = null;
+function resetIdle(){
+  if(idleTimer) clearTimeout(idleTimer);
+  const min = Store.get().settings.autoLockMinutes;
+  if(!min || !Store.get().settings.pinHash) return;
+  idleTimer = setTimeout(() => { sessionStorage.removeItem('manu.unlocked'); render(); }, min * 60000);
+}
+['click','keydown','scroll','touchstart','mousemove'].forEach(ev => document.addEventListener(ev, resetIdle, {passive:true}));
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden && Store.get().settings.pinHash){
+    sessionStorage.removeItem('manu.unlocked');
+  } else if(!document.hidden){
+    render();
+  }
+});
+
+// Hash-Routing
+window.addEventListener('hashchange', () => {
+  const id = location.hash.replace('#/','') || 'dashboard';
+  if(TABS.find(t => t.id === id)){
+    Store.update(s => ({...s, settings:{...s.settings, activeTab:id}}));
+    render();
+  }
+});
+
+// Initial-Boot
+const created = runAutoBookings();
+if(location.hash.replace('#/','')){
+  Store.update(s => ({...s, settings:{...s.settings, activeTab: location.hash.replace('#/','')}}));
+}
+render();
+resetIdle();
+
+// Globale API für Inline-Onclicks
+window.Manu = { Store, render, FilesDB };
+
+console.log('🌳 Manu Deep Jungle ist bereit. localStorage-Key: '+STORE_KEY);
+</script>
+</body>
+</html>
