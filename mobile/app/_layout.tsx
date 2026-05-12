@@ -128,6 +128,7 @@ export default function RootLayout() {
             <Stack.Screen name="datev-mapping" options={{ title: 'DATEV-Konten' }} />
             <Stack.Screen name="handover/new" options={{ presentation: 'modal', title: 'Übergabeprotokoll' }} />
             <Stack.Screen name="trash" options={{ title: 'Papierkorb' }} />
+            <Stack.Screen name="dashboard-edit" options={{ title: 'Dashboard bearbeiten' }} />
           </Stack>
         )}
         </BottomSheetModalProvider>

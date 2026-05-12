@@ -128,9 +128,23 @@ mobile/
 
 ## Daten-Persistenz
 
-Alles in `AsyncStorage` (`manu-imperial-store-v5`). Belege, Dokumente und Zähler-Fotos
+Alles in `AsyncStorage` (`manu-imperial-store-v6`). Belege, Dokumente und Zähler-Fotos
 liegen als reale Dateien im `FileSystem.documentDirectory`. Migration auf SQLite
 sinnvoll ab ~10k Buchungen oder bei aktiver Volltextsuche über Datei-Inhalte.
+
+## Phase 7.1 — Drag&Drop + Sprachdiktat + ML-Kit-OCR
+
+| F-Nr | Feature |
+|------|---------|
+| **F-005** Drag&Drop-Dashboard | `react-native-draggable-flatlist`. Sektionen sortierbar + ein-/ausblendbar via dedizierter Route `app/dashboard-edit.tsx`. State in `dashboardOrder` + `dashboardHidden`. |
+| **F-047** Sprachdiktat | `@react-native-voice/voice` mit on-device-Recognition. Mic-Button in der Schnellerfassung; `parseVoice` baut aus „120 Euro Tankstelle Aral" einen Buchungs-Draft. Kein Datenversand an Apple/Google. |
+| **ML-Kit-OCR** | `@react-native-ml-kit/text-recognition` läuft on-device beim Beleg-Scan (`receipt/scan.tsx` → `storage.ts::readExtractableText`). Confidence steigt bei Foto-Belegen von ~30 % auf ~80 %. |
+
+**Sanfte Migration v5 → v6:**
+Beim ersten Start mit v6 prüft `lib/migration.ts`, ob v5-Daten vorhanden sind.
+Falls ja, wird automatisch eine Backup-Datei (`migration-backup-*.manubak`) im
+DocumentDirectory erstellt und einmalig zum Teilen angeboten — *danach* wird
+v5 in v6-Schema migriert. Keine Daten gehen verloren.
 
 ## Phase 5.1 — Sicherheit + Komfort
 

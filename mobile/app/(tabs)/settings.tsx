@@ -384,6 +384,22 @@ export default function SettingsScreen() {
       </View>
 
       <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>🎙 Sprachdiktat</Text>
+        <Text style={text.subhead}>
+          Spracherkennung läuft on-device — nichts wird an Apple- oder Google-Server gesendet.
+          Im Expo-Go-Build deaktiviert; Development-Build erforderlich.
+        </Text>
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
+        <Text style={text.sectionTitle}>📐 Dashboard</Text>
+        <Pressable onPress={() => router.push('/dashboard-edit')} style={styles.linkRow}>
+          <Text style={text.body}>Sektionen sortieren / ausblenden</Text>
+          <Text style={{ color: palette.imperialGold }}>›</Text>
+        </Pressable>
+      </View>
+
+      <View style={[styles.card, shadows.card]}>
         <Text style={text.sectionTitle}>🛠 Tools</Text>
         <Pressable onPress={() => router.push('/brutto-netto')} style={styles.linkRow}>
           <Text style={text.body}>💶 Brutto / Netto-Rechner</Text>

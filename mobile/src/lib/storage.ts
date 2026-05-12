@@ -52,8 +52,8 @@ export async function deleteFile(uri: string) {
 /**
  * Versucht, Text aus einer lokalen Datei zu lesen.
  * - Für *.txt: direkter Read
- * - Für PDFs: liefert leeren String (ML-Kit-Hook später hier einsetzen)
- * - Für Bilder: leerer String (ML-Kit-Hook später)
+ * - Für Bilder: ML-Kit-OCR (on-device, falls verfügbar)
+ * - Für PDFs: leerer String (PDF-Parser kommt in einer späteren Phase)
  */
 export async function readExtractableText(uri: string, filename: string): Promise<string> {
   const lower = filename.toLowerCase();
@@ -64,5 +64,32 @@ export async function readExtractableText(uri: string, filename: string): Promis
       return '';
     }
   }
+  // Bilder via ML-Kit erkennen (Phase 7)
+  if (/\.(jpe?g|png|webp|heic)$/i.test(lower)) {
+    return await runMlKitOcr(uri);
+  }
   return '';
+}
+
+/**
+ * ML-Kit-OCR (Phase 7) — lazy load, in Expo Go fällt zurück auf leeren String.
+ */
+async function runMlKitOcr(uri: string): Promise<string> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('@react-native-ml-kit/text-recognition');
+    const TextRecognition = mod.default ?? mod;
+    const result = await TextRecognition.recognize(uri);
+    if (typeof result?.text === 'string') return result.text;
+    if (Array.isArray(result?.blocks)) {
+      return result.blocks
+        .map((b: { text?: string }) => b.text ?? '')
+        .filter(Boolean)
+        .join('\n');
+    }
+    return '';
+  } catch (e) {
+    if (__DEV__) console.log('[ML-Kit] nicht verfügbar / Fehler:', e);
+    return '';
+  }
 }

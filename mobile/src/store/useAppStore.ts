@@ -10,7 +10,23 @@ import { hashPin, newSalt, verifyPin } from '@/lib/pin';
 import { applyRules } from '@/lib/rules';
 import { nextDueDate } from '@/lib/recurring';
 import { evaluateAchievements, updateStreak } from '@/lib/achievements';
+import { ensureV5Migration } from '@/lib/migration';
 import { objectColors } from '@/theme/colors';
+
+/**
+ * Storage-Wrapper, der vor dem ersten Lesen die Migration v5 → v6 fährt.
+ * So sieht Zustand persist die migrierten Daten direkt beim Hydrate.
+ */
+let migrationPromise: Promise<void> | null = null;
+const migratingAsyncStorage = {
+  async getItem(name: string) {
+    if (!migrationPromise) migrationPromise = ensureV5Migration().then(() => {}).catch(() => {});
+    await migrationPromise;
+    return AsyncStorage.getItem(name);
+  },
+  setItem: AsyncStorage.setItem.bind(AsyncStorage),
+  removeItem: AsyncStorage.removeItem.bind(AsyncStorage),
+};
 import {
   AchievementState,
   Asset,
@@ -81,6 +97,9 @@ interface AppState {
   scrollPositions: Record<string, number>;
   // Phase 5
   trash: TrashEntry[];
+  // Phase 7
+  dashboardOrder: string[];
+  dashboardHidden: string[];
 
   settings: Settings;
   clipboardHint: ClipboardHint | null;
@@ -106,6 +125,9 @@ interface AppState {
   setColorScheme: (s: ColorScheme) => void;
   setLocale: (l: Locale) => void;
   setAutoLockMinutes: (m: number) => void;
+  setDashboardOrder: (order: string[]) => void;
+  toggleDashboardSection: (sectionId: string) => void;
+  setVoicePrivacy: (mode: 'on-device' | 'cloud') => void;
 
   // Properties
   addProperty: (input: Omit<Property, 'id' | 'createdAt' | 'color'> & { color?: string }) => Property;
@@ -303,6 +325,11 @@ export const useAppStore = create<AppState>()(
       lastTab: 'index',
       scrollPositions: {},
       trash: [],
+      dashboardOrder: [
+        'header','clipboard','balance','leftover','monthSlider','heatmap',
+        'oracle','goals','quickActions','achievements','properties',
+      ],
+      dashboardHidden: [],
       settings: { ...defaultSettings },
       clipboardHint: null,
 
@@ -340,6 +367,14 @@ export const useAppStore = create<AppState>()(
       setColorScheme: (scheme) => set((s) => ({ settings: { ...s.settings, colorScheme: scheme } })),
       setLocale: (locale) => set((s) => ({ settings: { ...s.settings, locale } })),
       setAutoLockMinutes: (m) => set((s) => ({ settings: { ...s.settings, autoLockMinutes: m } })),
+      setDashboardOrder: (order) => set({ dashboardOrder: order }),
+      toggleDashboardSection: (sectionId) =>
+        set((s) => ({
+          dashboardHidden: s.dashboardHidden.includes(sectionId)
+            ? s.dashboardHidden.filter((x) => x !== sectionId)
+            : [...s.dashboardHidden, sectionId],
+        })),
+      setVoicePrivacy: (mode) => set((s) => ({ settings: { ...s.settings, voicePrivacy: mode } })),
 
       addProperty: (input) => {
         const used = new Set(get().properties.map((p) => p.color));
@@ -911,8 +946,8 @@ export const useAppStore = create<AppState>()(
       },
     }),
     {
-      name: 'manu-imperial-store-v5',
-      storage: createJSONStorage(() => AsyncStorage),
+      name: 'manu-imperial-store-v6',
+      storage: createJSONStorage(() => migratingAsyncStorage),
       partialize: (state) => ({
         currentMonth: state.currentMonth,
         properties: state.properties,
@@ -944,6 +979,8 @@ export const useAppStore = create<AppState>()(
         lastTab: state.lastTab,
         scrollPositions: state.scrollPositions,
         trash: state.trash,
+        dashboardOrder: state.dashboardOrder,
+        dashboardHidden: state.dashboardHidden,
         settings: state.settings,
       }),
       onRehydrateStorage: () => (state) => {

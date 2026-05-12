@@ -207,6 +207,8 @@ export interface Settings {
   colorScheme: ColorScheme;
   /** Phase 5: Sprache. */
   locale: Locale;
+  /** Phase 7: Sprachdiktat-Datenschutz. */
+  voicePrivacy?: 'on-device' | 'cloud';
 }
 
 /** F-131 Papierkorb-Eintrag — generisch. */

@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AmountInput } from '@/components/AmountInput';
 import { CasinoButton } from '@/components/CasinoButton';
@@ -8,6 +8,8 @@ import { CategoryPicker } from '@/components/CategoryPicker';
 import { Field } from '@/components/Field';
 import { GoldChip } from '@/components/GoldChip';
 import { Screen } from '@/components/Screen';
+import { isVoiceAvailable, startRecording, VoiceSession } from '@/lib/voice';
+import { parseVoice } from '@/lib/voiceParser';
 import { evaluateExpression, formatEuro } from '@/lib/calc';
 import { today } from '@/lib/dates';
 import { useAppStore } from '@/store/useAppStore';
@@ -30,6 +32,45 @@ export default function QuickEntryScreen() {
   const [amountRaw, setAmountRaw] = useState('');
   const [amount, setAmount] = useState<number | null>(null);
   const [type, setType] = useState<BookingType>('expense');
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState<string>('');
+  const voiceSessionRef = useRef<VoiceSession | null>(null);
+
+  useEffect(() => () => { voiceSessionRef.current?.stop(); }, []);
+
+  const startVoice = async () => {
+    if (!isVoiceAvailable()) {
+      Alert.alert(
+        'Sprachdiktat nicht verfügbar',
+        'Bitte einen Development-Build verwenden (npx expo prebuild + expo run). In Expo Go funktioniert es nicht.',
+      );
+      return;
+    }
+    setVoiceListening(true);
+    setVoiceTranscript('');
+    voiceSessionRef.current = await startRecording({
+      onResult: (text) => {
+        setVoiceTranscript(text);
+        setVoiceListening(false);
+        const draft = parseVoice(text, properties, categories);
+        if (draft.amount !== null) {
+          setAmount(draft.amount);
+          setAmountRaw(draft.amount.toString().replace('.', ','));
+          setType(draft.type);
+          if (draft.categoryId) setCategoryId(draft.categoryId);
+          if (draft.propertyId) setPropertyId(draft.propertyId);
+        } else {
+          Alert.alert('Ich habe verstanden', text + '\n\nBitte Betrag manuell eintragen.');
+        }
+      },
+      onError: (msg) => { setVoiceListening(false); Alert.alert('Spracherkennung', msg); },
+    });
+  };
+  const stopVoice = async () => {
+    setVoiceListening(false);
+    await voiceSessionRef.current?.stop();
+    voiceSessionRef.current = null;
+  };
 
   const lastBooking = bookings[bookings.length - 1];
   const guessedPropertyId = lastBooking?.propertyId ?? properties[0]?.id ?? null;
@@ -76,8 +117,27 @@ export default function QuickEntryScreen() {
     <Screen>
       <Text style={text.imperialHeadline}>Schnellerfassung</Text>
       <Text style={[text.subhead, { textAlign: 'center' }]}>
-        Betrag tippen — KI ergänzt den Rest
+        Betrag tippen oder 🎙 diktieren — KI ergänzt den Rest
       </Text>
+
+      <Pressable
+        onPress={voiceListening ? stopVoice : startVoice}
+        style={({ pressed }) => [
+          styles.voiceBtn,
+          voiceListening && styles.voiceBtnActive,
+          pressed && { opacity: 0.85 },
+        ]}
+      >
+        <Text style={styles.voiceIcon}>{voiceListening ? '⏹' : '🎙'}</Text>
+        <Text style={[text.bodyBold, { color: voiceListening ? '#000' : palette.imperialGold }]}>
+          {voiceListening ? 'Höre zu — tippen zum Stoppen' : 'Per Sprache erfassen'}
+        </Text>
+      </Pressable>
+      {voiceTranscript ? (
+        <Text style={[text.caption, { textAlign: 'center', fontStyle: 'italic' }]}>
+          „{voiceTranscript}"
+        </Text>
+      ) : null}
 
       <View style={styles.typeRow}>
         <GoldChip label="− Ausgabe" selected={type === 'expense'} onPress={() => setType('expense')} />
@@ -169,4 +229,20 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: 12,
   },
+  voiceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: palette.imperialGold,
+    backgroundColor: 'rgba(212,175,55,0.10)',
+  },
+  voiceBtnActive: {
+    backgroundColor: palette.imperialGold,
+  },
+  voiceIcon: { fontSize: 20 },
 });

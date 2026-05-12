@@ -51,6 +51,13 @@
         {
           "color": "#D4AF37"
         }
+      ],
+      [
+        "@react-native-voice/voice",
+        {
+          "microphonePermission": "Damit Du Buchungen per Spracheingabe diktieren kannst.",
+          "speechRecognitionPermission": "Manu erkennt Deine Sprache nur lokal auf dem Gerät — nichts wird an Apple gesendet."
+        }
       ]
     ],
     "experiments": {
