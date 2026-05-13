@@ -97,28 +97,52 @@ const Store = (() => {
     },
   });
 
-  let state = load();
+  let state = loadInitial();
   const listeners = new Set();
 
-  function load(){
+  function mergeBase(parsed){
+    const base = defaults();
+    return {...base, ...parsed,
+      settings:{...base.settings, ...(parsed.settings||{})},
+      achievements:{...base.achievements, ...(parsed.achievements||{})},
+    };
+  }
+
+  function loadInitial(){
+    // Tresor verschlüsselt? Dann erst nach Unlock laden.
+    if(isEncrypted()) return defaults();
     try{
       const raw = localStorage.getItem(STORE_KEY);
       if(!raw) return defaults();
-      const parsed = JSON.parse(raw);
-      // Migrations: stelle sicher dass neue Felder existieren
-      const base = defaults();
-      return {...base, ...parsed,
-        settings:{...base.settings, ...(parsed.settings||{})},
-        achievements:{...base.achievements, ...(parsed.achievements||{})},
-      };
+      return mergeBase(JSON.parse(raw));
     }catch(e){ console.warn('Store load failed',e); return defaults(); }
   }
 
-  function persist(){
+  async function loadVault(){
+    const raw = localStorage.getItem(VAULT_KEY);
+    if(!raw) return defaults();
+    const env = JSON.parse(raw);
+    const data = await decryptWithMaster(env);
+    return mergeBase(data);
+  }
+
+  async function persist(){
     try{
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+      if(hasMasterKey() && isEncrypted()){
+        const env = await encryptWithMaster(state);
+        localStorage.setItem(VAULT_KEY, JSON.stringify(env));
+        // Klartext-Reste entfernen
+        localStorage.removeItem(STORE_KEY);
+      } else if(!isEncrypted()){
+        localStorage.setItem(STORE_KEY, JSON.stringify(state));
+      }
+      // Wenn verschlüsselt aber kein Master-Key (locked) → kein Schreiben.
     }catch(e){
-      alert('Speicher voll. Bitte alte Belege löschen oder Backup machen.');
+      if(e && e.name === 'QuotaExceededError'){
+        alert('Speicher voll. Bitte alte Belege löschen oder Backup machen.');
+      } else {
+        console.warn('persist failed', e);
+      }
     }
   }
 
@@ -130,11 +154,13 @@ const Store = (() => {
     update(fn){ state = fn(state); persist(); notify(); },
     on(fn){ listeners.add(fn); return () => listeners.delete(fn); },
     reset(){ state = defaults(); persist(); notify(); },
-    replace(snapshot){
-      const base = defaults();
-      state = {...base, ...snapshot, settings:{...base.settings, ...(snapshot.settings||{})}};
-      persist(); notify();
+    replace(snapshot){ state = mergeBase(snapshot); persist(); notify(); },
+    // Tresor-API:
+    async hydrateFromVault(){
+      state = await loadVault();
+      notify();
     },
+    setStateRaw(s){ state = s; notify(); },
   };
 })();
 
@@ -153,7 +179,7 @@ const FilesDB = (() => {
     });
     return dbPromise;
   }
-  async function put(id, blob){
+  async function putRaw(id, blob){
     const db = await open();
     return new Promise((resolve,reject) => {
       const tx = db.transaction(STORE_FILES,'readwrite');
@@ -162,7 +188,7 @@ const FilesDB = (() => {
       tx.onerror = () => reject(tx.error);
     });
   }
-  async function get(id){
+  async function getRaw(id){
     const db = await open();
     return new Promise((resolve,reject) => {
       const tx = db.transaction(STORE_FILES,'readonly');
@@ -170,6 +196,22 @@ const FilesDB = (() => {
       r.onsuccess = () => resolve(r.result || null);
       r.onerror = () => reject(r.error);
     });
+  }
+  async function put(id, blob){
+    if(hasMasterKey()){
+      const enc = await encryptBlobWithMaster(blob);
+      return putRaw(id, enc);
+    }
+    return putRaw(id, blob);
+  }
+  async function get(id){
+    const raw = await getRaw(id);
+    if(!raw) return null;
+    if(hasMasterKey() && raw.type === 'application/x-manu-enc'){
+      try{ return await decryptBlobWithMaster(raw); }
+      catch(e){ console.warn('blob decrypt failed', e); return null; }
+    }
+    return raw;
   }
   async function remove(id){
     const db = await open();
@@ -185,7 +227,16 @@ const FilesDB = (() => {
     if(!blob) return null;
     return new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
   }
-  return { put, get, remove, asDataURL, open };
+  async function listIds(){
+    const db = await open();
+    return new Promise((resolve,reject) => {
+      const tx = db.transaction(STORE_FILES,'readonly');
+      const r = tx.objectStore(STORE_FILES).getAllKeys();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    });
+  }
+  return { put, get, remove, asDataURL, open, putRaw, getRaw, listIds };
 })();
 
 // -------- Modal-Helper ----------
@@ -313,6 +364,229 @@ async function sha256(text){
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
+// =============================================================
+// Tresor — Master-Key + Envelopes
+// =============================================================
+// Master-Key wird im Speicher gehalten, sobald entweder PIN oder
+// Recovery-Code erfolgreich entschlüsselt wurde. Beim Auto-Lock
+// und beim Hidden-Tab wird er gewipt.
+
+const META_KEY = 'manu.meta';
+const VAULT_KEY = 'manu.v2';   // verschlüsselter State
+let _masterKey = null;          // CryptoKey | null
+function setMasterKey(k){ _masterKey = k; }
+function clearMasterKey(){ _masterKey = null; }
+function hasMasterKey(){ return _masterKey !== null; }
+
+function loadMeta(){
+  try{ const r = localStorage.getItem(META_KEY); return r ? JSON.parse(r) : null; }
+  catch{ return null; }
+}
+function saveMeta(meta){ localStorage.setItem(META_KEY, JSON.stringify(meta)); }
+function patchMeta(patch){ const m = loadMeta() || {}; saveMeta({...m, ...patch}); return {...m, ...patch}; }
+
+function isEncrypted(){
+  const m = loadMeta();
+  return !!(m && m.pinEnvelope);
+}
+
+async function generateMasterKey(){
+  return crypto.subtle.generateKey({name:'AES-GCM', length:256}, true, ['encrypt','decrypt']);
+}
+async function importRawMaster(rawBytes){
+  return crypto.subtle.importKey('raw', rawBytes, {name:'AES-GCM', length:256}, true, ['encrypt','decrypt']);
+}
+async function exportRawMaster(key){
+  const raw = await crypto.subtle.exportKey('raw', key);
+  return new Uint8Array(raw);
+}
+async function deriveAesKeyBits(passphrase, saltB64, iter){
+  const salt = b64ToBytes(saltB64);
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {name:'PBKDF2', salt, iterations:iter, hash:'SHA-256'},
+    base, {name:'AES-GCM', length:256}, false, ['encrypt','decrypt']
+  );
+}
+async function wrapMaster(master, passphrase){
+  const salt = bytesToB64(randomBytes(16));
+  const iter = PIN_ITER;
+  const wrapKey = await deriveAesKeyBits(passphrase, salt, iter);
+  const iv = randomBytes(12);
+  const rawMaster = await exportRawMaster(master);
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, wrapKey, rawMaster);
+  return { salt, iter, iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct)) };
+}
+async function unwrapMaster(envelope, passphrase){
+  const wrapKey = await deriveAesKeyBits(passphrase, envelope.salt, envelope.iter || PIN_ITER);
+  const raw = await crypto.subtle.decrypt(
+    {name:'AES-GCM', iv:b64ToBytes(envelope.iv)},
+    wrapKey,
+    b64ToBytes(envelope.ct)
+  );
+  return importRawMaster(new Uint8Array(raw));
+}
+async function encryptWithMaster(plainObj){
+  if(!_masterKey) throw new Error('Master-Key fehlt');
+  const iv = randomBytes(12);
+  const plain = new TextEncoder().encode(JSON.stringify(plainObj));
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, _masterKey, plain);
+  return { iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct)) };
+}
+async function decryptWithMaster(envelope){
+  if(!_masterKey) throw new Error('Master-Key fehlt');
+  const plain = await crypto.subtle.decrypt(
+    {name:'AES-GCM', iv:b64ToBytes(envelope.iv)},
+    _masterKey,
+    b64ToBytes(envelope.ct)
+  );
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+async function encryptBlobWithMaster(blob){
+  if(!_masterKey) throw new Error('Master-Key fehlt');
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const iv = randomBytes(12);
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, _masterKey, buf);
+  const payload = JSON.stringify({v:2, mime: blob.type || '', iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct))});
+  return new Blob([payload], {type:'application/x-manu-enc'});
+}
+async function decryptBlobWithMaster(blob){
+  if(!_masterKey) throw new Error('Master-Key fehlt');
+  const text = await blob.text();
+  let env; try{ env = JSON.parse(text); }catch{ return blob; }
+  if(!env || env.v !== 2 || !env.iv || !env.ct) return blob;
+  const plain = await crypto.subtle.decrypt(
+    {name:'AES-GCM', iv:b64ToBytes(env.iv)},
+    _masterKey,
+    b64ToBytes(env.ct)
+  );
+  return new Blob([plain], {type: env.mime || 'application/octet-stream'});
+}
+
+// Recovery-Code: 24 Zeichen aus Crockford-Base32, in 5er-Gruppen
+const RECOVERY_ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+function generateRecoveryCode(){
+  const bytes = randomBytes(15); // 15 * 8 = 120 Bit → 24 Chars Base32
+  let bits = 0n; for(const b of bytes) bits = (bits << 8n) | BigInt(b);
+  let out = ''; for(let i=0;i<24;i++){ out = RECOVERY_ALPHABET[Number(bits & 31n)] + out; bits >>= 5n; }
+  return out.match(/.{1,4}/g).join('-'); // ABCD-EFGH-... insgesamt 5 Gruppen mit Trennstrichen
+}
+function normalizeRecovery(code){
+  return String(code || '').toUpperCase().replace(/[^A-Z2-9]/g,'').replace(/[ILO]/g, c => ({I:'1',L:'1',O:'0'}[c]||''));
+}
+
+// ---- Tresor-Setup, Unlock, Recovery ----
+async function migrateLegacyVaultIfNeeded(){
+  // Wenn manu.v1 (Klartext) existiert UND eine Verschlüsselung schon
+  // aktiv ist (manu.meta.pinEnvelope vorhanden) — räumen wir manu.v1 weg.
+  // Wird nur sicher gerufen wenn _masterKey gesetzt ist.
+  if(hasMasterKey() && isEncrypted() && localStorage.getItem(STORE_KEY)){
+    localStorage.removeItem(STORE_KEY);
+  }
+}
+
+async function setupVault(pin, opts={}){
+  // Erstellt PIN- und Recovery-Envelopes, verschlüsselt State + Belege.
+  // Bei erstmaligem Setup wird ein Master-Key erzeugt; bei einer
+  // PIN-Änderung übernimmt der bestehende Master-Key.
+  if(!_masterKey) setMasterKey(await generateMasterKey());
+
+  const pinEnvelope = await wrapMaster(_masterKey, pin);
+  const recoveryCode = opts.keepRecovery ? null : generateRecoveryCode();
+  const meta = loadMeta() || {};
+  const patch = {
+    pinEnvelope,
+    pinAttempts: 0,
+    pinLockedUntil: 0,
+  };
+  if(recoveryCode){
+    patch.recoveryEnvelope = await wrapMaster(_masterKey, normalizeRecovery(recoveryCode));
+    patch.recoveryHint = recoveryCode.slice(0,4);
+    patch.setupAt = new Date().toISOString();
+  }
+  patchMeta(patch);
+
+  // Belege verschlüsseln, falls noch unverschlüsselt
+  try{
+    const ids = await FilesDB.listIds();
+    for(const id of ids){
+      const raw = await FilesDB.getRaw(id);
+      if(raw && raw.type !== 'application/x-manu-enc'){
+        const enc = await encryptBlobWithMaster(raw);
+        await FilesDB.putRaw(id, enc);
+      }
+    }
+  }catch(e){ console.warn('blob migration failed', e); }
+
+  // State verschlüsselt schreiben, alten Klartext löschen
+  const envState = await encryptWithMaster(Store.get());
+  localStorage.setItem(VAULT_KEY, JSON.stringify(envState));
+  localStorage.removeItem(STORE_KEY);
+  sessionStorage.setItem('manu.unlocked','1');
+
+  return recoveryCode;
+}
+
+async function unlockWithPin(pin){
+  const meta = loadMeta();
+  if(!meta || !meta.pinEnvelope) return { ok:false, reason:'no-envelope' };
+  if((meta.pinLockedUntil || 0) > Date.now()) return { ok:false, reason:'locked' };
+  try{
+    const master = await unwrapMaster(meta.pinEnvelope, pin);
+    setMasterKey(master);
+    await Store.hydrateFromVault();
+    patchMeta({ pinAttempts: 0, pinLockedUntil: 0 });
+    sessionStorage.setItem('manu.unlocked','1');
+    try{ runAutoBookings(); }catch{}
+    return { ok:true };
+  }catch(e){
+    const attempts = (meta.pinAttempts || 0) + 1;
+    const delay = lockoutDelayMs(attempts);
+    patchMeta({
+      pinAttempts: attempts,
+      pinLockedUntil: delay > 0 ? Date.now() + delay : 0,
+    });
+    return { ok:false, reason:'pin', attempts };
+  }
+}
+
+async function recoverWithCode(recoveryInput, newPin){
+  const meta = loadMeta();
+  if(!meta || !meta.recoveryEnvelope) throw new Error('Kein Recovery-Envelope vorhanden');
+  const normalized = normalizeRecovery(recoveryInput);
+  const master = await unwrapMaster(meta.recoveryEnvelope, normalized);
+  setMasterKey(master);
+  await Store.hydrateFromVault();
+  // Neuen PIN-Envelope erzeugen, Recovery-Envelope behalten
+  const pinEnvelope = await wrapMaster(_masterKey, newPin);
+  patchMeta({ pinEnvelope, pinAttempts:0, pinLockedUntil:0 });
+  sessionStorage.setItem('manu.unlocked','1');
+  try{ runAutoBookings(); }catch{}
+}
+
+async function removeVaultProtection(){
+  // PIN-Schutz entfernen: State entschlüsseln und Klartext schreiben,
+  // Belege entschlüsseln, Meta löschen.
+  if(isEncrypted() && !hasMasterKey()) throw new Error('Erst entsperren');
+  // Belege entschlüsseln
+  try{
+    const ids = await FilesDB.listIds();
+    for(const id of ids){
+      const raw = await FilesDB.getRaw(id);
+      if(raw && raw.type === 'application/x-manu-enc' && hasMasterKey()){
+        const plain = await decryptBlobWithMaster(raw);
+        await FilesDB.putRaw(id, plain);
+      }
+    }
+  }catch(e){ console.warn('blob unwrap failed', e); }
+  // Meta zurücksetzen
+  localStorage.removeItem(META_KEY);
+  localStorage.removeItem(VAULT_KEY);
+  clearMasterKey();
+  // State im Klartext speichern
+  localStorage.setItem(STORE_KEY, JSON.stringify(Store.get()));
+}
+
 // -------- Recurring & Auto-Booking ----------
 function runAutoBookings(){
   const st = Store.get();
@@ -425,8 +699,17 @@ function setTab(id){
 
 function render(){
   const st = Store.get();
-  const lockNeeded = st.settings.pinHash && !sessionStorage.getItem('manu.unlocked');
-  if(lockNeeded){ renderLockScreen(); return; }
+  // Tresor noch verschlüsselt? Lock-Screen zeigen.
+  if(isEncrypted() && !hasMasterKey()){ renderLockScreen(); return; }
+  // Legacy: PIN-Hash in settings vorhanden, aber noch kein Envelope angelegt.
+  const legacyLocked = !!st.settings.pinHash && !isEncrypted() && !sessionStorage.getItem('manu.unlocked');
+  if(legacyLocked){ renderLockScreen(); return; }
+  // Onboarding-Wizard: nur bei wirklich frischer Installation
+  const hasAnyData = st.properties.length + st.bookings.length + st.receipts.length + st.tenants.length > 0;
+  if(!st.settings.onboardingDone && !isEncrypted() && !st.settings.pinHash && !hasAnyData){
+    renderOnboarding();
+    return;
+  }
   const tab = st.settings.activeTab || 'dashboard';
   renderTabs(tab);
   const view = $('#view');
@@ -1858,10 +2141,11 @@ VIEWS.settings = (st) => {
     <div class="card" style="margin-top:14px">
       <div class="card-title"><h2>🔒 Sicherheit</h2></div>
       <div class="row">
-        ${st.settings.pinHash ? '<span class="pill emerald">✓ PIN gesetzt</span>' : '<span class="pill berry">Kein PIN</span>'}
-        <button id="pin-set">${st.settings.pinHash?'PIN ändern':'PIN setzen'}</button>
-        ${st.settings.pinHash ? '<button class="danger" id="pin-rm">PIN entfernen</button>' : ''}
+        ${(isEncrypted() || st.settings.pinHash) ? '<span class="pill emerald">✓ Tresor verschlüsselt</span>' : '<span class="pill berry">Kein PIN</span>'}
+        <button id="pin-set">${(isEncrypted() || st.settings.pinHash)?'PIN ändern':'PIN setzen'}</button>
+        ${(isEncrypted() || st.settings.pinHash) ? '<button class="danger" id="pin-rm">PIN entfernen</button>' : ''}
       </div>
+      ${isEncrypted() ? '<p class="muted" style="margin-top:8px">Belege + Buchungen werden mit AES-GCM-256 verschlüsselt. Master-Key liegt nie auf der Festplatte.</p>' : ''}
       <div class="row" style="margin-top:14px">
         <label>Auto-Lock</label>
         <select id="auto-lock">
@@ -1923,28 +2207,53 @@ VIEWS.settings = (st) => {
 };
 BINDERS.settings = (root, st) => {
   root.querySelector('#pin-set').onclick = () => {
-    openModal('PIN setzen', `
+    const meta = loadMeta();
+    const isChange = isEncrypted();
+    const title = isChange ? 'PIN ändern' : 'PIN setzen';
+    openModal(title, `
       <div class="form">
+        ${isChange ? '<div><label>Aktueller PIN</label><input id="cp" type="password" inputmode="numeric" /></div>' : ''}
         <div><label>Neuer PIN (min. 4 Stellen)</label><input id="np" type="password" inputmode="numeric" /></div>
         <div><label>Wiederholen</label><input id="np2" type="password" inputmode="numeric" /></div>
+        <p class="lock-error" id="np-err"></p>
       </div>
-      <div class="modal-actions"><button data-cancel>Abbrechen</button><button class="primary" data-save>Setzen</button></div>
+      <div class="modal-actions"><button data-cancel>Abbrechen</button><button class="primary" data-save>${isChange?'Ändern':'Setzen'}</button></div>
     `, (body, close) => {
       body.querySelector('[data-cancel]').onclick = close;
       body.querySelector('[data-save]').onclick = async () => {
-        const p = body.querySelector('#np').value; const p2 = body.querySelector('#np2').value;
-        if(p.length < 4){ alert('Mindestens 4 Zeichen'); return; }
-        if(p !== p2){ alert('PIN stimmt nicht überein'); return; }
-        const { pinHash, pinSalt, pinIter } = await hashPin(p);
-        Store.update(s => ({...s, settings:{...s.settings, pinHash, pinSalt, pinIter, pinAttempts:0, pinLockedUntil:0}}));
-        sessionStorage.setItem('manu.unlocked','1');
-        close();
+        const errEl = body.querySelector('#np-err'); errEl.textContent = '';
+        const p = body.querySelector('#np').value;
+        const p2 = body.querySelector('#np2').value;
+        if(p.length < 4){ errEl.textContent = 'Mindestens 4 Zeichen'; return; }
+        if(p !== p2){ errEl.textContent = 'PIN stimmt nicht überein'; return; }
+        if(isChange){
+          const cp = body.querySelector('#cp').value;
+          try{ await unwrapMaster(loadMeta().pinEnvelope, cp); }
+          catch{ errEl.textContent = 'Aktueller PIN falsch'; return; }
+          // _masterKey ist bereits gesetzt (entsperrt) — Re-Wrap mit neuer PIN
+          const newEnv = await wrapMaster(_masterKey, p);
+          patchMeta({ pinEnvelope: newEnv, pinAttempts:0, pinLockedUntil:0 });
+          close();
+          alert('PIN geändert');
+        } else {
+          // Erstmaliges Setup
+          const code = await setupVault(p);
+          // Backwards-compat: alten settings.pinHash auch füllen
+          const { pinHash, pinSalt, pinIter } = await hashPin(p);
+          Store.update(s => ({...s, settings:{...s.settings, pinHash, pinSalt, pinIter, pinAttempts:0, pinLockedUntil:0}}));
+          close();
+          showRecoveryCodeModal(code);
+        }
       };
     });
   };
   const pinRm = root.querySelector('#pin-rm');
-  if(pinRm) pinRm.onclick = () => confirmAlert('PIN entfernen — die App startet danach ohne Schutz', () => {
-    Store.update(s => ({...s, settings:{...s.settings, pinHash:null}}));
+  if(pinRm) pinRm.onclick = () => confirmAlert('PIN entfernen — die App startet danach ohne Schutz. Belege werden wieder im Klartext gespeichert.', async () => {
+    try{
+      await removeVaultProtection();
+      Store.update(s => ({...s, settings:{...s.settings, pinHash:null, pinSalt:null, pinIter:0, pinAttempts:0, pinLockedUntil:0}}));
+      alert('PIN-Schutz entfernt');
+    }catch(e){ alert('Fehler beim Entfernen: '+e.message); }
   });
   root.querySelector('#auto-lock').onchange = e => Store.update(s => ({...s, settings:{...s.settings, autoLockMinutes: Number(e.target.value)}}));
 
@@ -2049,6 +2358,8 @@ function restoreFromTrash(trashId){
 
 // ---- Lock Screen -----
 function renderLockScreen(){
+  const meta = loadMeta();
+  const hasRecovery = !!(meta && meta.recoveryEnvelope);
   $('#view').innerHTML = `
     <div class="lock-screen">
       <div class="seal">M</div>
@@ -2058,6 +2369,7 @@ function renderLockScreen(){
         <input id="lock-pin" type="password" inputmode="numeric" autofocus placeholder="••••" />
         <button class="primary" id="lock-go">Tresor öffnen</button>
         <p id="lock-err" class="lock-error"></p>
+        ${hasRecovery ? '<button id="lock-recover" class="lock-link">PIN vergessen? Recovery-Code eingeben</button>' : ''}
       </div>
     </div>
   `;
@@ -2066,9 +2378,18 @@ function renderLockScreen(){
   const errEl = $('#lock-err');
   let cooldownTimer = null;
 
+  const currentLockState = () => {
+    if(isEncrypted()){
+      const m = loadMeta() || {};
+      return { attempts: m.pinAttempts || 0, lockedUntil: m.pinLockedUntil || 0 };
+    }
+    const s = Store.get().settings;
+    return { attempts: s.pinAttempts || 0, lockedUntil: s.pinLockedUntil || 0 };
+  };
+
   const updateCooldown = () => {
-    const st = Store.get().settings;
-    const left = (st.pinLockedUntil || 0) - Date.now();
+    const { lockedUntil } = currentLockState();
+    const left = lockedUntil - Date.now();
     if(left > 0){
       goBtn.disabled = true;
       $('#lock-pin').disabled = true;
@@ -2084,35 +2405,230 @@ function renderLockScreen(){
 
   const tryUnlock = async () => {
     const v = $('#lock-pin').value;
-    const settings = Store.get().settings;
-    if((settings.pinLockedUntil || 0) > Date.now()){ updateCooldown(); return; }
+    if(currentLockState().lockedUntil > Date.now()){ updateCooldown(); return; }
     if(!v){ errEl.textContent = 'Bitte PIN eingeben'; return; }
+    errEl.textContent = '';
 
-    const { ok, migrate } = await verifyPin(v, settings);
-    if(ok){
-      let patch = { pinAttempts: 0, pinLockedUntil: 0 };
-      if(migrate){
-        const fresh = await hashPin(v);
-        patch = { ...patch, ...fresh };
+    if(isEncrypted()){
+      const r = await unlockWithPin(v);
+      if(r.ok){ render(); return; }
+      if(r.reason === 'pin'){
+        $('#lock-pin').value = '';
+        const m = loadMeta() || {};
+        if(m.pinLockedUntil > Date.now()) updateCooldown();
+        else errEl.textContent = `PIN falsch (${r.attempts}/5 vor Sperre)`;
+      } else if(r.reason === 'locked'){
+        updateCooldown();
+      } else {
+        errEl.textContent = 'Tresor-Fehler. Bitte App neu laden.';
       }
-      Store.update(s => ({...s, settings:{...s.settings, ...patch}}));
-      sessionStorage.setItem('manu.unlocked','1');
-      render();
+      return;
+    }
+
+    // Legacy-Pfad: alter PIN-Hash in settings, kein Envelope
+    const settings = Store.get().settings;
+    const { ok } = await verifyPin(v, settings);
+    if(ok){
+      // Legacy bestätigt → sofort auf Envelope-Modell migrieren + Recovery zeigen
+      const code = await setupVault(v);
+      Store.update(s => ({...s, settings:{...s.settings, pinAttempts:0, pinLockedUntil:0}}));
+      showRecoveryCodeModal(code, () => render());
     } else {
       const attempts = (settings.pinAttempts || 0) + 1;
       const delay = lockoutDelayMs(attempts);
       const pinLockedUntil = delay > 0 ? Date.now() + delay : 0;
       Store.update(s => ({...s, settings:{...s.settings, pinAttempts: attempts, pinLockedUntil}}));
       $('#lock-pin').value = '';
-      if(pinLockedUntil){
-        updateCooldown();
-      } else {
-        errEl.textContent = `PIN falsch (${attempts}/5 vor Sperre)`;
-      }
+      if(pinLockedUntil) updateCooldown();
+      else errEl.textContent = `PIN falsch (${attempts}/5 vor Sperre)`;
     }
   };
   goBtn.onclick = tryUnlock;
   $('#lock-pin').onkeydown = e => { if(e.key === 'Enter') tryUnlock(); };
+
+  const recoverBtn = $('#lock-recover');
+  if(recoverBtn){
+    recoverBtn.onclick = () => openRecoveryModal();
+  }
+}
+
+function showRecoveryCodeModal(code, onClose){
+  if(!code){ if(onClose) onClose(); return; }
+  openModal('Notfall-Schlüssel', `
+    <p>Schreibe diesen Code an einen sicheren Ort.
+    Mit ihm — und nur mit ihm — kannst Du Deinen Tresor öffnen,
+    wenn Du den PIN vergessen solltest. <strong>Ohne Code sind Deine Daten verloren.</strong></p>
+    <div class="recovery-code">${escapeHtml(code)}</div>
+    <label class="toggle"><input type="checkbox" id="rc-ack" /><span class="switch"></span><span>Ich habe den Code an einen sicheren Ort geschrieben.</span></label>
+    <div class="modal-actions"><button class="primary" id="rc-done" disabled>Weiter</button></div>
+  `, (body, close) => {
+    body.querySelector('#rc-ack').onchange = (e) => {
+      body.querySelector('#rc-done').disabled = !e.target.checked;
+    };
+    body.querySelector('#rc-done').onclick = () => { close(); if(onClose) onClose(); };
+  });
+}
+
+function openRecoveryModal(){
+  openModal('PIN zurücksetzen', `
+    <p>Gib Deinen 24-stelligen Recovery-Code ein und setze danach einen neuen PIN.</p>
+    <div class="form">
+      <div><label>Recovery-Code</label><input id="rc-input" placeholder="ABCD-EFGH-…" /></div>
+      <div><label>Neuer PIN</label><input id="rc-pin" type="password" inputmode="numeric" /></div>
+      <div><label>PIN wiederholen</label><input id="rc-pin2" type="password" inputmode="numeric" /></div>
+      <p class="lock-error" id="rc-err"></p>
+    </div>
+    <div class="modal-actions"><button data-cancel>Abbrechen</button><button class="primary" id="rc-go">PIN setzen</button></div>
+  `, (body, close) => {
+    body.querySelector('[data-cancel]').onclick = close;
+    body.querySelector('#rc-go').onclick = async () => {
+      const code = body.querySelector('#rc-input').value;
+      const pin = body.querySelector('#rc-pin').value;
+      const pin2 = body.querySelector('#rc-pin2').value;
+      const errEl = body.querySelector('#rc-err');
+      errEl.textContent = '';
+      if(pin.length < 4){ errEl.textContent = 'PIN min. 4 Zeichen'; return; }
+      if(pin !== pin2){ errEl.textContent = 'PINs stimmen nicht überein'; return; }
+      try{
+        await recoverWithCode(code, pin);
+        close();
+        render();
+      }catch(e){
+        errEl.textContent = 'Recovery-Code ungültig oder beschädigt';
+      }
+    };
+  });
+}
+
+// ============================================================
+// ONBOARDING-WIZARD
+// ============================================================
+let _onboardingStep = 0;
+function renderOnboarding(){
+  const st = Store.get();
+  const step = _onboardingStep;
+  const view = $('#view');
+  const dots = [0,1,2].map(i => `<div class="dot ${i===step?'active':''}"></div>`).join('');
+
+  let body = '';
+  if(step === 0){
+    body = `
+      <h1>Willkommen bei <span class="serif" style="font-style:italic">Manu</span></h1>
+      <p class="lead">Dein lokaler Vermieter- und Finanz-Tresor. Daten bleiben auf Deinem Gerät — kein Server, keine Cloud.</p>
+      <div class="form">
+        <div>
+          <label>Aussehen</label>
+          <div class="row">
+            ${[{k:'light',l:'Hell'},{k:'dark',l:'Dunkel'},{k:'auto',l:'Automatisch'}].map(t =>
+              `<button class="${(st.settings.colorScheme||'light')===t.k?'primary':''}" data-ob-theme="${t.k}">${t.l}</button>`).join('')}
+          </div>
+        </div>
+        <div>
+          <label>Sprache</label>
+          <div class="row">
+            ${['de','en'].map(l => `<button class="${st.settings.locale===l?'primary':''}" data-ob-lang="${l}">${l==='de'?'Deutsch':'English'}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="ghost" data-ob-skip>Überspringen</button>
+        <button class="primary" data-ob-next>Weiter</button>
+      </div>
+    `;
+  } else if(step === 1){
+    body = `
+      <h1>Schutz einrichten</h1>
+      <p class="lead">Setze einen PIN, damit niemand außer Dir Deine Daten sehen kann. Beim nächsten Schritt zeigen wir Dir einen einmaligen <strong>Recovery-Code</strong> als Notschlüssel.</p>
+      <div class="form">
+        <div><label>PIN (min. 4 Stellen)</label><input id="ob-pin" type="password" inputmode="numeric" autofocus /></div>
+        <div><label>PIN wiederholen</label><input id="ob-pin2" type="password" inputmode="numeric" /></div>
+        <p class="lock-error" id="ob-err"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="ghost" data-ob-skip-pin>Ohne PIN starten</button>
+        <button class="primary" data-ob-set-pin>PIN setzen</button>
+      </div>
+    `;
+  } else {
+    body = `
+      <h1>Erste Eiche pflanzen</h1>
+      <p class="lead">Eine „Eiche" ist Dein Objekt — z. B. eine Wohnung oder ein Haus. Du kannst es auch später anlegen.</p>
+      <div class="form">
+        <div><label>Name / Adresse</label><input id="ob-prop-name" placeholder="z. B. Hauptstr. 12" autofocus /></div>
+      </div>
+      <div class="modal-actions">
+        <button class="ghost" data-ob-finish>Später anlegen</button>
+        <button class="primary" data-ob-add-prop>Eiche pflanzen</button>
+      </div>
+    `;
+  }
+
+  view.innerHTML = `
+    <div class="onboarding">
+      <div class="onboarding-card">
+        <div class="step-dots">${dots}</div>
+        ${body}
+      </div>
+    </div>
+  `;
+  document.documentElement.removeAttribute('data-theme');
+  // Theme im Wizard schon anwenden
+  const scheme = st.settings.colorScheme || 'light';
+  if(scheme === 'dark' || scheme === 'auto') document.documentElement.setAttribute('data-theme', scheme);
+
+  // Bindings
+  view.querySelectorAll('[data-ob-theme]').forEach(b => b.onclick = () => {
+    Store.update(s => ({...s, settings:{...s.settings, colorScheme:b.dataset.obTheme}}));
+  });
+  view.querySelectorAll('[data-ob-lang]').forEach(b => b.onclick = () => {
+    Store.update(s => ({...s, settings:{...s.settings, locale:b.dataset.obLang}}));
+  });
+  const next = view.querySelector('[data-ob-next]');
+  if(next) next.onclick = () => { _onboardingStep = 1; render(); };
+  const skip = view.querySelector('[data-ob-skip]');
+  if(skip) skip.onclick = () => { _onboardingStep = 2; render(); };
+
+  const setPin = view.querySelector('[data-ob-set-pin]');
+  if(setPin) setPin.onclick = async () => {
+    const p = view.querySelector('#ob-pin').value;
+    const p2 = view.querySelector('#ob-pin2').value;
+    const err = view.querySelector('#ob-err'); err.textContent = '';
+    if(p.length < 4){ err.textContent = 'Mindestens 4 Zeichen'; return; }
+    if(p !== p2){ err.textContent = 'PINs stimmen nicht überein'; return; }
+    setPin.disabled = true; setPin.textContent = 'Tresor wird eingerichtet …';
+    try{
+      const code = await setupVault(p);
+      const { pinHash, pinSalt, pinIter } = await hashPin(p);
+      Store.update(s => ({...s, settings:{...s.settings, pinHash, pinSalt, pinIter}}));
+      showRecoveryCodeModal(code, () => { _onboardingStep = 2; render(); });
+    }catch(e){
+      err.textContent = 'Setup fehlgeschlagen: ' + (e && e.message ? e.message : e);
+      setPin.disabled = false; setPin.textContent = 'PIN setzen';
+    }
+  };
+  const skipPin = view.querySelector('[data-ob-skip-pin]');
+  if(skipPin) skipPin.onclick = () => { _onboardingStep = 2; render(); };
+
+  const finish = view.querySelector('[data-ob-finish]');
+  if(finish) finish.onclick = () => {
+    Store.update(s => ({...s, settings:{...s.settings, onboardingDone:true}}));
+    _onboardingStep = 0;
+    render();
+  };
+  const addProp = view.querySelector('[data-ob-add-prop]');
+  if(addProp) addProp.onclick = () => {
+    const name = (view.querySelector('#ob-prop-name').value || '').trim();
+    if(!name){ finish.click(); return; }
+    const property = {
+      id: uid('prop'),
+      name, color:'#4A7C59', address:'',
+      wohnflaeche:null, anschaffungswert:null, afaSatz:null,
+      createdAt: new Date().toISOString(),
+    };
+    Store.update(s => ({...s, properties:[...s.properties, property], settings:{...s.settings, onboardingDone:true}}));
+    _onboardingStep = 0;
+    render();
+  };
 }
 
 // ============================================================
@@ -2124,16 +2640,25 @@ $('#advisorToggle').onchange = (e) => {
 
 // Auto-Lock
 let idleTimer = null;
+function lockNow(){
+  sessionStorage.removeItem('manu.unlocked');
+  clearMasterKey();
+  render();
+}
+function isProtected(){
+  return isEncrypted() || !!Store.get().settings.pinHash;
+}
 function resetIdle(){
   if(idleTimer) clearTimeout(idleTimer);
   const min = Store.get().settings.autoLockMinutes;
-  if(!min || !Store.get().settings.pinHash) return;
-  idleTimer = setTimeout(() => { sessionStorage.removeItem('manu.unlocked'); render(); }, min * 60000);
+  if(!min || !isProtected()) return;
+  idleTimer = setTimeout(lockNow, min * 60000);
 }
 ['click','keydown','scroll','touchstart','mousemove'].forEach(ev => document.addEventListener(ev, resetIdle, {passive:true}));
 document.addEventListener('visibilitychange', () => {
-  if(document.hidden && Store.get().settings.pinHash){
+  if(document.hidden && isProtected()){
     sessionStorage.removeItem('manu.unlocked');
+    clearMasterKey();
   } else if(!document.hidden){
     render();
   }
