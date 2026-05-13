@@ -528,14 +528,15 @@ label{
 --------------------------------------------------------- */
 .empty{text-align:center;padding:60px 20px;color:var(--text-muted)}
 .empty .icon{
-  font-size:48px;display:block;margin:0 auto 14px;
+  font-size:48px;display:flex;margin:0 auto 14px;
   width:88px;height:88px;border-radius:50%;
   background:var(--accent-soft);
-  display:flex;align-items:center;justify-content:center;
+  align-items:center;justify-content:center;
   color:var(--accent);
 }
-.empty h3{font-size:18px;color:var(--text);margin-bottom:6px}
-.empty p{max-width:380px;margin:6px auto 18px}
+.empty .icon svg{width:40px;height:40px;stroke-width:1.6}
+.empty h3{font-size:18px;color:var(--text);margin-bottom:6px;font-family:var(--font-display);font-weight:600}
+.empty p{max-width:380px;margin:6px auto 18px;color:var(--text-muted);font-size:14px;line-height:1.5}
 
 .skeleton{
   background:linear-gradient(90deg,var(--surface-2) 0%,var(--surface-3) 50%,var(--surface-2) 100%);

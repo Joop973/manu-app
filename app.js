@@ -24,7 +24,49 @@ const uid = (p='id') => `${p}-${Date.now().toString(36)}-${Math.random().toStrin
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $ = sel => document.querySelector(sel);
 
-// -------- Icon-Helfer ----------
+// -------- Count-Up-Animation für große Beträge ----------
+function animateCountUp(el, target, duration=620){
+  if(!el || typeof target !== 'number' || !isFinite(target)) return;
+  const start = 0;
+  const startTime = performance.now();
+  const sign = target < 0 ? '-' : '';
+  const abs = Math.abs(target);
+  function step(now){
+    const t = Math.min(1, (now - startTime) / duration);
+    // easeOutCubic
+    const eased = 1 - Math.pow(1 - t, 3);
+    const value = start + (abs - start) * eased;
+    el.textContent = sign + FORMATTER.format(value).replace('-','');
+    if(t < 1) requestAnimationFrame(step);
+    else el.textContent = FORMATTER.format(target);
+  }
+  requestAnimationFrame(step);
+}
+function applyCountUpToView(root){
+  root.querySelectorAll('[data-count-up]').forEach(el => {
+    const target = Number(el.dataset.countUp);
+    animateCountUp(el, target);
+  });
+}
+
+// -------- Konfetti (CSS-only) ----------
+function fireConfetti(durationMs=1400){
+  const colors = ['#10B981','#A47A29','#1FAB89','#F4F0E8','#4A7C59'];
+  const host = document.createElement('div');
+  host.className = 'confetti-host';
+  document.body.appendChild(host);
+  for(let i=0;i<60;i++){
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    piece.style.left = Math.random()*100 + 'vw';
+    piece.style.top = -Math.random()*20 + 'px';
+    piece.style.background = colors[i % colors.length];
+    piece.style.animationDelay = (Math.random()*0.3) + 's';
+    piece.style.transform = `rotate(${Math.random()*360}deg)`;
+    host.appendChild(piece);
+  }
+  setTimeout(() => host.remove(), durationMs);
+}
 // `icon('plus')` → <svg class="icon icon-md"><use href="#i-plus"/></svg>
 function icon(name, size='md', extra=''){
   return `<svg class="icon icon-${size} ${extra}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
@@ -749,6 +791,8 @@ function render(){
   // Bind nach jedem Render
   if(BINDERS[tab]) BINDERS[tab](view, st);
   bindCommonActions(view);
+  // Micro-Interactions: Count-Up
+  applyCountUpToView(view);
   // Berater-Modus syncen
   $('#advisorToggle').checked = !!st.settings.advisorMode;
   document.body.classList.toggle('advisor', !!st.settings.advisorMode);
@@ -801,10 +845,10 @@ VIEWS.dashboard = (st) => {
       </div>
     </div>`;
   }).join('') : `<div class="empty">
-    <span class="icon">🌳</span>
+    <span class="icon">${icon('tree','lg')}</span>
     <h3>Noch keine Imperien</h3>
-    <p class="muted">Lege Dein erstes Objekt an (Haus, Wohnung oder einfach „Privat-Beet").</p>
-    <button class="primary" style="margin-top:14px" data-action="new-property">+ Erstes Objekt</button>
+    <p>Lege Dein erstes Objekt an (Haus, Wohnung oder einfach „Privat-Beet").</p>
+    <button class="primary" data-action="new-property">+ Erstes Objekt</button>
   </div>`;
 
   // Bar Chart letzte 6 Monate
@@ -830,11 +874,11 @@ VIEWS.dashboard = (st) => {
     <div class="muted" style="margin-bottom:20px">${monthLabel(st.currentMonth)}</div>
 
     <div class="grid cols-3 hide-on-advisor">
-      <div class="card"><div class="muted">Einnahmen</div><div class="amount lg income">${fmtEur(income)}</div></div>
-      <div class="card"><div class="muted">Ausgaben</div><div class="amount lg expense">${fmtEur(expense)}</div></div>
+      <div class="card"><div class="muted">Einnahmen</div><div class="amount lg income" data-count-up="${income}">${fmtEur(income)}</div></div>
+      <div class="card"><div class="muted">Ausgaben</div><div class="amount lg expense" data-count-up="${expense}">${fmtEur(expense)}</div></div>
       <div class="card" style="border-color:var(--gold-border);background:linear-gradient(160deg,var(--bg-card),rgba(212,175,55,.08))">
         <div class="muted">Saldo</div>
-        <div class="amount lg" style="color:${saldo>=0?'var(--emerald)':'var(--berry)'}">${fmtEur(saldo)}</div>
+        <div class="amount lg" style="color:${saldo>=0?'var(--emerald)':'var(--berry)'}" data-count-up="${saldo}">${fmtEur(saldo)}</div>
       </div>
     </div>
 
@@ -845,7 +889,7 @@ VIEWS.dashboard = (st) => {
       </div>
       <div class="card" style="border-color:var(--gold-border)">
         <div class="card-title"><h2 class="gold-text">★ Steuerrelevant ${new Date().getFullYear()}</h2></div>
-        <div class="amount lg gold-text">${fmtEur(taxYearAmount)}</div>
+        <div class="amount lg gold-text" data-count-up="${taxYearAmount}">${fmtEur(taxYearAmount)}</div>
         <p class="muted" style="margin-top:8px">Summe aller Buchungen in steuerrelevanten Kategorien für ${new Date().getFullYear()}.</p>
         <button class="gold" data-action="open-advisor" style="margin-top:10px">Berater-Modus öffnen →</button>
       </div>
@@ -929,7 +973,7 @@ VIEWS.bookings = (st) => {
       <td class="right amount ${cls}">${sign} ${fmtEur(b.amount)}</td>
       <td class="right"><button class="icon" data-del="${b.id}" title="In Papierkorb">🗑</button></td>
     </tr>`;
-  }).join('') : `<tr><td colspan="6"><div class="empty"><span class="icon">🎰</span><h3>Keine Buchungen</h3><p class="muted">Klick auf „+ Neue Buchung" zum Anlegen.</p></div></td></tr>`;
+  }).join('') : `<tr><td colspan="6"><div class="empty"><span class="icon">${icon('receipt','lg')}</span><h3>Keine Buchungen</h3><p>Klick auf „+ Neue Buchung" zum Anlegen.</p></div></td></tr>`;
 
   return `
     <h1 class="serif">Buchungen</h1>
@@ -1386,7 +1430,7 @@ VIEWS.oak = (st) => {
       <div class="muted">${escapeHtml(p.address||'')}</div>
       <div class="oak-meta"><span>${tenantCount} Mieter</span><span>+${fmtEur(inc)}</span><span>−${fmtEur(exp)}</span></div>
     </div>`;
-  }).join('') : `<div class="empty"><span class="icon">🌳</span><h3>Noch keine Eichen</h3><p class="muted">Jeder Ast ist ein Objekt — leg den ersten an.</p></div>`;
+  }).join('') : `<div class="empty"><span class="icon">${icon('tree','lg')}</span><h3>Noch keine Eichen</h3><p>Jeder Ast ist ein Objekt — leg den ersten an.</p></div>`;
 
   return `
     <h1 class="serif">Immobilien-Eiche</h1>
@@ -1557,7 +1601,7 @@ VIEWS.receipts = (st) => {
       <div class="leaf-meta">${fmtDate(r.createdAt)}${r.amount?` · ${fmtEur(r.amount)}`:''}${cat?` · ${escapeHtml(cat.label)}`:''}${prop?` · ${escapeHtml(prop.name)}`:''}</div>
       ${tax?'<div style="margin-top:6px"><span class="pill gold">★ steuerrelevant</span></div>':''}
     </div>`;
-  }).join('')}</div>` : `<div class="empty"><span class="icon">🍃</span><h3>Noch keine Belege</h3><p class="muted">Hänge Rechnungen als Blätter an Deine Eiche.</p></div>`;
+  }).join('')}</div>` : `<div class="empty"><span class="icon">${icon('file-text','lg')}</span><h3>Noch keine Belege</h3><p>Hänge Rechnungen als Blätter an Deine Eiche.</p></div>`;
 
   return `
     <h1 class="serif">Belege</h1>
@@ -2338,6 +2382,7 @@ BINDERS.settings = (root, st) => {
         }
         Store.replace(data);
         Toast.success('Backup eingespielt');
+        fireConfetti(1100);
       }catch(e){
         Toast.error('Backup konnte nicht entschlüsselt werden. Falsche Passphrase oder beschädigte Datei.');
       }
@@ -2496,7 +2541,12 @@ function showRecoveryCodeModal(code, onClose){
     body.querySelector('#rc-ack').onchange = (e) => {
       body.querySelector('#rc-done').disabled = !e.target.checked;
     };
-    body.querySelector('#rc-done').onclick = () => { close(); if(onClose) onClose(); };
+    body.querySelector('#rc-done').onclick = () => {
+      close();
+      fireConfetti();
+      Toast.success('Tresor eingerichtet · Daten verschlüsselt');
+      if(onClose) onClose();
+    };
   });
 }
 
