@@ -1,21 +1,20 @@
-# Manu — Deep Jungle Web-App
+# Manu — lokaler Vermieter- und Finanz-Tresor
 
-Voll funktionierende Single-Page-Web-App im **Deep-Jungle-Design** (Steuer-Edition).
-Eine HTML-Datei, kein Build, keine Server, läuft in jedem modernen Browser.
+Helle, moderne Web-App. Kein Build, keine Server, läuft in jedem
+modernen Browser. Daten bleiben lokal im Browser des Geräts.
 
 ## Live
 
 → **https://joop973.github.io/manu-app/**
 
 Auf dem Handy: URL in Safari/Chrome öffnen → Lesezeichen oder
-„Zum Home-Bildschirm hinzufügen". Daten bleiben lokal im Browser
-des Geräts (localStorage + IndexedDB).
+„Zum Home-Bildschirm hinzufügen".
 
 ## Start lokal
 
 **Variante 1 — Doppelklick:** `index.html` öffnen → läuft direkt als `file://`.
 
-**Variante 2 — lokaler Server:**
+**Variante 2 — lokaler Server (empfohlen):**
 
 ```bash
 python3 -m http.server 8080
@@ -26,64 +25,49 @@ python3 -m http.server 8080
 
 Repo → **Settings → Pages** → Source: „Deploy from a branch" →
 Branch: `main`, Folder: `/ (root)` → Save. Nach 30–60 s ist die
-oben genannte URL live.
+Live-URL erreichbar.
 
-## Was drin ist
+## Sicherheit
 
-| Bereich | Feature |
+| Mechanismus | Details |
 |---|---|
-| **Hauptsaal** | Bilanz, Steuerjahres-Anzeige, 6-Monats-Chart, Eichen-Karten |
-| **Buchungen** | Tabelle mit Filtern (Monat / Typ / Objekt / Suche / nur steuerrelevant), Bulk-Edit, Calculator-Eingabe, Wiederholungen, Tags |
-| **Eiche** | Pro Objekt P&L (1/3/12 Mt), Mieter, Wartungs-Historie, letzte Buchungen, Anlage-V + NK-Abrechnung |
-| **Belege** | Foto / PDF / Word hochladen → IndexedDB, Filename-Parser für Betrag/Datum/Empfänger, „Als Buchung übernehmen" |
-| **Steuer (Berater)** | Berater-Modus-Toggle, Steuer-Akzent automatisch aus Kategorie, Ernte-Korb → PDF / CSV / DATEV / Anlage V |
-| **Werkzeuge** | Subscription Detector, Top-Kategorien, Sparziele, Verträge, Handwerker, Brutto/Netto-Rechner, CSV-Import (DKB/Sparkasse/ING/N26) |
-| **Einstellungen** | PIN-Schutz (SHA-256), Auto-Lock, Theme (Deep Jungle / Salbei), DE/EN, Schriftgröße, Backup-Export/Import, Papierkorb |
-
-## Design-System
-
-- **Basis:** `#08140E` Deep Forest
-- **Karten:** `#0F2419` Forest Card
-- **Holz (Belege):** `#2B1B12` Dark Wood
-- **Grüntöne pro Kategorie:** Moos (Fixkosten), Smaragd (Mieten), Salbei (Reparaturen)
-- **Steuer-Akzent:** `#D4AF37` Golden Oak — **ausschließlich** für steuerrelevante Posten
-- **Schrift:** Lora (Serif, Bezeichnungen) + Inter (Sans, Zahlen)
-- **Metaphern:** Immobilien-Eiche (Äste = Objekte), Blätter (Belege), Wurzel-Archiv (Vorjahre), Ernte-Korb (Steuer-Export)
+| **PIN** | PBKDF2-SHA-256 mit 200 000 Iterationen + per-Installation zufälligem 16-Byte-Salt. Migration vom alten SHA-256-Hash beim ersten Login. |
+| **Brute-Force-Schutz** | 5 Fehlversuche → 30 s, 10 → 5 min, 15 → 30 min, 20 → 2 h, 25 → 24 h Cooldown. UI zeigt Countdown. |
+| **Backup-Export** | Mit Passphrase verschlüsselt (PBKDF2 + AES-GCM-256). Klartext-Exports werden nicht mehr erzeugt; alte Klartext-Backups bleiben lesbar. |
+| **Auto-Lock** | Konfigurierbar (1/5/15/30 min Inaktivität). Tab-Wechsel oder Tab-Hidden sperrt sofort. |
+| **CSP** | Strikt: nur eigene Ressourcen, keine externen Skripte / Stylesheets / Schriften erlaubt. |
+| **Externe Quellen** | Keine. Inter + Source Serif Variable werden lokal aus `/fonts` geladen. Google Fonts ist entfernt. |
+| **Berater-Modus** | Beleg-Bilder + eingebettete PDFs werden im Berater- und Print-Modus ausgeblendet, damit Drucke keine Bilder preisgeben. |
 
 ## Daten
 
-- **localStorage** unter Key `manu.v1` — strukturierte Daten (Buchungen, Mieter, Kategorien, …)
+- **localStorage** unter Key `manu.v1` — strukturierte Daten
 - **IndexedDB** `manu-files` — Belege + Dokumente als Blob
-- **Backup-Datei** (JSON) enthält alles inkl. Belege als Base64
+- **Backup-Datei** (JSON) — verschlüsselt mit eigener Passphrase
 
-## Steuer-Akzent automatisch
+## Design
 
-Kategorien tragen ein `taxRelevant`-Flag. Buchungen in solchen Kategorien
-bekommen automatisch:
-- linke Gold-Kante in der Liste (`gold-row`)
-- Stern-Punkt (`★`) am Ende der Zeile
-- Aufnahme in den Berater-Modus + alle Steuer-Exporte
+- **Default:** helles, modernes Theme mit Smaragd-Akzent und warmem Goldton
+- **Dunkles Theme** als Option, **Automatisch** folgt dem System
+- Typografie: **Inter Variable** (Body, Zahlen) + **Source Serif 4 Variable** (Display, „Manu"-Logo)
+- Selbst-gehostet im `/fonts`-Ordner — keine Anfragen an Google
+- Soft shadows, 22-Pixel-Karten-Radius, subtile Hover-Lifts und Saldo-Animationen
+- Mobile: Bottom-Tab-Bar, `safe-area-insets`-aware
 
-In den Einstellungen → Kategorien lässt sich das Flag pro Kategorie schalten.
+## Ordner-Struktur
 
-## Berater-Modus
-
-Toggle oben rechts blendet das Casino-Look aus und zeigt:
-- Schlichten weißen Hintergrund
-- Druckfertige Tabelle ohne Spielereien
-- Browser-Drucken (Cmd/Ctrl+P) liefert sauberes PDF
-
-## Ernte-Korb (Steuer-Export)
-
-Im Steuer-Tab gibt es vier Export-Wege:
-- **PDF** via `window.print` mit dedizierter `@media print`-CSS
-- **CSV** mit Semikolon-Trenner (deutsche Excel-Konvention)
-- **DATEV-CSV** mit Konten-Mapping pro Kategorie
-- **Anlage V** PDF pro Objekt — mit AfA aus Property-Stammdaten
+```
+manu-app/
+├── index.html      Skeleton mit CSP, Mount-Points, SVG-Sprite
+├── app.css         Design-System (Light-Default + Dark / Auto)
+├── app.js          Logik (Store, Router, Views, Crypto)
+├── fonts/
+│   ├── Inter-Variable.woff2
+│   └── SourceSerif.woff2
+└── README.md
+```
 
 ## Bewusst nicht drin
 
-- Kamera-Scans (PWA-Erweiterung möglich)
-- Push-Notifications (Browser-Notification-API möglich)
-- Cloud-Sync (Backup-Datei ist die Brücke)
-- Multi-User mit Rollen
+- Kamera-Scans, Push-Notifications, Cloud-Sync, Multi-User-Rollen
+- Recovery-Code (geplant in nächster Iteration; PIN-Verlust = Daten weiterhin verschlüsselt im Backup)
