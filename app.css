@@ -451,7 +451,7 @@ label{
   background:rgba(15,15,15,.42);
   -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
   display:flex;align-items:center;justify-content:center;
-  z-index:100;padding:20px;
+  z-index:1000;padding:20px;
   animation:overlayIn var(--t-base);
 }
 [data-theme="dark"] .modal-overlay{background:rgba(0,0,0,.62)}

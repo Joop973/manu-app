@@ -463,16 +463,18 @@ async function decryptBlobWithMaster(blob){
   return new Blob([plain], {type: env.mime || 'application/octet-stream'});
 }
 
-// Recovery-Code: 24 Zeichen aus Crockford-Base32, in 5er-Gruppen
-const RECOVERY_ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+// Recovery-Code: 24 Zeichen aus Crockford-Base32 (32 Chars), in 4er-Gruppen
+const RECOVERY_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // 32 Chars, ohne I, L, O, U
 function generateRecoveryCode(){
-  const bytes = randomBytes(15); // 15 * 8 = 120 Bit → 24 Chars Base32
+  const bytes = randomBytes(15); // 15 * 8 = 120 Bit -> 24 Chars Base32
   let bits = 0n; for(const b of bytes) bits = (bits << 8n) | BigInt(b);
   let out = ''; for(let i=0;i<24;i++){ out = RECOVERY_ALPHABET[Number(bits & 31n)] + out; bits >>= 5n; }
-  return out.match(/.{1,4}/g).join('-'); // ABCD-EFGH-... insgesamt 5 Gruppen mit Trennstrichen
+  return out.match(/.{1,4}/g).join('-'); // ABCD-EFGH-... insgesamt 6 Gruppen
 }
 function normalizeRecovery(code){
-  return String(code || '').toUpperCase().replace(/[^A-Z2-9]/g,'').replace(/[ILO]/g, c => ({I:'1',L:'1',O:'0'}[c]||''));
+  return String(code || '').toUpperCase()
+    .replace(/[IL]/g,'1').replace(/O/g,'0').replace(/U/g,'V')
+    .replace(/[^0-9A-HJ-NP-TV-Z]/g,'');
 }
 
 // ---- Tresor-Setup, Unlock, Recovery ----
@@ -704,9 +706,9 @@ function render(){
   // Legacy: PIN-Hash in settings vorhanden, aber noch kein Envelope angelegt.
   const legacyLocked = !!st.settings.pinHash && !isEncrypted() && !sessionStorage.getItem('manu.unlocked');
   if(legacyLocked){ renderLockScreen(); return; }
-  // Onboarding-Wizard: nur bei wirklich frischer Installation
+  // Onboarding-Wizard: bei frischer Installation oder mitten im Wizard
   const hasAnyData = st.properties.length + st.bookings.length + st.receipts.length + st.tenants.length > 0;
-  if(!st.settings.onboardingDone && !isEncrypted() && !st.settings.pinHash && !hasAnyData){
+  if(!st.settings.onboardingDone && !hasAnyData){
     renderOnboarding();
     return;
   }
