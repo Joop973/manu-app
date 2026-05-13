@@ -24,6 +24,35 @@ const uid = (p='id') => `${p}-${Date.now().toString(36)}-${Math.random().toStrin
 const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $ = sel => document.querySelector(sel);
 
+// -------- Icon-Helfer ----------
+// `icon('plus')` → <svg class="icon icon-md"><use href="#i-plus"/></svg>
+function icon(name, size='md', extra=''){
+  return `<svg class="icon icon-${size} ${extra}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+}
+
+// -------- Toast-Notifications ----------
+const Toast = (() => {
+  let host = null;
+  const ensureHost = () => host || (host = document.getElementById('toast-host'));
+  function show(message, type='info', timeout=3200){
+    const h = ensureHost(); if(!h) return;
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    const ic = type==='success' ? 'check-circle' : type==='error' ? 'alert-circle' : 'info';
+    el.innerHTML = `${icon(ic,'md')}<span>${escapeHtml(message)}</span>`;
+    h.appendChild(el);
+    setTimeout(() => {
+      el.classList.add('leaving');
+      setTimeout(() => el.remove(), 240);
+    }, timeout);
+  }
+  return {
+    info: (m) => show(m, 'info'),
+    success: (m) => show(m, 'success'),
+    error: (m) => show(m, 'error', 4500),
+  };
+})();
+
 // -------- Built-in Kategorien ----------
 const BUILTIN_CATEGORIES = [
   {id:'cat-miete',         label:'Mieteinnahmen',        emoji:'',  group:'emerald', taxRelevant:true,  income:true},
@@ -139,7 +168,7 @@ const Store = (() => {
       // Wenn verschlüsselt aber kein Master-Key (locked) → kein Schreiben.
     }catch(e){
       if(e && e.name === 'QuotaExceededError'){
-        alert('Speicher voll. Bitte alte Belege löschen oder Backup machen.');
+        Toast.error('Speicher voll. Bitte alte Belege löschen oder Backup machen.');
       } else {
         console.warn('persist failed', e);
       }
@@ -677,17 +706,17 @@ function evalExpression(input){
 // ROUTING + VIEWS
 // ============================================================
 const TABS = [
-  {id:'dashboard',  label:'Hauptsaal',    serif:true},
-  {id:'bookings',   label:'Buchungen',    serif:true},
-  {id:'oak',        label:'Eiche',        serif:true},
-  {id:'receipts',   label:'Belege',       serif:true},
-  {id:'advisor',    label:'Steuer',       serif:true},
-  {id:'tools',      label:'Werkzeuge',    serif:true},
-  {id:'settings',   label:'Einstellungen',serif:true},
+  {id:'dashboard',  label:'Hauptsaal',    icon:'dashboard'},
+  {id:'bookings',   label:'Buchungen',    icon:'receipt'},
+  {id:'oak',        label:'Eiche',        icon:'tree'},
+  {id:'receipts',   label:'Belege',       icon:'file-text'},
+  {id:'advisor',    label:'Steuer',       icon:'landmark'},
+  {id:'tools',      label:'Werkzeuge',    icon:'wrench'},
+  {id:'settings',   label:'Einstellungen',icon:'settings'},
 ];
 
 function renderTabs(active){
-  const html = TABS.map(t => `<button data-tab="${t.id}" class="${active===t.id?'active':''}">${t.label}</button>`).join('');
+  const html = TABS.map(t => `<button data-tab="${t.id}" class="${active===t.id?'active':''}"><span class="tab-content">${icon(t.icon,'md')}<span>${t.label}</span></span></button>`).join('');
   $('#tabs').innerHTML = html;
   $('#tabs').querySelectorAll('button').forEach(b => {
     b.onclick = () => setTab(b.dataset.tab);
@@ -956,7 +985,7 @@ VIEWS.bookings = (st) => {
       </table>
     </div>
 
-    <button class="fab" data-action="new-booking" title="Neue Buchung">+</button>
+    <button class="fab" data-action="new-booking" title="Neue Buchung" aria-label="Neue Buchung">${icon('plus','lg')}</button>
   `;
 };
 BINDERS.bookings = (root, st) => {
@@ -1138,7 +1167,7 @@ function openBookingModal(booking){
     }
     body.querySelector('[data-save]').onclick = () => {
       const amount = evalExpression($a.value);
-      if(amount === null || amount <= 0){ alert('Bitte Betrag eingeben'); return; }
+      if(amount === null || amount <= 0){ Toast.info('Bitte Betrag eingeben'); return; }
       const type = body.querySelector('input[name="type"]:checked').value;
       const date = body.querySelector('#m-date').value;
       const categoryId = $cat.value || null;
@@ -1243,7 +1272,7 @@ function openPropertyModal(property){
     }
     body.querySelector('[data-save]').onclick = () => {
       const name = body.querySelector('#p-name').value.trim();
-      if(!name){ alert('Name fehlt'); return; }
+      if(!name){ Toast.info('Name fehlt'); return; }
       const data = {
         name,
         address: body.querySelector('#p-addr').value.trim(),
@@ -1448,7 +1477,7 @@ function openTenantModal(tenant, defaultPropId){
     });
     body.querySelector('[data-save]').onclick = () => {
       const name = body.querySelector('#t-name').value.trim();
-      if(!name){ alert('Name fehlt'); return; }
+      if(!name){ Toast.info('Name fehlt'); return; }
       const data = {
         name,
         propertyId: body.querySelector('#t-prop').value || null,
@@ -1502,7 +1531,7 @@ function openMaintenanceModal(propId){
       const cost = Number(body.querySelector('#ma-cost').value) || null;
       const craftsmanId = body.querySelector('#ma-cm').value || null;
       const bookIt = body.querySelector('#ma-book').checked;
-      if(!description){ alert('Beschreibung fehlt'); return; }
+      if(!description){ Toast.info('Beschreibung fehlt'); return; }
       Store.update(s => {
         let bookingId = null;
         if(bookIt && cost){
@@ -1546,7 +1575,7 @@ VIEWS.receipts = (st) => {
 BINDERS.receipts = (root, st) => {
   root.querySelector('#rcp-upload').onclick = async () => {
     const files = root.querySelector('#rcp-file').files;
-    if(!files || files.length === 0){ alert('Bitte Datei wählen'); return; }
+    if(!files || files.length === 0){ Toast.info('Bitte Datei wählen'); return; }
     const info = root.querySelector('#rcp-info');
     let n = 0;
     for(const f of files){
@@ -1641,7 +1670,7 @@ async function openReceiptModal(id){
       const counterparty = body.querySelector('#r-cp').value.trim();
       const categoryId = body.querySelector('#r-cat').value || null;
       const propertyId = body.querySelector('#r-prop').value || null;
-      if(!amount){ alert('Betrag fehlt'); return; }
+      if(!amount){ Toast.info('Betrag fehlt'); return; }
       Store.update(s => ({...s,
         bookings: [...s.bookings, {...newBookingDraft(), id: uid('bkg'), type:'expense', amount, date, categoryId, propertyId, counterparty, note:'aus Beleg: '+r.filename, receiptId: r.id, createdAt: new Date().toISOString()}],
         receipts: s.receipts.map(x => x.id === r.id ? {...x, amount, date, counterparty, categoryId, propertyId} : x),
@@ -1811,7 +1840,7 @@ function downloadBlob(text, filename, type){
 }
 function exportAnlageVAll(year){
   const st = Store.get();
-  if(!st.properties.length){ alert('Keine Objekte angelegt'); return; }
+  if(!st.properties.length){ Toast.info('Keine Objekte angelegt'); return; }
   for(const p of st.properties) openAnlageV(p.id, year);
 }
 
@@ -1835,7 +1864,7 @@ const ANLAGE_V_MAP = {
 function openAnlageV(propId, year){
   const st = Store.get();
   const p = propertyById(propId);
-  if(!p){ alert('Objekt nicht gefunden'); return; }
+  if(!p){ Toast.error('Objekt nicht gefunden'); return; }
   const yr = year || (st._advisorYear || new Date().getFullYear());
   const bks = st.bookings.filter(b => b.propertyId === p.id && b.date.startsWith(String(yr)));
   const grouped = {};
@@ -1879,9 +1908,9 @@ function openAnlageV(propId, year){
 function openNkAbrechnung(propId){
   const st = Store.get();
   const p = propertyById(propId);
-  if(!p){ alert('Objekt nicht gefunden'); return; }
+  if(!p){ Toast.error('Objekt nicht gefunden'); return; }
   const tenants = st.tenants.filter(t => t.propertyId === p.id);
-  if(!tenants.length){ alert('Keine Mieter für dieses Objekt'); return; }
+  if(!tenants.length){ Toast.info('Keine Mieter für dieses Objekt'); return; }
   const year = (st._advisorYear || new Date().getFullYear()) - 1;
   const nkCats = ['cat-strom','cat-wasser','cat-gas','cat-hausgeld','cat-gez'];
   const total = nkCats.reduce((acc, cid) => {
@@ -2047,7 +2076,7 @@ BINDERS.tools = (root, st) => {
   root.querySelector('#csv-import').onclick = async () => {
     const f = root.querySelector('#csv-file').files[0];
     const info = root.querySelector('#csv-info');
-    if(!f){ alert('Datei wählen'); return; }
+    if(!f){ Toast.info('Datei wählen'); return; }
     const text = await f.text();
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     let imported = 0;
@@ -2141,7 +2170,7 @@ VIEWS.settings = (st) => {
     <h1 class="serif">Einstellungen</h1>
 
     <div class="card" style="margin-top:14px">
-      <div class="card-title"><h2>🔒 Sicherheit</h2></div>
+      <div class="card-title"><h2><span class="ti-icon gold">${icon('shield-check','md')}</span>Sicherheit</h2></div>
       <div class="row">
         ${(isEncrypted() || st.settings.pinHash) ? '<span class="pill emerald">✓ Tresor verschlüsselt</span>' : '<span class="pill berry">Kein PIN</span>'}
         <button id="pin-set">${(isEncrypted() || st.settings.pinHash)?'PIN ändern':'PIN setzen'}</button>
@@ -2157,7 +2186,7 @@ VIEWS.settings = (st) => {
     </div>
 
     <div class="card" style="margin-top:14px">
-      <div class="card-title"><h2>🎨 Erscheinungsbild</h2></div>
+      <div class="card-title"><h2><span class="ti-icon">${icon('settings','md')}</span>Erscheinungsbild</h2></div>
       <div class="row" style="margin-bottom:10px">
         <label>Thema</label>
         ${[{k:'light',l:'Hell'},{k:'dark',l:'Dunkel'},{k:'auto',l:'Automatisch'}].map(t => `<button class="${st.settings.colorScheme===t.k?'primary':''}" data-theme="${t.k}">${t.l}</button>`).join('')}
@@ -2173,7 +2202,7 @@ VIEWS.settings = (st) => {
     </div>
 
     <div class="card" style="margin-top:14px">
-      <div class="card-title"><h2>📦 Daten</h2></div>
+      <div class="card-title"><h2><span class="ti-icon">${icon('download','md')}</span>Daten</h2></div>
       <p class="muted">Backup als JSON-Datei mit allen Buchungen, Mietern, Belegen. Lokal speichern oder per AirDrop verschicken.</p>
       <div class="row" style="margin-top:12px">
         <button class="primary" id="bk-export">📤 Backup erstellen</button>
@@ -2188,7 +2217,7 @@ VIEWS.settings = (st) => {
     </div>
 
     <div class="card" style="margin-top:14px">
-      <div class="card-title"><h2>🧰 Kategorien</h2></div>
+      <div class="card-title"><h2><span class="ti-icon">${icon('wrench','md')}</span>Kategorien</h2></div>
       <p class="muted">Goldener Stern (★) = steuerrelevant. Diese Buchungen erscheinen automatisch im Berater-Modus.</p>
       <table class="data" style="margin-top:10px">
         <thead><tr><th>Kategorie</th><th>Gruppe</th><th class="right">★ Steuerrelevant</th></tr></thead>
@@ -2201,7 +2230,7 @@ VIEWS.settings = (st) => {
     </div>
 
     <div class="card" style="margin-top:14px">
-      <div class="card-title"><h2>⚠ Zurücksetzen</h2></div>
+      <div class="card-title"><h2><span class="ti-icon berry">${icon('alert-circle','md')}</span>Zurücksetzen</h2></div>
       <p class="muted">Löscht alle lokalen Daten. Bitte vorher Backup machen!</p>
       <button class="danger" id="reset-all">🗑 Alle Daten löschen</button>
     </div>
@@ -2236,7 +2265,7 @@ BINDERS.settings = (root, st) => {
           const newEnv = await wrapMaster(_masterKey, p);
           patchMeta({ pinEnvelope: newEnv, pinAttempts:0, pinLockedUntil:0 });
           close();
-          alert('PIN geändert');
+          Toast.success('PIN geändert');
         } else {
           // Erstmaliges Setup
           const code = await setupVault(p);
@@ -2254,8 +2283,8 @@ BINDERS.settings = (root, st) => {
     try{
       await removeVaultProtection();
       Store.update(s => ({...s, settings:{...s.settings, pinHash:null, pinSalt:null, pinIter:0, pinAttempts:0, pinLockedUntil:0}}));
-      alert('PIN-Schutz entfernt');
-    }catch(e){ alert('Fehler beim Entfernen: '+e.message); }
+      Toast.success('PIN-Schutz entfernt');
+    }catch(e){ Toast.error('Fehler beim Entfernen: '+e.message); }
   });
   root.querySelector('#auto-lock').onchange = e => Store.update(s => ({...s, settings:{...s.settings, autoLockMinutes: Number(e.target.value)}}));
 
@@ -2266,9 +2295,9 @@ BINDERS.settings = (root, st) => {
   root.querySelector('#bk-export').onclick = async () => {
     const pass = prompt('Passphrase für das Backup (min. 8 Zeichen).\nMerke sie dir gut — ohne sie ist das Backup unwiderruflich verloren.');
     if(!pass) return;
-    if(pass.length < 8){ alert('Mindestens 8 Zeichen'); return; }
+    if(pass.length < 8){ Toast.info('Mindestens 8 Zeichen'); return; }
     const pass2 = prompt('Passphrase zur Bestätigung wiederholen:');
-    if(pass !== pass2){ alert('Passphrasen stimmen nicht überein'); return; }
+    if(pass !== pass2){ Toast.info('Passphrasen stimmen nicht überein'); return; }
     const st2 = Store.get();
     const receipts = await Promise.all(st2.receipts.map(async r => {
       const dataUri = await FilesDB.asDataURL(r.id);
@@ -2283,10 +2312,10 @@ BINDERS.settings = (root, st) => {
   };
   root.querySelector('#bk-import').onclick = async () => {
     const f = root.querySelector('#bk-file').files[0];
-    if(!f){ alert('Backup-Datei wählen'); return; }
+    if(!f){ Toast.info('Backup-Datei wählen'); return; }
     const text = await f.text();
     let parsed;
-    try{ parsed = JSON.parse(text); }catch{ alert('Backup ungültig: keine JSON-Datei'); return; }
+    try{ parsed = JSON.parse(text); }catch{ Toast.error('Backup ungültig: keine JSON-Datei'); return; }
     confirmAlert('Backup einspielen? Alle aktuellen Daten werden ersetzt.', async () => {
       try{
         let payload;
@@ -2308,9 +2337,9 @@ BINDERS.settings = (root, st) => {
           }
         }
         Store.replace(data);
-        alert('Backup eingespielt');
+        Toast.success('Backup eingespielt');
       }catch(e){
-        alert('Backup konnte nicht entschlüsselt werden. Falsche Passphrase oder beschädigte Datei.');
+        Toast.error('Backup konnte nicht entschlüsselt werden. Falsche Passphrase oder beschädigte Datei.');
       }
     });
   };
@@ -2331,7 +2360,7 @@ BINDERS.settings = (root, st) => {
     const cutoff = Date.now() - 30*86400000;
     let n = 0;
     Store.update(s => ({...s, trash: s.trash.filter(t => { const keep = new Date(t.deletedAt).getTime() >= cutoff; if(!keep) n++; return keep; })}));
-    alert(`${n} alte Einträge entfernt`);
+    Toast.success(`${n} alte Einträge entfernt`);
   };
 
   root.querySelectorAll('[data-tax]').forEach(c => c.onchange = e => {
