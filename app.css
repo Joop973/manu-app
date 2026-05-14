@@ -664,6 +664,14 @@ label{
 }
 .toast.leaving{animation:toastOut .22s ease-in forwards}
 .toast .icon-md{flex-shrink:0}
+.toast .toast-msg{flex:1;min-width:0}
+.toast .toast-actions{display:inline-flex;gap:6px;margin-left:6px}
+.toast .toast-actions button{
+  background:transparent;border:1px solid currentColor;
+  color:inherit;font-weight:600;padding:4px 12px;font-size:13px;
+  border-radius:var(--radius-pill);box-shadow:none;
+}
+.toast .toast-actions button:hover{background:currentColor;color:var(--surface);transform:none}
 .toast.error{border-color:var(--berry);color:var(--berry);background:var(--surface)}
 .toast.success{border-color:var(--accent);color:var(--accent);background:var(--surface)}
 .toast.info{color:var(--text)}

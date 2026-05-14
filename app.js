@@ -90,22 +90,44 @@ function iconBtn(iconName, label, extraClass='', dataAttrs=''){
 const Toast = (() => {
   let host = null;
   const ensureHost = () => host || (host = document.getElementById('toast-host'));
-  function show(message, type='info', timeout=3200){
+  // show(msg, type, timeout, actions) — actions: [{label, onClick}]
+  function show(message, type='info', timeout=3200, actions=null){
     const h = ensureHost(); if(!h) return;
     const el = document.createElement('div');
     el.className = `toast ${type}`;
     const ic = type==='success' ? 'check-circle' : type==='error' ? 'alert-circle' : 'info';
-    el.innerHTML = `${icon(ic,'md')}<span>${escapeHtml(message)}</span>`;
+    let body = `${icon(ic,'md')}<span class="toast-msg">${escapeHtml(message)}</span>`;
+    if(actions && actions.length){
+      body += `<div class="toast-actions">${actions.map((a,i) => `<button data-act="${i}">${escapeHtml(a.label)}</button>`).join('')}</div>`;
+    }
+    el.innerHTML = body;
     h.appendChild(el);
-    setTimeout(() => {
+    let timer = setTimeout(dismiss, timeout);
+    function dismiss(){
+      clearTimeout(timer);
       el.classList.add('leaving');
       setTimeout(() => el.remove(), 240);
-    }, timeout);
+    }
+    // Hover stoppt Timer (User möchte vermutlich klicken)
+    el.addEventListener('mouseenter', () => clearTimeout(timer));
+    el.addEventListener('mouseleave', () => { timer = setTimeout(dismiss, 1500); });
+    if(actions){
+      el.querySelectorAll('[data-act]').forEach(btn => {
+        btn.onclick = () => {
+          const action = actions[Number(btn.dataset.act)];
+          dismiss();
+          if(action?.onClick) action.onClick();
+        };
+      });
+    }
+    return { dismiss };
   }
   return {
+    show,
     info: (m) => show(m, 'info'),
     success: (m) => show(m, 'success'),
     error: (m) => show(m, 'error', 4500),
+    undo: (msg, onUndo) => show(msg, 'info', 6000, [{label:'Rückgängig', onClick:onUndo}]),
   };
 })();
 
@@ -1337,14 +1359,20 @@ BINDERS.bookings = (root, st) => {
   if(bulkDel) bulkDel.onclick = () => {
     confirmAlert(`${_selected.size} Buchungen wirklich löschen?`, () => {
       const ids = Array.from(_selected);
+      const trashIds = ids.map(() => uid('trash'));
       Store.update(s => {
-        const trash = ids.map(id => ({
-          id: uid('trash'), entityType:'booking', deletedAt: new Date().toISOString(),
+        const trash = ids.map((id, i) => ({
+          id: trashIds[i], entityType:'booking', deletedAt: new Date().toISOString(),
           payload: s.bookings.find(b => b.id === id),
         }));
         return {...s, bookings: s.bookings.filter(b => !_selected.has(b.id)), trash:[...s.trash, ...trash]};
       });
+      const count = ids.length;
       _selected.clear(); render();
+      Toast.undo(`${count} Buchung${count===1?'':'en'} gelöscht`, () => {
+        trashIds.forEach(t => restoreFromTrash(t));
+        render();
+      });
     });
   };
   const bulkCat = root.querySelector('[data-bulk-cat]');
@@ -1363,10 +1391,14 @@ function softDeleteBooking(id){
   const st = Store.get();
   const b = st.bookings.find(x => x.id === id);
   if(!b) return;
+  const trashId = uid('trash');
   Store.update(s => ({...s,
     bookings: s.bookings.filter(x => x.id !== id),
-    trash:[...s.trash, {id: uid('trash'), entityType:'booking', deletedAt: new Date().toISOString(), payload: b}],
+    trash:[...s.trash, {id: trashId, entityType:'booking', deletedAt: new Date().toISOString(), payload: b}],
   }));
+  render();
+  const label = b.counterparty ? `„${b.counterparty}"` : 'Buchung';
+  Toast.undo(`${label} gelöscht`, () => { restoreFromTrash(trashId); render(); });
 }
 
 function uniq(arr){ return Array.from(new Set(arr)); }
@@ -1604,8 +1636,9 @@ function openPropertyModal(property){
     body.querySelector('[data-cancel]').onclick = close;
     if(property){
       body.querySelector('[data-rm]').onclick = () => confirmAlert('Objekt + zugehörige Daten in Papierkorb?', () => {
+        const trashId = uid('trash');
         Store.update(s => {
-          const trash = [{id:uid('trash'), entityType:'property', deletedAt: new Date().toISOString(), payload: property}];
+          const trash = [{id:trashId, entityType:'property', deletedAt: new Date().toISOString(), payload: property}];
           return {...s,
             properties: s.properties.filter(p => p.id !== property.id),
             bookings: s.bookings.map(b => b.propertyId === property.id ? {...b, propertyId: null} : b),
@@ -1614,6 +1647,7 @@ function openPropertyModal(property){
           };
         });
         close();
+        Toast.undo(`„${property.name}" gelöscht`, () => { restoreFromTrash(trashId); render(); });
       });
     }
     body.querySelector('[data-save]').onclick = () => {
@@ -1815,11 +1849,13 @@ function openTenantModal(tenant, defaultPropId){
   openModal(tenant?'Mieter bearbeiten':'Neuer Mieter', html, (body, close) => {
     body.querySelector('[data-cancel]').onclick = close;
     if(tenant) body.querySelector('[data-rm]').onclick = () => confirmAlert('Mieter in Papierkorb?', () => {
+      const trashId = uid('trash');
       Store.update(s => ({...s,
         tenants: s.tenants.filter(t => t.id !== tenant.id),
-        trash:[...s.trash, {id:uid('trash'), entityType:'tenant', deletedAt: new Date().toISOString(), payload: tenant}],
+        trash:[...s.trash, {id:trashId, entityType:'tenant', deletedAt: new Date().toISOString(), payload: tenant}],
       }));
       close();
+      Toast.undo(`„${tenant.name}" gelöscht`, () => { restoreFromTrash(trashId); render(); });
     });
     body.querySelector('[data-save]').onclick = () => {
       const name = body.querySelector('#t-name').value.trim();
