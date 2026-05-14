@@ -2525,6 +2525,11 @@ VIEWS.tools = (st) => {
 
   return `
     <h1 class="serif">Werkzeuge</h1>
+
+    <div class="section-header">
+      <span class="section-icon">${icon('bar-chart','sm')}</span>
+      <h2>Analyse</h2>
+    </div>
     <div class="grid cols-2">
       <div class="card">
         ${cardTitle('repeat', 'Erkannte Abos')}
@@ -2544,7 +2549,11 @@ VIEWS.tools = (st) => {
       </div>
     </div>
 
-    <div class="grid cols-3 mt-md">
+    <div class="section-header">
+      <span class="section-icon">${icon('target','sm')}</span>
+      <h2>Planung</h2>
+    </div>
+    <div class="grid cols-3">
       <div class="card">
         ${cardTitle('target', 'Sparziele')}
         ${st.goals.length ? st.goals.map(g => `
@@ -2574,7 +2583,11 @@ VIEWS.tools = (st) => {
       </div>
     </div>
 
-    <div class="grid cols-2 mt-md">
+    <div class="section-header">
+      <span class="section-icon">${icon('wrench','sm')}</span>
+      <h2>Verwaltung</h2>
+    </div>
+    <div class="grid cols-2">
       <div class="card">
         ${cardTitle('calculator', 'Brutto / Netto Rechner')}
         <div class="form mt-sm">
@@ -2709,79 +2722,112 @@ function openSimpleEntityModal(title, fields, onSave){
 }
 
 // ---- Settings -----
+let _settingsSubTab = 'allgemein';
+const SETTINGS_SUBTABS = [
+  { id:'allgemein',  label:'Allgemein',  icon:'settings' },
+  { id:'sicherheit', label:'Sicherheit', icon:'shield-check' },
+  { id:'daten',      label:'Daten',      icon:'download' },
+  { id:'kategorien', label:'Kategorien', icon:'list' },
+];
 VIEWS.settings = (st) => {
+  const sub = _settingsSubTab;
+  const subTabsHtml = SETTINGS_SUBTABS.map(t =>
+    `<button class="chip ${sub===t.id?'active':''}" data-subtab="${t.id}">${icon(t.icon,'sm')}<span>${t.label}</span></button>`
+  ).join('');
+
+  let content = '';
+  if(sub === 'allgemein'){
+    content = `
+      <div class="card">
+        ${cardTitle('settings','Erscheinungsbild')}
+        <div class="row mb-2">
+          <label>Thema</label>
+          ${[{k:'light',l:'Hell'},{k:'dark',l:'Dunkel'},{k:'auto',l:'Automatisch'}].map(t => `<button class="${st.settings.colorScheme===t.k?'primary':''}" data-theme="${t.k}">${t.l}</button>`).join('')}
+        </div>
+        <div class="row mb-2">
+          <label>Sprache</label>
+          ${['de','en'].map(l => `<button class="${st.settings.locale===l?'primary':''}" data-lang="${l}">${l==='de'?'Deutsch':'English'}</button>`).join('')}
+        </div>
+        <div class="row">
+          <label>Schriftgröße</label>
+          ${['normal','large','xlarge'].map(s => `<button class="${st.settings.fontScale===s?'primary':''}" data-font="${s}">${s==='normal'?'Normal':s==='large'?'Groß':'Sehr Groß'}</button>`).join('')}
+        </div>
+      </div>
+    `;
+  } else if(sub === 'sicherheit'){
+    content = `
+      <div class="card">
+        ${cardTitle('shield-check','Tresor & PIN','gold')}
+        <div class="row">
+          ${(isEncrypted() || st.settings.pinHash) ? '<span class="pill emerald">✓ Tresor verschlüsselt</span>' : '<span class="pill berry">Kein PIN</span>'}
+          <button id="pin-set">${(isEncrypted() || st.settings.pinHash)?'PIN ändern':'PIN setzen'}</button>
+          ${(isEncrypted() || st.settings.pinHash) ? '<button class="danger" id="pin-rm">PIN entfernen</button>' : ''}
+        </div>
+        ${isEncrypted() ? '<p class="muted mt-sm">Belege + Buchungen werden mit AES-GCM-256 verschlüsselt. Master-Key liegt nie auf der Festplatte.</p>' : ''}
+        <div class="row mt-md">
+          <label>Auto-Lock</label>
+          <select id="auto-lock">
+            ${[0,1,5,15,30].map(m => `<option value="${m}" ${st.settings.autoLockMinutes===m?'selected':''}>${m===0?'Aus':m+' Minuten'}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    `;
+  } else if(sub === 'daten'){
+    content = `
+      <div class="card">
+        ${cardTitle('download','Backup')}
+        <p class="muted">Backup als JSON-Datei mit allen Buchungen, Mietern, Belegen. Lokal speichern oder per AirDrop verschicken.</p>
+        <div class="row mt-md">
+          <button class="primary" id="bk-export">${icon('download','sm')}<span>Backup erstellen</span></button>
+          <input id="bk-file" type="file" accept=".json,application/json" class="mxw-260" />
+          <button id="bk-import">${icon('upload','sm')}<span>Backup laden</span></button>
+        </div>
+      </div>
+      <div class="card mt-md">
+        ${cardTitle('trash','Papierkorb')}
+        <div class="row">
+          <span class="pill ${st.trash.length?'berry':''}">${st.trash.length} Einträge</span>
+          <button id="trash-open">Öffnen</button>
+          <button id="trash-purge">Auto-Bereinigung (>30 Tg)</button>
+        </div>
+      </div>
+      <div class="card mt-md">
+        ${cardTitle('alert-circle','Zurücksetzen','berry')}
+        <p class="muted">Löscht alle lokalen Daten. Bitte vorher Backup machen!</p>
+        <button class="danger" id="reset-all">${icon('trash','sm')}<span>Alle Daten löschen</span></button>
+      </div>
+    `;
+  } else if(sub === 'kategorien'){
+    content = `
+      <div class="card">
+        ${cardTitle('list','Kategorien')}
+        <p class="muted">Goldener Stern (★) = steuerrelevant. Diese Buchungen erscheinen automatisch im Berater-Modus.</p>
+        <table class="data mt-2">
+          <thead><tr><th>Kategorie</th><th>Gruppe</th><th class="right">★ Steuerrelevant</th></tr></thead>
+          <tbody>${st.categories.map(c => `
+            <tr><td>${escapeHtml(c.label)}</td><td><span class="pill ${c.group||'neutral'}">${c.group||'neutral'}</span></td>
+              <td class="right"><label class="toggle"><input type="checkbox" data-tax="${c.id}" ${c.taxRelevant?'checked':''} /><span class="switch"></span></label></td></tr>
+          `).join('')}</tbody>
+        </table>
+        <button id="cat-add" class="mt-2">+ Eigene Kategorie</button>
+      </div>
+    `;
+  }
   return `
     <h1 class="serif">Einstellungen</h1>
-
-    <div class="card mt-md">
-      <div class="card-title"><h2><span class="ti-icon gold">${icon('shield-check','md')}</span>Sicherheit</h2></div>
-      <div class="row">
-        ${(isEncrypted() || st.settings.pinHash) ? '<span class="pill emerald">✓ Tresor verschlüsselt</span>' : '<span class="pill berry">Kein PIN</span>'}
-        <button id="pin-set">${(isEncrypted() || st.settings.pinHash)?'PIN ändern':'PIN setzen'}</button>
-        ${(isEncrypted() || st.settings.pinHash) ? '<button class="danger" id="pin-rm">PIN entfernen</button>' : ''}
-      </div>
-      ${isEncrypted() ? '<p class="muted mt-sm">Belege + Buchungen werden mit AES-GCM-256 verschlüsselt. Master-Key liegt nie auf der Festplatte.</p>' : ''}
-      <div class="row mt-md">
-        <label>Auto-Lock</label>
-        <select id="auto-lock">
-          ${[0,1,5,15,30].map(m => `<option value="${m}" ${st.settings.autoLockMinutes===m?'selected':''}>${m===0?'Aus':m+' Minuten'}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-
-    <div class="card mt-md">
-      <div class="card-title"><h2><span class="ti-icon">${icon('settings','md')}</span>Erscheinungsbild</h2></div>
-      <div class="row mb-2">
-        <label>Thema</label>
-        ${[{k:'light',l:'Hell'},{k:'dark',l:'Dunkel'},{k:'auto',l:'Automatisch'}].map(t => `<button class="${st.settings.colorScheme===t.k?'primary':''}" data-theme="${t.k}">${t.l}</button>`).join('')}
-      </div>
-      <div class="row mb-2">
-        <label>Sprache</label>
-        ${['de','en'].map(l => `<button class="${st.settings.locale===l?'primary':''}" data-lang="${l}">${l==='de'?'Deutsch':'English'}</button>`).join('')}
-      </div>
-      <div class="row">
-        <label>Schriftgröße</label>
-        ${['normal','large','xlarge'].map(s => `<button class="${st.settings.fontScale===s?'primary':''}" data-font="${s}">${s==='normal'?'Normal':s==='large'?'Groß':'Sehr Groß'}</button>`).join('')}
-      </div>
-    </div>
-
-    <div class="card mt-md">
-      <div class="card-title"><h2><span class="ti-icon">${icon('download','md')}</span>Daten</h2></div>
-      <p class="muted">Backup als JSON-Datei mit allen Buchungen, Mietern, Belegen. Lokal speichern oder per AirDrop verschicken.</p>
-      <div class="row mt-md">
-        <button class="primary" id="bk-export">${icon('download','sm')}<span>Backup erstellen</span></button>
-        <input id="bk-file" type="file" accept=".json,application/json" class="mxw-260" />
-        <button id="bk-import">${icon('upload','sm')}<span>Backup laden</span></button>
-      </div>
-      <div class="row mt-3">
-        <span class="pill ${st.trash.length?'berry':''}">🗑 Papierkorb: ${st.trash.length}</span>
-        <button id="trash-open">Öffnen</button>
-        <button id="trash-purge">Auto-Bereinigung (>30 Tg)</button>
-      </div>
-    </div>
-
-    <div class="card mt-md">
-      <div class="card-title"><h2><span class="ti-icon">${icon('wrench','md')}</span>Kategorien</h2></div>
-      <p class="muted">Goldener Stern (★) = steuerrelevant. Diese Buchungen erscheinen automatisch im Berater-Modus.</p>
-      <table class="data mt-2">
-        <thead><tr><th>Kategorie</th><th>Gruppe</th><th class="right">★ Steuerrelevant</th></tr></thead>
-        <tbody>${st.categories.map(c => `
-          <tr><td>${escapeHtml(c.label)}</td><td><span class="pill ${c.group||'neutral'}">${c.group||'neutral'}</span></td>
-            <td class="right"><label class="toggle"><input type="checkbox" data-tax="${c.id}" ${c.taxRelevant?'checked':''} /><span class="switch"></span></label></td></tr>
-        `).join('')}</tbody>
-      </table>
-      <button id="cat-add" class="mt-2">+ Eigene Kategorie</button>
-    </div>
-
-    <div class="card mt-md">
-      <div class="card-title"><h2><span class="ti-icon berry">${icon('alert-circle','md')}</span>Zurücksetzen</h2></div>
-      <p class="muted">Löscht alle lokalen Daten. Bitte vorher Backup machen!</p>
-      <button class="danger" id="reset-all">🗑 Alle Daten löschen</button>
-    </div>
+    <div class="chip-row sub-tabs mb-md">${subTabsHtml}</div>
+    ${content}
   `;
 };
 BINDERS.settings = (root, st) => {
-  root.querySelector('#pin-set').onclick = () => {
+  // Sub-Tabs
+  root.querySelectorAll('[data-subtab]').forEach(b => b.onclick = () => {
+    _settingsSubTab = b.dataset.subtab;
+    render();
+  });
+
+  const pinSet = root.querySelector('#pin-set');
+  if(pinSet) pinSet.onclick = () => {
     const meta = loadMeta();
     const isChange = isEncrypted();
     const title = isChange ? 'PIN ändern' : 'PIN setzen';
@@ -2830,13 +2876,15 @@ BINDERS.settings = (root, st) => {
       Toast.success('PIN-Schutz entfernt');
     }catch(e){ Toast.error('Fehler beim Entfernen: '+e.message); }
   });
-  root.querySelector('#auto-lock').onchange = e => Store.update(s => ({...s, settings:{...s.settings, autoLockMinutes: Number(e.target.value)}}));
+  const autoLock = root.querySelector('#auto-lock');
+  if(autoLock) autoLock.onchange = e => Store.update(s => ({...s, settings:{...s.settings, autoLockMinutes: Number(e.target.value)}}));
 
-  root.querySelectorAll('[data-theme]').forEach(b => b.onclick = () => Store.update(s => ({...s, settings:{...s.settings, colorScheme: b.dataset.theme}})));
-  root.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => Store.update(s => ({...s, settings:{...s.settings, locale: b.dataset.lang}})));
-  root.querySelectorAll('[data-font]').forEach(b => b.onclick = () => Store.update(s => ({...s, settings:{...s.settings, fontScale: b.dataset.font}})));
+  root.querySelectorAll('[data-theme]').forEach(b => b.onclick = () => { Store.update(s => ({...s, settings:{...s.settings, colorScheme: b.dataset.theme}})); render(); });
+  root.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { Store.update(s => ({...s, settings:{...s.settings, locale: b.dataset.lang}})); render(); });
+  root.querySelectorAll('[data-font]').forEach(b => b.onclick = () => { Store.update(s => ({...s, settings:{...s.settings, fontScale: b.dataset.font}})); render(); });
 
-  root.querySelector('#bk-export').onclick = async () => {
+  const bkExport = root.querySelector('#bk-export');
+  if(bkExport) bkExport.onclick = async () => {
     const r = await promptModal({
       title: 'Backup verschlüsseln',
       description: 'Wähle eine Passphrase (min. 8 Zeichen). Ohne sie lässt sich das Backup nicht wiederherstellen — bewahre sie sicher auf.',
@@ -2860,7 +2908,8 @@ BINDERS.settings = (root, st) => {
     const json = JSON.stringify(envelope);
     downloadBlob(json, `manu-backup-${todayIso()}.json`, 'application/json');
   };
-  root.querySelector('#bk-import').onclick = async () => {
+  const bkImport = root.querySelector('#bk-import');
+  if(bkImport) bkImport.onclick = async () => {
     const f = root.querySelector('#bk-file').files[0];
     if(!f){ Toast.info('Backup-Datei wählen'); return; }
     const text = await f.text();
@@ -2909,7 +2958,8 @@ BINDERS.settings = (root, st) => {
     });
   };
 
-  root.querySelector('#trash-open').onclick = () => {
+  const trashOpen = root.querySelector('#trash-open');
+  if(trashOpen) trashOpen.onclick = () => {
     const st2 = Store.get();
     const html = st2.trash.length ? `<table class="data"><thead><tr><th>Typ</th><th>Beschreibung</th><th>Gelöscht am</th><th></th></tr></thead><tbody>${st2.trash.map(t => `
       <tr><td>${t.entityType}</td><td>${escapeHtml(t.payload?.label || t.payload?.name || t.payload?.counterparty || t.id)}</td><td class="muted">${fmtDate(t.deletedAt)}</td>
@@ -2921,7 +2971,8 @@ BINDERS.settings = (root, st) => {
       body.querySelectorAll('[data-purge]').forEach(b => b.onclick = () => Store.update(s => ({...s, trash: s.trash.filter(t => t.id !== b.dataset.purge)})));
     });
   };
-  root.querySelector('#trash-purge').onclick = () => {
+  const trashPurge = root.querySelector('#trash-purge');
+  if(trashPurge) trashPurge.onclick = () => {
     const cutoff = Date.now() - 30*86400000;
     let n = 0;
     Store.update(s => ({...s, trash: s.trash.filter(t => { const keep = new Date(t.deletedAt).getTime() >= cutoff; if(!keep) n++; return keep; })}));
@@ -2932,11 +2983,13 @@ BINDERS.settings = (root, st) => {
     const id = c.dataset.tax;
     Store.update(s => ({...s, categories: s.categories.map(x => x.id===id?{...x, taxRelevant: e.target.checked}:x)}));
   });
-  root.querySelector('#cat-add').onclick = () => openSimpleEntityModal('Neue Kategorie', [
+  const catAdd = root.querySelector('#cat-add');
+  if(catAdd) catAdd.onclick = () => openSimpleEntityModal('Neue Kategorie', [
     {key:'label', label:'Bezeichnung'}, {key:'group', label:'Gruppe', type:'select', options:['neutral','moss','emerald','sage']}
   ], data => Store.update(s => ({...s, categories:[...s.categories, {id: uid('cat'), label: data.label, group: data.group, taxRelevant:false}]})));
 
-  root.querySelector('#reset-all').onclick = () => confirmAlert('WIRKLICH alles löschen? Diese Aktion kann nicht rückgängig gemacht werden.', () => {
+  const resetAll = root.querySelector('#reset-all');
+  if(resetAll) resetAll.onclick = () => confirmAlert('WIRKLICH alles löschen? Diese Aktion kann nicht rückgängig gemacht werden.', () => {
     Store.reset();
     sessionStorage.removeItem('manu.unlocked');
     location.reload();

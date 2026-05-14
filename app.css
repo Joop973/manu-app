@@ -451,6 +451,29 @@ tr.day-header:hover td{background:var(--surface-2)}
 .context-menu button.danger:hover{background:color-mix(in oklab, var(--berry) 14%, transparent)}
 .context-menu .ctx-sep{height:1px;background:var(--border);margin:4px 0}
 
+/* Section-Header (Tools-Tab Gruppierung) */
+.section-header{
+  display:flex;align-items:center;gap:10px;
+  margin:24px 4px 12px;
+}
+.section-header:first-of-type{margin-top:14px}
+.section-header .section-icon{
+  width:28px;height:28px;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--accent-soft);color:var(--accent);
+  border-radius:8px;
+}
+.section-header h2{
+  font-size:15px;font-weight:600;
+  color:var(--text-muted);
+  letter-spacing:.06em;text-transform:uppercase;
+  margin:0;
+}
+
+/* Sub-Tabs (Settings) */
+.chip-row.sub-tabs{margin-top:6px}
+.chip-row.sub-tabs .chip{padding:8px 16px;font-size:14px}
+
 /* Drag-and-Drop-Overlay */
 .drop-overlay{
   position:fixed;inset:0;z-index:200;
