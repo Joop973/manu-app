@@ -220,6 +220,8 @@ button.ghost{background:transparent;border-color:transparent;box-shadow:none}
 button.ghost:hover{background:var(--surface-2);color:var(--text);border-color:var(--border)}
 button.icon{padding:8px 10px}
 button:disabled{opacity:.55;cursor:not-allowed;transform:none;box-shadow:none}
+button:has(svg.icon-sm){display:inline-flex;align-items:center;gap:8px}
+button svg.icon-sm{flex-shrink:0}
 
 a{color:var(--accent);text-decoration:none;transition:color var(--t-fast)}
 a:hover{color:var(--accent-hover)}
@@ -875,7 +877,13 @@ body.advisor .leaf-img{display:none !important}
 .right-text{text-align:right}
 .flex{display:flex;gap:10px;align-items:center}
 .flex-1{flex:1}
-.gap-sm{gap:6px}
-.mt-sm{margin-top:8px}.mt-md{margin-top:14px}.mt-lg{margin-top:22px}
-.mb-sm{margin-bottom:8px}.mb-md{margin-bottom:14px}.mb-lg{margin-bottom:22px}
+.flex-end{display:flex;justify-content:flex-end;gap:8px}
+.stack{display:flex;flex-direction:column;gap:10px}
+.gap-sm{gap:6px}.gap-md{gap:10px}.gap-lg{gap:16px}
+.mt-xs{margin-top:6px}.mt-sm{margin-top:8px}.mt-2{margin-top:10px}
+.mt-md{margin-top:14px}.mt-3{margin-top:18px}.mt-lg{margin-top:22px}
+.mb-xs{margin-bottom:6px}.mb-sm{margin-bottom:8px}.mb-2{margin-bottom:10px}
+.mb-md{margin-bottom:14px}.mb-3{margin-bottom:18px}.mb-lg{margin-bottom:22px}
+.mxw-160{max-width:160px}.mxw-200{max-width:200px}.mxw-260{max-width:260px}
+.mxw-300{max-width:300px}.mxw-340{max-width:340px}
 .hidden{display:none !important}

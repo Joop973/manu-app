@@ -71,6 +71,15 @@ function fireConfetti(durationMs=1400){
 function icon(name, size='md', extra=''){
   return `<svg class="icon icon-${size} ${extra}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 }
+// `cardTitle('icon', 'Label', 'gold' | 'berry')` → standardisierter Card-Header
+function cardTitle(iconName, label, tone=''){
+  const cls = tone ? ` ${tone}` : '';
+  return `<div class="card-title"><h2><span class="ti-icon${cls}">${icon(iconName,'md')}</span>${escapeHtml(label)}</h2></div>`;
+}
+// `iconBtn('upload', 'Hochladen', 'primary', 'id="bk-export"')` → Icon + Text-Button
+function iconBtn(iconName, label, extraClass='', dataAttrs=''){
+  return `<button class="${extraClass}"${dataAttrs ? ' '+dataAttrs : ''}>${icon(iconName,'sm')}<span>${escapeHtml(label)}</span></button>`;
+}
 
 // -------- Toast-Notifications ----------
 const Toast = (() => {
@@ -347,6 +356,23 @@ function confirmAlert(msg, onYes){
     body.querySelector('[data-no]').onclick = close;
     body.querySelector('[data-yes]').onclick = () => { close(); onYes(); };
   });
+}
+
+// openProgressModal — zeigt Skeleton + Live-Text, returns {update, close}.
+function openProgressModal(title, initialMsg=''){
+  let bodyEl = null, closeFn = () => {};
+  openModal(title, `
+    <div id="pm-msg" class="muted mb-md">${escapeHtml(initialMsg)}</div>
+    <div class="stack">
+      <div class="skeleton" style="height:16px"></div>
+      <div class="skeleton" style="height:16px;width:70%"></div>
+      <div class="skeleton" style="height:16px;width:85%"></div>
+    </div>
+  `, (body, close) => { bodyEl = body; closeFn = close; });
+  return {
+    update(msg){ if(bodyEl){ const m = bodyEl.querySelector('#pm-msg'); if(m) m.textContent = msg; } },
+    close(){ closeFn(); },
+  };
 }
 
 // promptModal — Eingabe-Modal mit ein oder zwei Inputs.
@@ -937,8 +963,8 @@ VIEWS.dashboard = (st) => {
   }).join('')}</div>`;
 
   return `
-    <h1 class="serif" style="margin-bottom:6px">Hauptsaal</h1>
-    <div class="muted" style="margin-bottom:20px">${monthLabel(st.currentMonth)}</div>
+    <h1 class="serif mb-xs">Hauptsaal</h1>
+    <div class="muted mb-3">${monthLabel(st.currentMonth)}</div>
 
     <div class="grid cols-3 hide-on-advisor">
       <div class="card"><div class="muted">Einnahmen</div><div class="amount lg income" data-count-up="${income}">${fmtEur(income)}</div></div>
@@ -949,20 +975,20 @@ VIEWS.dashboard = (st) => {
       </div>
     </div>
 
-    <div class="grid cols-2 hide-on-advisor" style="margin-top:14px">
+    <div class="grid cols-2 hide-on-advisor mt-md">
       <div class="card">
-        <div class="card-title"><h2>Letzte 6 Monate</h2></div>
+        ${cardTitle('bar-chart', 'Letzte 6 Monate')}
         ${barsHtml}
       </div>
       <div class="card" style="border-color:var(--gold-ring)">
         <div class="card-title"><h2 class="gold-text">★ Steuerrelevant ${new Date().getFullYear()}</h2></div>
         <div class="amount lg gold-text" data-count-up="${taxYearAmount}">${fmtEur(taxYearAmount)}</div>
-        <p class="muted" style="margin-top:8px">Summe aller Buchungen in steuerrelevanten Kategorien für ${new Date().getFullYear()}.</p>
-        <button class="gold" data-action="open-advisor" style="margin-top:10px">Berater-Modus öffnen →</button>
+        <p class="muted mt-sm">Summe aller Buchungen in steuerrelevanten Kategorien für ${new Date().getFullYear()}.</p>
+        <button class="gold mt-2" data-action="open-advisor">Berater-Modus öffnen →</button>
       </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card mt-md">
       <div class="card-title">
         <h2>Immobilien-Eiche</h2>
         <div class="actions"><button data-action="new-property">+ Objekt</button></div>
@@ -970,14 +996,14 @@ VIEWS.dashboard = (st) => {
       ${propsHtml}
     </div>
 
-    <div class="card" style="margin-top:14px">
-      <div class="card-title"><h2>Schnellaktionen</h2></div>
+    <div class="card mt-md">
+      ${cardTitle('zap', 'Schnellaktionen')}
       <div class="row">
         <button class="primary" data-action="new-booking">+ Neue Buchung</button>
-        <button data-action="goto-receipts">📄 Beleg hochladen</button>
+        <button data-action="goto-receipts">${icon('file-text','sm')}<span>Beleg hochladen</span></button>
         <button data-action="goto-bookings">🎰 Alle Buchungen</button>
-        <button data-action="goto-tools">🛠 Werkzeuge</button>
-        <button class="gold" data-action="open-advisor">★ Berater-Modus</button>
+        <button data-action="goto-tools">${icon('wrench','sm')}<span>Werkzeuge</span></button>
+        <button class="gold" data-action="open-advisor">${icon('star','sm')}<span>Berater-Modus</span></button>
       </div>
     </div>
   `;
@@ -1044,20 +1070,20 @@ VIEWS.bookings = (st) => {
 
   return `
     <h1 class="serif">Buchungen</h1>
-    <div class="card" style="margin-top:14px">
-      <div class="row" style="margin-bottom:14px">
-        <select id="f-month" style="max-width:200px"><option value="all">Alle Monate</option>${monthOpts}</select>
-        <select id="f-typ" style="max-width:160px">
+    <div class="card mt-md">
+      <div class="row mb-md">
+        <select id="f-month" class="mxw-200"><option value="all">Alle Monate</option>${monthOpts}</select>
+        <select id="f-typ" class="mxw-160">
           <option value="all" ${_bookingsFilter.typ==='all'?'selected':''}>Alle Typen</option>
           <option value="income" ${_bookingsFilter.typ==='income'?'selected':''}>Einnahmen</option>
           <option value="expense" ${_bookingsFilter.typ==='expense'?'selected':''}>Ausgaben</option>
         </select>
-        <select id="f-prop" style="max-width:200px">
+        <select id="f-prop" class="mxw-200">
           <option value="all">Alle Objekte</option>
           <option value="">Privat-Beet</option>
           ${propOpts}
         </select>
-        <input id="f-q" placeholder="🔍 Suche Empfänger oder Notiz…" value="${escapeHtml(_bookingsFilter.q)}" style="max-width:260px" />
+        <input id="f-q" placeholder="🔍 Suche Empfänger oder Notiz…" value="${escapeHtml(_bookingsFilter.q)}" class="mxw-260" />
         <label class="toggle"><input type="checkbox" id="f-tax" ${_bookingsFilter.taxOnly?'checked':''} /><span class="switch"></span><span>nur ★ steuerrelevant</span></label>
         <span style="flex:1"></span>
         <label class="toggle"><input type="checkbox" id="bulk-toggle" ${_bulkMode?'checked':''} /><span class="switch"></span><span>Auswahl-Modus</span></label>
@@ -1434,16 +1460,16 @@ VIEWS.oak = (st) => {
 
     return `
       <button class="ghost" onclick="(function(){const s=Manu.Store.get();Manu.Store.update(x=>({...x,_filterPropertyId:null}));Manu.render();})()">← zurück zur Eiche</button>
-      <h1 class="serif" style="margin-top:14px">${escapeHtml(p.name)}</h1>
+      <h1 class="serif mt-md">${escapeHtml(p.name)}</h1>
       <div class="muted">${escapeHtml(p.address||'')}</div>
 
-      <div class="grid cols-3" style="margin-top:14px">
+      <div class="grid cols-3 mt-md">
         <div class="card"><div class="muted">1 Monat</div><div class="amount md income">+${fmtEur(inc([m1Iso]))}</div><div class="amount md expense">−${fmtEur(exp([m1Iso]))}</div></div>
         <div class="card"><div class="muted">3 Monate</div><div class="amount md income">+${fmtEur(inc(m3))}</div><div class="amount md expense">−${fmtEur(exp(m3))}</div></div>
         <div class="card"><div class="muted">12 Monate</div><div class="amount md income">+${fmtEur(inc(y1))}</div><div class="amount md expense">−${fmtEur(exp(y1))}</div></div>
       </div>
 
-      <div class="grid cols-2" style="margin-top:14px">
+      <div class="grid cols-2 mt-md">
         <div class="card">
           <div class="card-title"><h2>Mieter</h2><div class="actions"><button data-new-tenant>+ Mieter</button></div></div>
           ${tenants.length ? tenants.map(t => `
@@ -1467,8 +1493,8 @@ VIEWS.oak = (st) => {
         </div>
       </div>
 
-      <div class="card" style="margin-top:14px">
-        <div class="card-title"><h2>Letzte Buchungen</h2></div>
+      <div class="card mt-md">
+        ${cardTitle('history', 'Letzte Buchungen')}
         <table class="data">
           <thead><tr><th>Datum</th><th>Empfänger</th><th>Kategorie</th><th class="right">Betrag</th></tr></thead>
           <tbody>${recentBks || '<tr><td colspan="4"><div class="muted">Noch keine Buchungen</div></td></tr>'}</tbody>
@@ -1501,8 +1527,8 @@ VIEWS.oak = (st) => {
 
   return `
     <h1 class="serif">Immobilien-Eiche</h1>
-    <div class="muted" style="margin-bottom:14px">Jedes Objekt ist ein Ast. Klick auf einen Ast für die Details.</div>
-    <div class="row" style="margin-bottom:14px"><button class="primary" data-action="new-property">+ Neuer Ast</button></div>
+    <div class="muted mb-md">Jedes Objekt ist ein Ast. Klick auf einen Ast für die Details.</div>
+    <div class="row mb-md"><button class="primary" data-action="new-property">+ Neuer Ast</button></div>
     ${cards}
   `;
 };
@@ -1666,21 +1692,21 @@ VIEWS.receipts = (st) => {
     return `<div class="leaf" data-receipt="${r.id}">
       <div class="leaf-name">${escapeHtml(r.filename)}</div>
       <div class="leaf-meta">${fmtDate(r.createdAt)}${r.amount?` · ${fmtEur(r.amount)}`:''}${cat?` · ${escapeHtml(cat.label)}`:''}${prop?` · ${escapeHtml(prop.name)}`:''}</div>
-      ${tax?'<div style="margin-top:6px"><span class="pill gold">★ steuerrelevant</span></div>':''}
+      ${tax?'<div class="mt-xs"><span class="pill gold">★ steuerrelevant</span></div>':''}
     </div>`;
   }).join('')}</div>` : `<div class="empty"><span class="icon">${icon('file-text','lg')}</span><h3>Noch keine Belege</h3><p>Hänge Rechnungen als Blätter an Deine Eiche.</p></div>`;
 
   return `
     <h1 class="serif">Belege</h1>
     <div class="muted">Belege werden als Blätter an die Äste geheftet — der Steuer-Akzent (★) kommt automatisch aus der Kategorie.</div>
-    <div class="card" style="margin-top:14px">
+    <div class="card mt-md">
       <div class="row">
-        <input id="rcp-file" type="file" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple style="max-width:340px" />
-        <button class="primary" id="rcp-upload">📎 Hochladen</button>
+        <input id="rcp-file" type="file" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple class="mxw-340" />
+        <button class="primary" id="rcp-upload">${icon('paperclip','sm')}<span>Hochladen</span></button>
         <span class="muted" id="rcp-info"></span>
       </div>
     </div>
-    <div class="card" style="margin-top:14px">${grid}</div>
+    <div class="card mt-md">${grid}</div>
   `;
 };
 BINDERS.receipts = (root, st) => {
@@ -1834,7 +1860,7 @@ VIEWS.advisor = (st) => {
         <h1 class="serif gold-text">★ Berater-Modus — Steuerjahr ${currentYear}</h1>
         <div class="actions">
           <select id="ad-year">${ranges.map(y => `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`).join('')}</select>
-          <button class="gold" id="ernte-pdf">🧺 Ernte-Korb → PDF</button>
+          <button class="gold" id="ernte-pdf">${icon('download','sm')}<span>Ernte-Korb → PDF</span></button>
           <button id="ernte-csv">CSV</button>
         </div>
       </div>
@@ -1847,14 +1873,14 @@ VIEWS.advisor = (st) => {
 
     <div class="grid cols-2">
       <div class="card">
-        <div class="card-title"><h2>Pro Kategorie</h2></div>
+        ${cardTitle('list', 'Pro Kategorie')}
         <table class="data">
           <thead><tr><th>Kategorie</th><th class="right">#</th><th class="right">Saldo</th></tr></thead>
           <tbody>${groupRows || '<tr><td colspan="3" class="muted">Keine Daten</td></tr>'}</tbody>
         </table>
       </div>
       <div class="card">
-        <div class="card-title"><h2>Pro Objekt</h2></div>
+        ${cardTitle('tree', 'Pro Objekt')}
         <table class="data">
           <thead><tr><th>Objekt</th><th class="right">Einnahmen</th><th class="right">Ausgaben</th><th class="right">Saldo</th></tr></thead>
           <tbody>${
@@ -1869,7 +1895,7 @@ VIEWS.advisor = (st) => {
       </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card mt-md">
       <div class="card-title">
         <h2>★ Alle steuerrelevanten Buchungen ${currentYear}</h2>
         <span class="muted">${yearBks.length} Einträge</span>
@@ -1883,8 +1909,8 @@ VIEWS.advisor = (st) => {
     <div class="card" style="margin-top:14px;border-color:var(--gold-ring)">
       <div class="card-title"><h2 class="gold-text">🧺 Ernte-Korb (Berater-Export)</h2></div>
       <div class="muted">Alle gold markierten Daten in einer Datei — schickfertig für den Steuerberater.</div>
-      <div class="row" style="margin-top:14px">
-        <button class="gold" id="export-pdf">📄 PDF drucken (window.print)</button>
+      <div class="row mt-md">
+        <button class="gold" id="export-pdf">${icon('printer','sm')}<span>PDF drucken</span></button>
         <button id="export-csv">📊 CSV-Download</button>
         <button id="export-datev">DATEV-CSV</button>
         <button id="export-anlage-v">Anlage V (alle Objekte)</button>
@@ -1995,7 +2021,7 @@ function openAnlageV(propId, year){
   const sumEx = expenseRows.reduce((s,[,v])=>s+v.sum,0);
   const html = `
     <h3>Anlage V · ${escapeHtml(p.name)} · ${yr}</h3>
-    <table class="data" style="margin-top:14px">
+    <table class="data mt-md">
       <thead><tr><th>Zeile</th><th class="right">Betrag</th></tr></thead>
       <tbody>
         <tr><th colspan="2">Einnahmen</th></tr>
@@ -2007,7 +2033,7 @@ function openAnlageV(propId, year){
         <tr style="font-weight:700;background:var(--gold-soft)"><td>Einkünfte aus V+V</td><td class="right amount ${sumIn-sumEx>=0?'income':'expense'}">${fmtEur(sumIn-sumEx)}</td></tr>
       </tbody>
     </table>
-    <div class="modal-actions"><button data-close-av>Schließen</button><button class="gold" data-print-av>🖨 Drucken</button></div>
+    <div class="modal-actions"><button data-close-av>Schließen</button><button class="gold" data-print-av>${icon('printer','sm')}<span>Drucken</span></button></div>
   `;
   openModal('Anlage V', html, (body, close) => {
     body.querySelector('[data-close-av]').onclick = close;
@@ -2046,16 +2072,16 @@ function openNkAbrechnung(propId){
   const totalRow = nkCats.map(cid => `<tr><td>${categoryById(cid)?.label||cid}</td><td class="right">${fmtEur(total[cid])}</td></tr>`).join('');
   const html = `
     <h3>NK-Abrechnung · ${escapeHtml(p.name)} · ${year}</h3>
-    <table class="data" style="margin-top:12px">
+    <table class="data mt-md">
       <thead><tr><th>Kostenart</th><th class="right">Gesamt ${year}</th></tr></thead>
       <tbody>${totalRow}<tr style="font-weight:700"><td>Summe umlagefähig</td><td class="right">${fmtEur(Object.values(total).reduce((s,v)=>s+v,0))}</td></tr></tbody>
     </table>
-    <p class="muted" style="margin-top:14px">Verteilerschlüssel: Wohnfläche</p>
+    <p class="muted mt-md">Verteilerschlüssel: Wohnfläche</p>
     <table class="data">
       <thead><tr><th>Mieter</th><th class="right">m²</th><th class="right">Anteil</th><th class="right">Kosten</th><th class="right">Vorauszahlung</th><th class="right">Nach-/Rückzahlung</th></tr></thead>
       <tbody>${tenantsHtml}</tbody>
     </table>
-    <div class="modal-actions"><button data-close-nk>Schließen</button><button class="gold" data-print-nk>🖨 Drucken</button></div>
+    <div class="modal-actions"><button data-close-nk>Schließen</button><button class="gold" data-print-nk>${icon('printer','sm')}<span>Drucken</span></button></div>
   `;
   openModal('NK-Abrechnung', html, (body, close) => {
     body.querySelector('[data-close-nk]').onclick = close;
@@ -2094,7 +2120,7 @@ VIEWS.tools = (st) => {
     <h1 class="serif">Werkzeuge</h1>
     <div class="grid cols-2">
       <div class="card">
-        <div class="card-title"><h2>🔍 Erkannte Abos</h2></div>
+        ${cardTitle('repeat', 'Erkannte Abos')}
         ${subs.length ? subs.map(s => `
           <div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
             <div><div class="serif">${escapeHtml(s.name)}</div><div class="muted">${s.count}× in ${s.months.size} Monaten</div></div>
@@ -2102,7 +2128,7 @@ VIEWS.tools = (st) => {
           </div>`).join('') : '<div class="muted">Noch keine wiederkehrenden Empfänger erkannt.</div>'}
       </div>
       <div class="card">
-        <div class="card-title"><h2>Top-Ausgaben Kategorien (12 Mt)</h2></div>
+        ${cardTitle('trending-up', 'Top-Ausgaben Kategorien (12 Mt)')}
         ${topCats.length ? topCats.map(([n,v]) => `
           <div style="padding:6px 0">
             <div class="row" style="justify-content:space-between"><span>${escapeHtml(n)}</span><span class="amount md">${fmtEur(v)}</span></div>
@@ -2111,51 +2137,51 @@ VIEWS.tools = (st) => {
       </div>
     </div>
 
-    <div class="grid cols-3" style="margin-top:14px">
+    <div class="grid cols-3 mt-md">
       <div class="card">
-        <h2>📊 Sparziele</h2>
+        ${cardTitle('target', 'Sparziele')}
         ${st.goals.length ? st.goals.map(g => `
           <div style="padding:6px 0;border-bottom:1px solid var(--border)">
             <div class="row" style="justify-content:space-between"><span class="serif">${escapeHtml(g.label)}</span><span>${fmtEur(g.saved)}/${fmtEur(g.target)}</span></div>
             <div style="height:6px;background:var(--surface-3);border-radius:3px;margin-top:4px"><div style="width:${Math.min(100,(g.saved/g.target)*100)}%;height:100%;background:var(--accent);border-radius:3px"></div></div>
           </div>`).join('') : '<div class="muted">Keine Sparziele</div>'}
-        <button class="primary" data-new-goal style="margin-top:10px">+ Sparziel</button>
+        <button class="primary mt-2" data-new-goal>+ Sparziel</button>
       </div>
       <div class="card">
-        <h2>📜 Verträge</h2>
+        ${cardTitle('file-text', 'Verträge')}
         ${st.contracts.length ? st.contracts.map(c => `
           <div style="padding:6px 0;border-bottom:1px solid var(--border)">
             <div class="serif">${escapeHtml(c.label)}</div>
             <div class="muted">${c.category}${c.earliestEndDate?` · Ende: ${fmtDate(c.earliestEndDate)}`:''}</div>
           </div>`).join('') : '<div class="muted">Keine Verträge</div>'}
-        <button class="primary" data-new-contract style="margin-top:10px">+ Vertrag</button>
+        <button class="primary mt-2" data-new-contract>+ Vertrag</button>
       </div>
       <div class="card">
-        <h2>🔧 Handwerker</h2>
+        ${cardTitle('hammer', 'Handwerker')}
         ${st.craftsmen.length ? st.craftsmen.map(c => `
           <div style="padding:6px 0;border-bottom:1px solid var(--border)">
             <div class="serif">${escapeHtml(c.name)}</div>
             <div class="muted">${escapeHtml(c.trade||'')}${c.phone?` · ${escapeHtml(c.phone)}`:''}</div>
           </div>`).join('') : '<div class="muted">Keine Einträge</div>'}
-        <button class="primary" data-new-cm style="margin-top:10px">+ Handwerker</button>
+        <button class="primary mt-2" data-new-cm>+ Handwerker</button>
       </div>
     </div>
 
-    <div class="grid cols-2" style="margin-top:14px">
+    <div class="grid cols-2 mt-md">
       <div class="card">
-        <h2>🧮 Brutto / Netto Rechner</h2>
-        <div class="form" style="margin-top:8px">
+        ${cardTitle('calculator', 'Brutto / Netto Rechner')}
+        <div class="form mt-sm">
           <input id="bn-brutto" type="number" placeholder="Brutto monatlich €" />
           <select id="bn-class"><option value="1">Steuerklasse 1</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option></select>
           <div id="bn-result" class="muted"></div>
         </div>
       </div>
       <div class="card">
-        <h2>📥 CSV-Import</h2>
+        ${cardTitle('database', 'CSV-Import')}
         <p class="muted">Bank-Export einlesen (DKB / Sparkasse / ING / N26)</p>
         <input id="csv-file" type="file" accept=".csv,text/csv,text/plain" />
-        <button class="primary" id="csv-import" style="margin-top:10px">Importieren</button>
-        <div id="csv-info" class="muted" style="margin-top:8px"></div>
+        <button class="primary mt-2" id="csv-import">Importieren</button>
+        <div id="csv-info" class="muted mt-sm"></div>
       </div>
     </div>
   `;
@@ -2180,7 +2206,7 @@ BINDERS.tools = (root, st) => {
     const sv = b * (cls===3?0.04:cls===5?0.10:cls===6?0.16:0.07);
     const sva = b * 0.205;
     const netto = b - sv - sva;
-    bnR.innerHTML = `<div>Lohnsteuer ca: <b>${fmtEur(sv)}</b></div><div>Sozialversicherung ca: <b>${fmtEur(sva)}</b></div><div class="amount md income" style="margin-top:6px">Netto ≈ ${fmtEur(netto)}</div>`;
+    bnR.innerHTML = `<div>Lohnsteuer ca: <b>${fmtEur(sv)}</b></div><div>Sozialversicherung ca: <b>${fmtEur(sva)}</b></div><div class="amount md income mt-xs">Netto ≈ ${fmtEur(netto)}</div>`;
   };
   bnB.oninput = compute; bnC.onchange = compute;
 
@@ -2280,15 +2306,15 @@ VIEWS.settings = (st) => {
   return `
     <h1 class="serif">Einstellungen</h1>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card mt-md">
       <div class="card-title"><h2><span class="ti-icon gold">${icon('shield-check','md')}</span>Sicherheit</h2></div>
       <div class="row">
         ${(isEncrypted() || st.settings.pinHash) ? '<span class="pill emerald">✓ Tresor verschlüsselt</span>' : '<span class="pill berry">Kein PIN</span>'}
         <button id="pin-set">${(isEncrypted() || st.settings.pinHash)?'PIN ändern':'PIN setzen'}</button>
         ${(isEncrypted() || st.settings.pinHash) ? '<button class="danger" id="pin-rm">PIN entfernen</button>' : ''}
       </div>
-      ${isEncrypted() ? '<p class="muted" style="margin-top:8px">Belege + Buchungen werden mit AES-GCM-256 verschlüsselt. Master-Key liegt nie auf der Festplatte.</p>' : ''}
-      <div class="row" style="margin-top:14px">
+      ${isEncrypted() ? '<p class="muted mt-sm">Belege + Buchungen werden mit AES-GCM-256 verschlüsselt. Master-Key liegt nie auf der Festplatte.</p>' : ''}
+      <div class="row mt-md">
         <label>Auto-Lock</label>
         <select id="auto-lock">
           ${[0,1,5,15,30].map(m => `<option value="${m}" ${st.settings.autoLockMinutes===m?'selected':''}>${m===0?'Aus':m+' Minuten'}</option>`).join('')}
@@ -2296,13 +2322,13 @@ VIEWS.settings = (st) => {
       </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card mt-md">
       <div class="card-title"><h2><span class="ti-icon">${icon('settings','md')}</span>Erscheinungsbild</h2></div>
-      <div class="row" style="margin-bottom:10px">
+      <div class="row mb-2">
         <label>Thema</label>
         ${[{k:'light',l:'Hell'},{k:'dark',l:'Dunkel'},{k:'auto',l:'Automatisch'}].map(t => `<button class="${st.settings.colorScheme===t.k?'primary':''}" data-theme="${t.k}">${t.l}</button>`).join('')}
       </div>
-      <div class="row" style="margin-bottom:10px">
+      <div class="row mb-2">
         <label>Sprache</label>
         ${['de','en'].map(l => `<button class="${st.settings.locale===l?'primary':''}" data-lang="${l}">${l==='de'?'Deutsch':'English'}</button>`).join('')}
       </div>
@@ -2312,35 +2338,35 @@ VIEWS.settings = (st) => {
       </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card mt-md">
       <div class="card-title"><h2><span class="ti-icon">${icon('download','md')}</span>Daten</h2></div>
       <p class="muted">Backup als JSON-Datei mit allen Buchungen, Mietern, Belegen. Lokal speichern oder per AirDrop verschicken.</p>
-      <div class="row" style="margin-top:12px">
-        <button class="primary" id="bk-export">📤 Backup erstellen</button>
-        <input id="bk-file" type="file" accept=".json,application/json" style="max-width:260px" />
-        <button id="bk-import">📥 Backup laden</button>
+      <div class="row mt-md">
+        <button class="primary" id="bk-export">${icon('download','sm')}<span>Backup erstellen</span></button>
+        <input id="bk-file" type="file" accept=".json,application/json" class="mxw-260" />
+        <button id="bk-import">${icon('upload','sm')}<span>Backup laden</span></button>
       </div>
-      <div class="row" style="margin-top:18px">
+      <div class="row mt-3">
         <span class="pill ${st.trash.length?'berry':''}">🗑 Papierkorb: ${st.trash.length}</span>
         <button id="trash-open">Öffnen</button>
         <button id="trash-purge">Auto-Bereinigung (>30 Tg)</button>
       </div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card mt-md">
       <div class="card-title"><h2><span class="ti-icon">${icon('wrench','md')}</span>Kategorien</h2></div>
       <p class="muted">Goldener Stern (★) = steuerrelevant. Diese Buchungen erscheinen automatisch im Berater-Modus.</p>
-      <table class="data" style="margin-top:10px">
+      <table class="data mt-2">
         <thead><tr><th>Kategorie</th><th>Gruppe</th><th class="right">★ Steuerrelevant</th></tr></thead>
         <tbody>${st.categories.map(c => `
           <tr><td>${escapeHtml(c.label)}</td><td><span class="pill ${c.group||'neutral'}">${c.group||'neutral'}</span></td>
             <td class="right"><label class="toggle"><input type="checkbox" data-tax="${c.id}" ${c.taxRelevant?'checked':''} /><span class="switch"></span></label></td></tr>
         `).join('')}</tbody>
       </table>
-      <button id="cat-add" style="margin-top:10px">+ Eigene Kategorie</button>
+      <button id="cat-add" class="mt-2">+ Eigene Kategorie</button>
     </div>
 
-    <div class="card" style="margin-top:14px">
+    <div class="card mt-md">
       <div class="card-title"><h2><span class="ti-icon berry">${icon('alert-circle','md')}</span>Zurücksetzen</h2></div>
       <p class="muted">Löscht alle lokalen Daten. Bitte vorher Backup machen!</p>
       <button class="danger" id="reset-all">🗑 Alle Daten löschen</button>
@@ -2434,6 +2460,7 @@ BINDERS.settings = (root, st) => {
     let parsed;
     try{ parsed = JSON.parse(text); }catch{ Toast.error('Backup ungültig: keine JSON-Datei'); return; }
     confirmAlert('Backup einspielen? Alle aktuellen Daten werden ersetzt.', async () => {
+      let progress = null;
       try{
         let payload;
         if(parsed && parsed.v === 2 && parsed.ct){
@@ -2445,24 +2472,31 @@ BINDERS.settings = (root, st) => {
             confirmLabel: 'Entschlüsseln',
           });
           if(!r) return;
+          progress = openProgressModal('Backup wird wiederhergestellt', 'Entschlüssele Daten …');
           payload = await decryptJson(parsed, r.value);
         } else {
-          // Tolerantes Lesen alter Klartext-Backups (v1 oder roh)
+          progress = openProgressModal('Backup wird wiederhergestellt', 'Lese Daten …');
           payload = parsed;
         }
         const data = payload.data || payload;
         const receipts = data.receipts || [];
+        let n = 0;
         for(const r of receipts){
           if(r.dataUri){
+            n++;
+            progress.update(`Beleg ${n} von ${receipts.length} wird gespeichert …`);
             const blob = await (await fetch(r.dataUri)).blob();
             await FilesDB.put(r.id, blob);
             delete r.dataUri;
           }
         }
+        progress.update('Datenmodell wird übernommen …');
         Store.replace(data);
+        progress.close(); progress = null;
         Toast.success('Backup eingespielt');
         fireConfetti(1100);
       }catch(e){
+        if(progress) progress.close();
         Toast.error('Backup konnte nicht entschlüsselt werden. Falsche Passphrase oder beschädigte Datei.');
       }
     });
