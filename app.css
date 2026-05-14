@@ -304,6 +304,33 @@ button.icon svg{margin:0}
 }
 .search-input input:focus{box-shadow:none}
 
+/* Sortable Column-Headers */
+table.data.sortable th{padding:6px 8px}
+button.th-sort{
+  background:transparent;border:none;
+  color:var(--text-muted);
+  font-weight:600;font-size:13px;
+  text-align:inherit;letter-spacing:.04em;text-transform:uppercase;
+  padding:6px 4px;cursor:pointer;
+  box-shadow:none;display:inline-flex;align-items:center;gap:6px;
+  width:auto;
+}
+button.th-sort:hover{color:var(--accent);background:transparent;transform:none}
+table.data th.right button.th-sort{justify-content:flex-end;width:100%}
+
+/* Group-by-Day Header-Row */
+tr.day-header td{
+  background:var(--surface-2);
+  padding:8px 12px;
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+  font-size:13px;
+  letter-spacing:.02em;
+}
+tr.day-header td:first-child{border-left:3px solid var(--accent)}
+tr.day-header td.right{font-weight:600}
+tr.day-header:hover td{background:var(--surface-2)}
+
 /* Drag-and-Drop-Overlay */
 .drop-overlay{
   position:fixed;inset:0;z-index:200;

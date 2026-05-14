@@ -1237,7 +1237,7 @@ BINDERS.dashboard = (root, st) => {
 function hasTax(bookings){ return bookings.some(b => isTaxRelevant(b)); }
 
 // ---- Buchungen -----
-let _bookingsFilter = { typ:'all', propId:'all', q:'', month:'', taxOnly:false };
+let _bookingsFilter = { typ:'all', propId:'all', q:'', month:'', taxOnly:false, sortKey:'date', sortDir:'desc' };
 let _bulkMode = false;
 let _selected = new Set();
 
@@ -1258,27 +1258,63 @@ VIEWS.bookings = (st) => {
     const q = _bookingsFilter.q.toLowerCase();
     list = list.filter(b => (b.counterparty||'').toLowerCase().includes(q) || (b.note||'').toLowerCase().includes(q));
   }
-  list.sort((a,b) => b.date.localeCompare(a.date));
+  // Sortierung via _bookingsFilter.sortKey + sortDir
+  const sk = _bookingsFilter.sortKey, sd = _bookingsFilter.sortDir;
+  const cmp = (a, b) => {
+    let av, bv;
+    if(sk === 'date'){ av = a.date; bv = b.date; }
+    else if(sk === 'amount'){ av = a.amount; bv = b.amount; }
+    else if(sk === 'counterparty'){ av = (a.counterparty||'').toLowerCase(); bv = (b.counterparty||'').toLowerCase(); }
+    else if(sk === 'category'){
+      av = (categoryById(a.categoryId)?.label||'').toLowerCase();
+      bv = (categoryById(b.categoryId)?.label||'').toLowerCase();
+    } else { av = a.date; bv = b.date; }
+    if(av < bv) return sd === 'asc' ? -1 : 1;
+    if(av > bv) return sd === 'asc' ? 1 : -1;
+    return 0;
+  };
+  list.sort(cmp);
 
   const sumIn = list.filter(b=>b.type==='income').reduce((s,b)=>s+b.amount,0);
   const sumOut = list.filter(b=>b.type==='expense').reduce((s,b)=>s+b.amount,0);
 
-  const rows = list.length ? list.map(b => {
-    const cat = categoryById(b.categoryId);
-    const prop = propertyById(b.propertyId);
-    const tax = isTaxRelevant(b);
-    const sign = b.type==='income' ? '+' : '−';
-    const cls = b.type==='income' ? 'income' : 'expense';
-    const cb = _bulkMode ? `<input type="checkbox" data-bulk="${b.id}" ${_selected.has(b.id)?'checked':''} />` : '';
-    return `<tr class="${tax?'gold-row':''}" data-edit="${b.id}">
-      <td>${cb} <span class="serif">${fmtDate(b.date)}</span></td>
-      <td>${escapeHtml(b.counterparty || '—')}${b.note?`<div class="muted">${escapeHtml(b.note)}</div>`:''}</td>
-      <td>${cat ? `<span class="pill ${cat.group||'neutral'}">${escapeHtml(cat.label)}</span>${tax?'<span class="tax-dot" title="steuerrelevant"></span>':''}` : '—'}</td>
-      <td>${prop ? escapeHtml(prop.name) : '<span class="muted">Privat-Beet</span>'}</td>
-      <td class="right amount ${cls}">${sign} ${fmtEur(b.amount)}</td>
-      <td class="right"><button class="icon" data-del="${b.id}" title="In Papierkorb">🗑</button></td>
-    </tr>`;
-  }).join('') : `<tr><td colspan="6"><div class="empty"><span class="icon">${icon('receipt','lg')}</span><h3>Keine Buchungen</h3><p>Klick auf „+ Neue Buchung" zum Anlegen.</p></div></td></tr>`;
+  // Group-by-Day nur wenn nach Datum desc sortiert
+  const groupByDay = sk === 'date' && sd === 'desc';
+
+  let rows = '';
+  if(!list.length){
+    rows = `<tr><td colspan="6"><div class="empty"><span class="icon">${icon('receipt','lg')}</span><h3>Keine Buchungen</h3><p>Klick auf „+ Neue Buchung" zum Anlegen.</p></div></td></tr>`;
+  } else {
+    let lastDate = '';
+    for(const b of list){
+      if(groupByDay && b.date !== lastDate){
+        // Tages-Header: Datum + Tages-Saldo
+        const dayItems = list.filter(x => x.date === b.date);
+        const daySum = dayItems.reduce((s,x) => s + (x.type==='income' ? x.amount : -x.amount), 0);
+        const daySign = daySum >= 0 ? '+' : '−';
+        const dayCls = daySum >= 0 ? 'income' : 'expense';
+        rows += `<tr class="day-header"><td colspan="5"><span class="serif">${fmtDate(b.date)}</span> <span class="muted">· ${dayItems.length} ${dayItems.length===1?'Buchung':'Buchungen'}</span></td><td class="right amount ${dayCls}">${daySign} ${fmtEur(Math.abs(daySum))}</td></tr>`;
+        lastDate = b.date;
+      }
+      const cat = categoryById(b.categoryId);
+      const prop = propertyById(b.propertyId);
+      const tax = isTaxRelevant(b);
+      const sign = b.type==='income' ? '+' : '−';
+      const cls = b.type==='income' ? 'income' : 'expense';
+      const cb = _bulkMode ? `<input type="checkbox" data-bulk="${b.id}" ${_selected.has(b.id)?'checked':''} />` : '';
+      rows += `<tr class="${tax?'gold-row':''}" data-edit="${b.id}">
+        <td>${cb} <span class="serif">${fmtDate(b.date)}</span></td>
+        <td>${escapeHtml(b.counterparty || '—')}${b.note?`<div class="muted">${escapeHtml(b.note)}</div>`:''}</td>
+        <td>${cat ? `<span class="pill ${cat.group||'neutral'}">${escapeHtml(cat.label)}</span>${tax?'<span class="tax-dot" title="steuerrelevant"></span>':''}` : '—'}</td>
+        <td>${prop ? escapeHtml(prop.name) : '<span class="muted">Privat-Beet</span>'}</td>
+        <td class="right amount ${cls}">${sign} ${fmtEur(b.amount)}</td>
+        <td class="right"><button class="icon" data-del="${b.id}" title="In Papierkorb">${icon('trash','sm')}</button></td>
+      </tr>`;
+    }
+  }
+
+  const sortIndicator = (k) => sk === k ? (sd === 'asc' ? ' ▲' : ' ▼') : '';
+  const sortable = (k, label) => `<button class="th-sort" data-sort="${k}">${label}${sortIndicator(k)}</button>`;
 
   const chip = (val, label, key='typ', current=_bookingsFilter.typ) =>
     `<button class="chip ${current===val?'active':''}" data-${key}="${val}">${label}</button>`;
@@ -1313,13 +1349,13 @@ VIEWS.bookings = (st) => {
             <button class="danger" data-bulk-del>Löschen</button>
           </div>
         </div>` : ''}
-      <table class="data">
+      <table class="data sortable">
         <thead><tr>
-          <th>${_bulkMode?`<input type="checkbox" id="bulk-all" ${list.length>0&&list.every(b=>_selected.has(b.id))?'checked':''} /> `:''}Datum</th>
-          <th>Empfänger / Notiz</th>
-          <th>Kategorie</th>
+          <th>${_bulkMode?`<input type="checkbox" id="bulk-all" ${list.length>0&&list.every(b=>_selected.has(b.id))?'checked':''} /> `:''}${sortable('date','Datum')}</th>
+          <th>${sortable('counterparty','Empfänger / Notiz')}</th>
+          <th>${sortable('category','Kategorie')}</th>
           <th>Objekt</th>
-          <th class="right">Betrag</th>
+          <th class="right">${sortable('amount','Betrag')}</th>
           <th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -1348,6 +1384,18 @@ BINDERS.bookings = (root, st) => {
   root.querySelectorAll('[data-typ]').forEach(b => b.onclick = () => refilter({typ: b.dataset.typ}));
   const taxBtn = root.querySelector('[data-tax-toggle]');
   if(taxBtn) taxBtn.onclick = () => refilter({taxOnly: !_bookingsFilter.taxOnly});
+  // Sortable Spaltenköpfe
+  root.querySelectorAll('button[data-sort]').forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    const key = b.dataset.sort;
+    if(_bookingsFilter.sortKey === key){
+      _bookingsFilter.sortDir = _bookingsFilter.sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      _bookingsFilter.sortKey = key;
+      _bookingsFilter.sortDir = (key === 'date' || key === 'amount') ? 'desc' : 'asc';
+    }
+    render();
+  });
   root.querySelector('#bulk-toggle').onchange = e => { _bulkMode = e.target.checked; _selected.clear(); render(); };
   const allCb = root.querySelector('#bulk-all');
   if(allCb) allCb.onchange = e => {
