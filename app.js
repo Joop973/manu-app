@@ -1129,12 +1129,31 @@ const VIEWS = {};
 const BINDERS = {};
 
 // ---- Dashboard / Hauptsaal -----
+function prevMonthKey(monthStr){
+  const [y,m] = monthStr.split('-').map(Number);
+  const d = new Date(y, m-1-1, 1);
+  return monthKey(d);
+}
+function trendBadge(current, previous){
+  if(!previous || previous === 0) return '';
+  const pct = ((current - previous) / previous) * 100;
+  if(!isFinite(pct) || Math.abs(pct) < 0.5) return '';
+  const up = pct >= 0;
+  return `<span class="trend ${up?'up':'down'}">${up?'▲':'▼'} ${Math.abs(pct).toFixed(0)} %</span>`;
+}
 VIEWS.dashboard = (st) => {
   const mb = st.bookings.filter(b => b.date.startsWith(st.currentMonth));
   const income = mb.filter(b => b.type==='income').reduce((s,b)=>s+b.amount,0);
   const expense = mb.filter(b => b.type==='expense').reduce((s,b)=>s+b.amount,0);
   const saldo = income - expense;
   const taxYearAmount = st.bookings.filter(b => b.date.startsWith(String(new Date().getFullYear())) && isTaxRelevant(b)).reduce((s,b)=>s+b.amount,0);
+
+  // Vormonat-Vergleich für Trend-Indikatoren
+  const prevKey = prevMonthKey(st.currentMonth);
+  const pmb = st.bookings.filter(b => b.date.startsWith(prevKey));
+  const prevIncome = pmb.filter(b => b.type==='income').reduce((s,b)=>s+b.amount,0);
+  const prevExpense = pmb.filter(b => b.type==='expense').reduce((s,b)=>s+b.amount,0);
+  const prevSaldo = prevIncome - prevExpense;
 
   // Property cards
   const propsHtml = st.properties.length ? st.properties.map(p => {
@@ -1178,16 +1197,46 @@ VIEWS.dashboard = (st) => {
     </div><div class="bar-label">${m.slice(5)}</div></div>`;
   }).join('')}</div>`;
 
+  // Aktivitäts-Feed: letzte 5 Buchungen über alle Monate
+  const recent = st.bookings.slice().sort((a,b) => b.date.localeCompare(a.date)).slice(0, 5);
+  const feedHtml = recent.length ? recent.map(b => {
+    const cat = categoryById(b.categoryId);
+    const sign = b.type==='income' ? '+' : '−';
+    const cls = b.type==='income' ? 'income' : 'expense';
+    return `<div class="feed-row" data-feed-id="${b.id}">
+      <div class="feed-icon ${cls}">${icon(b.type==='income'?'trending-up':'coins','sm')}</div>
+      <div class="feed-body">
+        <div class="feed-label">${escapeHtml(b.counterparty || '(ohne Empfänger)')}</div>
+        <div class="muted feed-meta">${fmtDate(b.date)}${cat?` · ${escapeHtml(cat.label)}`:''}</div>
+      </div>
+      <div class="feed-amount ${cls}">${sign} ${fmtEur(b.amount)}</div>
+    </div>`;
+  }).join('') : `<div class="muted center" style="padding:20px">Noch keine Aktivität</div>`;
+
   return `
     <h1 class="serif mb-xs">Hauptsaal</h1>
     <div class="muted mb-3">${monthLabel(st.currentMonth)}</div>
 
-    <div class="grid cols-3 hide-on-advisor">
-      <div class="card"><div class="muted">Einnahmen</div><div class="amount lg income" data-count-up="${income}">${fmtEur(income)}</div></div>
-      <div class="card"><div class="muted">Ausgaben</div><div class="amount lg expense" data-count-up="${expense}">${fmtEur(expense)}</div></div>
-      <div class="card" style="border-color:var(--gold-ring);background:linear-gradient(160deg,var(--surface),rgba(212,175,55,.08))">
+    <div class="kpi-hero hide-on-advisor">
+      <div class="kpi-tile">
+        <div class="muted">Einnahmen</div>
+        <div class="amount lg income" data-count-up="${income}">${fmtEur(income)}</div>
+        ${trendBadge(income, prevIncome)}
+      </div>
+      <div class="kpi-tile">
+        <div class="muted">Ausgaben</div>
+        <div class="amount lg expense" data-count-up="${expense}">${fmtEur(expense)}</div>
+        ${trendBadge(expense, prevExpense)}
+      </div>
+      <div class="kpi-tile saldo">
         <div class="muted">Saldo</div>
         <div class="amount lg" style="color:${saldo>=0?'var(--accent)':'var(--berry)'}" data-count-up="${saldo}">${fmtEur(saldo)}</div>
+        ${trendBadge(saldo, prevSaldo)}
+      </div>
+      <div class="kpi-tile gold-tile">
+        <div class="muted">★ Steuerrelevant ${new Date().getFullYear()}</div>
+        <div class="amount lg gold-text" data-count-up="${taxYearAmount}">${fmtEur(taxYearAmount)}</div>
+        <button class="gold mt-2" data-action="open-advisor" style="font-size:13px;padding:5px 10px">Berater-Modus →</button>
       </div>
     </div>
 
@@ -1196,17 +1245,15 @@ VIEWS.dashboard = (st) => {
         ${cardTitle('bar-chart', 'Letzte 6 Monate')}
         ${barsHtml}
       </div>
-      <div class="card" style="border-color:var(--gold-ring)">
-        <div class="card-title"><h2 class="gold-text">★ Steuerrelevant ${new Date().getFullYear()}</h2></div>
-        <div class="amount lg gold-text" data-count-up="${taxYearAmount}">${fmtEur(taxYearAmount)}</div>
-        <p class="muted mt-sm">Summe aller Buchungen in steuerrelevanten Kategorien für ${new Date().getFullYear()}.</p>
-        <button class="gold mt-2" data-action="open-advisor">Berater-Modus öffnen →</button>
+      <div class="card">
+        ${cardTitle('history', 'Aktivität')}
+        <div class="feed">${feedHtml}</div>
       </div>
     </div>
 
     <div class="card mt-md">
       <div class="card-title">
-        <h2>Immobilien-Eiche</h2>
+        <h2><span class="ti-icon">${icon('tree','md')}</span>Immobilien-Eiche</h2>
         <div class="actions"><button data-action="new-property">+ Objekt</button></div>
       </div>
       ${propsHtml}
@@ -1215,9 +1262,9 @@ VIEWS.dashboard = (st) => {
     <div class="card mt-md">
       ${cardTitle('zap', 'Schnellaktionen')}
       <div class="row">
-        <button class="primary" data-action="new-booking">+ Neue Buchung</button>
+        <button class="primary" data-action="new-booking">${icon('plus','sm')}<span>Neue Buchung</span></button>
         <button data-action="goto-receipts">${icon('file-text','sm')}<span>Beleg hochladen</span></button>
-        <button data-action="goto-bookings">🎰 Alle Buchungen</button>
+        <button data-action="goto-bookings">${icon('list','sm')}<span>Alle Buchungen</span></button>
         <button data-action="goto-tools">${icon('wrench','sm')}<span>Werkzeuge</span></button>
         <button class="gold" data-action="open-advisor">${icon('star','sm')}<span>Berater-Modus</span></button>
       </div>
@@ -1237,6 +1284,11 @@ BINDERS.dashboard = (root, st) => {
   root.querySelectorAll('[data-action="goto-bookings"]').forEach(b => b.onclick = () => setTab('bookings'));
   root.querySelectorAll('[data-action="goto-receipts"]').forEach(b => b.onclick = () => setTab('receipts'));
   root.querySelectorAll('[data-action="goto-tools"]').forEach(b => b.onclick = () => setTab('tools'));
+  // Activity-Feed-Row → öffnet Buchungs-Edit-Modal
+  root.querySelectorAll('[data-feed-id]').forEach(el => el.onclick = () => {
+    const b = Store.get().bookings.find(x => x.id === el.dataset.feedId);
+    if(b) openBookingModal(b);
+  });
 };
 function hasTax(bookings){ return bookings.some(b => isTaxRelevant(b)); }
 

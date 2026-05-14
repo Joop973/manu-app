@@ -304,6 +304,70 @@ button.icon svg{margin:0}
 }
 .search-input input:focus{box-shadow:none}
 
+/* KPI-Hero Dashboard */
+.kpi-hero{
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0, 1fr));
+  gap:14px;
+}
+@media (max-width:900px){
+  .kpi-hero{grid-template-columns:repeat(2, minmax(0, 1fr))}
+}
+@media (max-width:480px){
+  .kpi-hero{grid-template-columns:1fr}
+}
+.kpi-tile{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  display:flex;flex-direction:column;gap:6px;
+  position:relative;
+  box-shadow:var(--shadow-1);
+  transition:transform var(--t-base);
+}
+.kpi-tile:hover{transform:translateY(-2px)}
+.kpi-tile.saldo{
+  border-color:var(--gold-ring);
+  background:linear-gradient(160deg, var(--surface), rgba(212,175,55,.08));
+}
+.kpi-tile.gold-tile{
+  border-color:var(--gold-ring);
+  background:linear-gradient(160deg, var(--surface), rgba(212,175,55,.12));
+}
+.trend{
+  display:inline-flex;align-items:center;
+  font-size:12px;font-weight:600;
+  padding:2px 8px;border-radius:var(--radius-pill);
+  margin-top:auto;width:fit-content;
+}
+.trend.up{background:color-mix(in oklab, var(--accent) 16%, transparent);color:var(--accent)}
+.trend.down{background:color-mix(in oklab, var(--berry) 14%, transparent);color:var(--berry)}
+
+/* Activity-Feed */
+.feed{display:flex;flex-direction:column;gap:2px}
+.feed-row{
+  display:flex;align-items:center;gap:12px;
+  padding:8px 10px;border-radius:var(--radius);
+  cursor:pointer;
+  transition:background var(--t-fast);
+}
+.feed-row:hover{background:var(--surface-2)}
+.feed-icon{
+  width:32px;height:32px;flex-shrink:0;
+  border-radius:10px;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--surface-2);
+}
+.feed-icon.income{background:color-mix(in oklab, var(--accent) 14%, transparent);color:var(--accent)}
+.feed-icon.expense{background:color-mix(in oklab, var(--berry) 12%, transparent);color:var(--berry)}
+.feed-body{flex:1;min-width:0}
+.feed-label{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.feed-meta{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.feed-amount{font-weight:600;font-variant-numeric:tabular-nums;flex-shrink:0}
+.feed-amount.income{color:var(--accent)}
+.feed-amount.expense{color:var(--berry)}
+
 /* Sortable Column-Headers */
 table.data.sortable th{padding:6px 8px}
 button.th-sort{
