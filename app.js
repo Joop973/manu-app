@@ -217,15 +217,24 @@ const Store = (() => {
     }
   }
 
+  // Schreibvorgänge serialisieren, damit zwei schnelle Updates nicht
+  // race-en (persist ist async wegen AES-GCM-encryptWithMaster).
+  let writeChain = Promise.resolve();
+  function schedulePersist(){
+    writeChain = writeChain.then(persist, persist);
+    return writeChain;
+  }
+
   function notify(){ for(const l of listeners) l(state); }
 
   return {
     get(){ return state; },
-    set(patch){ state = {...state, ...patch}; persist(); notify(); },
-    update(fn){ state = fn(state); persist(); notify(); },
+    set(patch){ state = {...state, ...patch}; schedulePersist(); notify(); },
+    update(fn){ state = fn(state); schedulePersist(); notify(); },
     on(fn){ listeners.add(fn); return () => listeners.delete(fn); },
-    reset(){ state = defaults(); persist(); notify(); },
-    replace(snapshot){ state = mergeBase(snapshot); persist(); notify(); },
+    reset(){ state = defaults(); schedulePersist(); notify(); },
+    replace(snapshot){ state = mergeBase(snapshot); schedulePersist(); notify(); },
+    flush(){ return writeChain; },
     // Tresor-API:
     async hydrateFromVault(){
       state = await loadVault();
@@ -278,7 +287,7 @@ const FilesDB = (() => {
   async function get(id){
     const raw = await getRaw(id);
     if(!raw) return null;
-    if(hasMasterKey() && raw.type === 'application/x-manu-enc'){
+    if(hasMasterKey() && await isEncryptedBlob(raw)){
       try{ return await decryptBlobWithMaster(raw); }
       catch(e){ console.warn('blob decrypt failed', e); return null; }
     }
@@ -337,6 +346,43 @@ function confirmAlert(msg, onYes){
   `, (body, close) => {
     body.querySelector('[data-no]').onclick = close;
     body.querySelector('[data-yes]').onclick = () => { close(); onYes(); };
+  });
+}
+
+// promptModal — Eingabe-Modal mit ein oder zwei Inputs.
+// Returns Promise<{value, value2} | null>.
+function promptModal({title, description, label, label2, confirmLabel='OK', type='text', minLen}){
+  return new Promise(resolve => {
+    const dual = !!label2;
+    openModal(title, `
+      ${description ? `<p style="margin:0 0 14px">${escapeHtml(description)}</p>` : ''}
+      <div class="form">
+        <div><label>${escapeHtml(label)}</label><input id="pm-input" type="${type}" autofocus /></div>
+        ${dual ? `<div><label>${escapeHtml(label2)}</label><input id="pm-input2" type="${type}" /></div>` : ''}
+        <p class="lock-error" id="pm-err"></p>
+      </div>
+      <div class="modal-actions">
+        <button data-cancel>Abbrechen</button>
+        <button class="primary" data-ok>${escapeHtml(confirmLabel)}</button>
+      </div>
+    `, (body, close) => {
+      let done = false;
+      const finish = (result) => { if(done) return; done = true; close(); resolve(result); };
+      body.querySelector('[data-cancel]').onclick = () => finish(null);
+      const inputEl = body.querySelector('#pm-input');
+      const input2El = dual ? body.querySelector('#pm-input2') : null;
+      const errEl = body.querySelector('#pm-err');
+      const submit = () => {
+        const v = inputEl.value;
+        const v2 = input2El ? input2El.value : undefined;
+        if(minLen && v.length < minLen){ errEl.textContent = `Mindestens ${minLen} Zeichen`; return; }
+        if(dual && v !== v2){ errEl.textContent = 'Eingaben stimmen nicht überein'; return; }
+        finish({ value: v, value2: v2 });
+      };
+      body.querySelector('[data-ok]').onclick = submit;
+      inputEl.onkeydown = (e) => { if(e.key === 'Enter' && !dual) submit(); };
+      if(input2El) input2El.onkeydown = (e) => { if(e.key === 'Enter') submit(); };
+    });
   });
 }
 
@@ -497,40 +543,71 @@ async function unwrapMaster(envelope, passphrase){
   );
   return importRawMaster(new Uint8Array(raw));
 }
+const STATE_AAD = new TextEncoder().encode('manu.v2:state');
+const BLOB_AAD  = new TextEncoder().encode('manu.v2:blob');
 async function encryptWithMaster(plainObj){
   if(!_masterKey) throw new Error('Master-Key fehlt');
   const iv = randomBytes(12);
   const plain = new TextEncoder().encode(JSON.stringify(plainObj));
-  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, _masterKey, plain);
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv, additionalData:STATE_AAD}, _masterKey, plain);
   return { iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct)) };
 }
 async function decryptWithMaster(envelope){
   if(!_masterKey) throw new Error('Master-Key fehlt');
-  const plain = await crypto.subtle.decrypt(
-    {name:'AES-GCM', iv:b64ToBytes(envelope.iv)},
-    _masterKey,
-    b64ToBytes(envelope.ct)
-  );
-  return JSON.parse(new TextDecoder().decode(plain));
+  // Backwards-compat: ältere v2-States ohne AAD lesen (Fallback)
+  try{
+    const plain = await crypto.subtle.decrypt(
+      {name:'AES-GCM', iv:b64ToBytes(envelope.iv), additionalData:STATE_AAD},
+      _masterKey,
+      b64ToBytes(envelope.ct)
+    );
+    return JSON.parse(new TextDecoder().decode(plain));
+  }catch(e){
+    const plain = await crypto.subtle.decrypt(
+      {name:'AES-GCM', iv:b64ToBytes(envelope.iv)},
+      _masterKey,
+      b64ToBytes(envelope.ct)
+    );
+    return JSON.parse(new TextDecoder().decode(plain));
+  }
 }
+const BLOB_MAGIC = 'MANU2\n'; // 6 Bytes Präfix vor JSON-Envelope
 async function encryptBlobWithMaster(blob){
   if(!_masterKey) throw new Error('Master-Key fehlt');
   const buf = new Uint8Array(await blob.arrayBuffer());
   const iv = randomBytes(12);
-  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, _masterKey, buf);
-  const payload = JSON.stringify({v:2, mime: blob.type || '', iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct))});
+  const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv, additionalData:BLOB_AAD}, _masterKey, buf);
+  const payload = BLOB_MAGIC + JSON.stringify({v:2, mime: blob.type || '', iv: bytesToB64(iv), ct: bytesToB64(new Uint8Array(ct))});
   return new Blob([payload], {type:'application/x-manu-enc'});
+}
+async function isEncryptedBlob(blob){
+  if(!blob || blob.size < BLOB_MAGIC.length) return false;
+  try{
+    const head = await blob.slice(0, BLOB_MAGIC.length).text();
+    return head === BLOB_MAGIC;
+  }catch{ return false; }
 }
 async function decryptBlobWithMaster(blob){
   if(!_masterKey) throw new Error('Master-Key fehlt');
   const text = await blob.text();
-  let env; try{ env = JSON.parse(text); }catch{ return blob; }
-  if(!env || env.v !== 2 || !env.iv || !env.ct) return blob;
-  const plain = await crypto.subtle.decrypt(
-    {name:'AES-GCM', iv:b64ToBytes(env.iv)},
-    _masterKey,
-    b64ToBytes(env.ct)
-  );
+  if(!text.startsWith(BLOB_MAGIC)) throw new Error('Beleg beschädigt: kein Manu-Header');
+  let env; try{ env = JSON.parse(text.slice(BLOB_MAGIC.length)); }catch{ throw new Error('Beleg beschädigt: kein JSON-Header'); }
+  if(!env || env.v !== 2 || !env.iv || !env.ct) throw new Error('Beleg beschädigt: ungültiger Envelope');
+  // AAD-Versuch zuerst, Fallback auf legacy (ohne AAD) für alte Blobs
+  let plain;
+  try{
+    plain = await crypto.subtle.decrypt(
+      {name:'AES-GCM', iv:b64ToBytes(env.iv), additionalData:BLOB_AAD},
+      _masterKey,
+      b64ToBytes(env.ct)
+    );
+  }catch{
+    plain = await crypto.subtle.decrypt(
+      {name:'AES-GCM', iv:b64ToBytes(env.iv)},
+      _masterKey,
+      b64ToBytes(env.ct)
+    );
+  }
   return new Blob([plain], {type: env.mime || 'application/octet-stream'});
 }
 
@@ -549,15 +626,6 @@ function normalizeRecovery(code){
 }
 
 // ---- Tresor-Setup, Unlock, Recovery ----
-async function migrateLegacyVaultIfNeeded(){
-  // Wenn manu.v1 (Klartext) existiert UND eine Verschlüsselung schon
-  // aktiv ist (manu.meta.pinEnvelope vorhanden) — räumen wir manu.v1 weg.
-  // Wird nur sicher gerufen wenn _masterKey gesetzt ist.
-  if(hasMasterKey() && isEncrypted() && localStorage.getItem(STORE_KEY)){
-    localStorage.removeItem(STORE_KEY);
-  }
-}
-
 async function setupVault(pin, opts={}){
   // Erstellt PIN- und Recovery-Envelopes, verschlüsselt State + Belege.
   // Bei erstmaligem Setup wird ein Master-Key erzeugt; bei einer
@@ -584,7 +652,7 @@ async function setupVault(pin, opts={}){
     const ids = await FilesDB.listIds();
     for(const id of ids){
       const raw = await FilesDB.getRaw(id);
-      if(raw && raw.type !== 'application/x-manu-enc'){
+      if(raw && !(await isEncryptedBlob(raw))){
         const enc = await encryptBlobWithMaster(raw);
         await FilesDB.putRaw(id, enc);
       }
@@ -646,7 +714,7 @@ async function removeVaultProtection(){
     const ids = await FilesDB.listIds();
     for(const id of ids){
       const raw = await FilesDB.getRaw(id);
-      if(raw && raw.type === 'application/x-manu-enc' && hasMasterKey()){
+      if(raw && hasMasterKey() && await isEncryptedBlob(raw)){
         const plain = await decryptBlobWithMaster(raw);
         await FilesDB.putRaw(id, plain);
       }
@@ -664,14 +732,14 @@ async function removeVaultProtection(){
 function runAutoBookings(){
   const st = Store.get();
   const today = todayIso();
-  let created = 0;
+  const fresh = [];
   for(const tpl of st.templates){
     if(!tpl.recurrence || tpl.recurrence === 'none' || !tpl.autoBook) continue;
     const last = st.bookings.filter(b => b.templateId === tpl.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
     if(!last) continue;
     const next = nextDue(last.date, tpl.recurrence);
     if(next && next <= today){
-      st.bookings.push({
+      fresh.push({
         ...newBookingDraft(),
         id: uid('bkg'),
         date: next,
@@ -686,11 +754,10 @@ function runAutoBookings(){
         autoBook: true,
         createdAt: new Date().toISOString(),
       });
-      created++;
     }
   }
-  if(created) Store.update(s => ({...s, bookings: st.bookings}));
-  return created;
+  if(fresh.length) Store.update(s => ({...s, bookings: [...s.bookings, ...fresh]}));
+  return fresh.length;
 }
 function nextDue(lastDate, recurrence){
   const [y,m,d] = lastDate.split('-').map(Number);
@@ -876,9 +943,9 @@ VIEWS.dashboard = (st) => {
     <div class="grid cols-3 hide-on-advisor">
       <div class="card"><div class="muted">Einnahmen</div><div class="amount lg income" data-count-up="${income}">${fmtEur(income)}</div></div>
       <div class="card"><div class="muted">Ausgaben</div><div class="amount lg expense" data-count-up="${expense}">${fmtEur(expense)}</div></div>
-      <div class="card" style="border-color:var(--gold-border);background:linear-gradient(160deg,var(--bg-card),rgba(212,175,55,.08))">
+      <div class="card" style="border-color:var(--gold-ring);background:linear-gradient(160deg,var(--surface),rgba(212,175,55,.08))">
         <div class="muted">Saldo</div>
-        <div class="amount lg" style="color:${saldo>=0?'var(--emerald)':'var(--berry)'}" data-count-up="${saldo}">${fmtEur(saldo)}</div>
+        <div class="amount lg" style="color:${saldo>=0?'var(--accent)':'var(--berry)'}" data-count-up="${saldo}">${fmtEur(saldo)}</div>
       </div>
     </div>
 
@@ -887,7 +954,7 @@ VIEWS.dashboard = (st) => {
         <div class="card-title"><h2>Letzte 6 Monate</h2></div>
         ${barsHtml}
       </div>
-      <div class="card" style="border-color:var(--gold-border)">
+      <div class="card" style="border-color:var(--gold-ring)">
         <div class="card-title"><h2 class="gold-text">★ Steuerrelevant ${new Date().getFullYear()}</h2></div>
         <div class="amount lg gold-text" data-count-up="${taxYearAmount}">${fmtEur(taxYearAmount)}</div>
         <p class="muted" style="margin-top:8px">Summe aller Buchungen in steuerrelevanten Kategorien für ${new Date().getFullYear()}.</p>
@@ -1023,7 +1090,7 @@ VIEWS.bookings = (st) => {
               &nbsp;&nbsp;
               <span class="expense">−${fmtEur(sumOut)}</span>
             </td>
-            <td class="right amount" style="color:${sumIn-sumOut>=0?'var(--emerald)':'var(--berry)'}">${fmtEur(sumIn-sumOut)}</td>
+            <td class="right amount" style="color:${sumIn-sumOut>=0?'var(--accent)':'var(--berry)'}">${fmtEur(sumIn-sumOut)}</td>
           </tr>
         </tfoot>
       </table>
@@ -1271,7 +1338,7 @@ function openPropertyModal(property){
         <div>
           <label>Farbe (Ast)</label>
           <div class="row" id="color-grid">
-            ${colors.map(c => `<button type="button" data-color="${c}" style="width:32px;height:32px;border-radius:50%;border:${draft.color===c?'3px solid var(--marble)':'1px solid var(--border)'};background:${c}"></button>`).join('')}
+            ${colors.map(c => `<button type="button" data-color="${c}" style="width:32px;height:32px;border-radius:50%;border:${draft.color===c?'3px solid var(--text)':'1px solid var(--border)'};background:${c}"></button>`).join('')}
           </div>
         </div>
       </div>
@@ -1297,7 +1364,7 @@ function openPropertyModal(property){
     body.querySelectorAll('[data-color]').forEach(b => b.onclick = () => {
       pickedColor = b.dataset.color;
       body.querySelectorAll('[data-color]').forEach(x => x.style.border = '1px solid var(--border)');
-      b.style.border = '3px solid var(--marble)';
+      b.style.border = '3px solid var(--text)';
     });
     body.querySelector('[data-cancel]').onclick = close;
     if(property){
@@ -1668,10 +1735,10 @@ async function openReceiptModal(id){
   const isPdf = (r.mimeType||'').includes('pdf') || r.filename.toLowerCase().endsWith('.pdf');
   const preview = !dataUrl ? '<div class="muted">Datei nicht gefunden</div>' :
     isPdf ? `<embed src="${dataUrl}" type="application/pdf" style="width:100%;height:380px;border-radius:8px;background:#fff" />` :
-    `<img src="${dataUrl}" style="max-width:100%;border-radius:8px;background:var(--bg-wood);padding:8px" />`;
+    `<img src="${dataUrl}" style="max-width:100%;border-radius:8px;background:var(--surface-2);padding:8px" />`;
   const st = Store.get();
   const html = `
-    <div style="background:linear-gradient(135deg,var(--bg-wood),#1F140C);padding:14px;border-radius:8px;margin-bottom:14px">
+    <div style="background:linear-gradient(135deg,var(--surface-2),#1F140C);padding:14px;border-radius:8px;margin-bottom:14px">
       ${preview}
     </div>
     <div class="form">
@@ -1762,7 +1829,7 @@ VIEWS.advisor = (st) => {
   }).join('');
 
   return `
-    <div class="card" style="margin-bottom:14px;border-color:var(--gold-border)">
+    <div class="card" style="margin-bottom:14px;border-color:var(--gold-ring)">
       <div class="card-title">
         <h1 class="serif gold-text">★ Berater-Modus — Steuerjahr ${currentYear}</h1>
         <div class="actions">
@@ -1774,7 +1841,7 @@ VIEWS.advisor = (st) => {
       <div class="grid cols-3">
         <div><div class="muted">Mieteinnahmen / Einnahmen</div><div class="amount lg income">+${fmtEur(inc)}</div></div>
         <div><div class="muted">Werbungskosten / Ausgaben</div><div class="amount lg expense">−${fmtEur(exp)}</div></div>
-        <div><div class="muted">Einkünfte aus V+V</div><div class="amount lg" style="color:${inc-exp>=0?'var(--emerald)':'var(--berry)'}">${fmtEur(inc-exp)}</div></div>
+        <div><div class="muted">Einkünfte aus V+V</div><div class="amount lg" style="color:${inc-exp>=0?'var(--accent)':'var(--berry)'}">${fmtEur(inc-exp)}</div></div>
       </div>
     </div>
 
@@ -1813,7 +1880,7 @@ VIEWS.advisor = (st) => {
       </table>
     </div>
 
-    <div class="card" style="margin-top:14px;border-color:var(--gold-border)">
+    <div class="card" style="margin-top:14px;border-color:var(--gold-ring)">
       <div class="card-title"><h2 class="gold-text">🧺 Ernte-Korb (Berater-Export)</h2></div>
       <div class="muted">Alle gold markierten Daten in einer Datei — schickfertig für den Steuerberater.</div>
       <div class="row" style="margin-top:14px">
@@ -2039,7 +2106,7 @@ VIEWS.tools = (st) => {
         ${topCats.length ? topCats.map(([n,v]) => `
           <div style="padding:6px 0">
             <div class="row" style="justify-content:space-between"><span>${escapeHtml(n)}</span><span class="amount md">${fmtEur(v)}</span></div>
-            <div style="height:6px;background:var(--bg-accent);border-radius:3px;margin-top:4px"><div style="width:${(v/maxCat)*100}%;height:100%;background:var(--moss);border-radius:3px"></div></div>
+            <div style="height:6px;background:var(--surface-3);border-radius:3px;margin-top:4px"><div style="width:${(v/maxCat)*100}%;height:100%;background:var(--moss);border-radius:3px"></div></div>
           </div>`).join('') : '<div class="muted">Noch keine Daten</div>'}
       </div>
     </div>
@@ -2050,7 +2117,7 @@ VIEWS.tools = (st) => {
         ${st.goals.length ? st.goals.map(g => `
           <div style="padding:6px 0;border-bottom:1px solid var(--border)">
             <div class="row" style="justify-content:space-between"><span class="serif">${escapeHtml(g.label)}</span><span>${fmtEur(g.saved)}/${fmtEur(g.target)}</span></div>
-            <div style="height:6px;background:var(--bg-accent);border-radius:3px;margin-top:4px"><div style="width:${Math.min(100,(g.saved/g.target)*100)}%;height:100%;background:var(--emerald);border-radius:3px"></div></div>
+            <div style="height:6px;background:var(--surface-3);border-radius:3px;margin-top:4px"><div style="width:${Math.min(100,(g.saved/g.target)*100)}%;height:100%;background:var(--accent);border-radius:3px"></div></div>
           </div>`).join('') : '<div class="muted">Keine Sparziele</div>'}
         <button class="primary" data-new-goal style="margin-top:10px">+ Sparziel</button>
       </div>
@@ -2337,11 +2404,17 @@ BINDERS.settings = (root, st) => {
   root.querySelectorAll('[data-font]').forEach(b => b.onclick = () => Store.update(s => ({...s, settings:{...s.settings, fontScale: b.dataset.font}})));
 
   root.querySelector('#bk-export').onclick = async () => {
-    const pass = prompt('Passphrase für das Backup (min. 8 Zeichen).\nMerke sie dir gut — ohne sie ist das Backup unwiderruflich verloren.');
-    if(!pass) return;
-    if(pass.length < 8){ Toast.info('Mindestens 8 Zeichen'); return; }
-    const pass2 = prompt('Passphrase zur Bestätigung wiederholen:');
-    if(pass !== pass2){ Toast.info('Passphrasen stimmen nicht überein'); return; }
+    const r = await promptModal({
+      title: 'Backup verschlüsseln',
+      description: 'Wähle eine Passphrase (min. 8 Zeichen). Ohne sie lässt sich das Backup nicht wiederherstellen — bewahre sie sicher auf.',
+      label: 'Passphrase',
+      label2: 'Wiederholen',
+      type: 'password',
+      minLen: 8,
+      confirmLabel: 'Backup erstellen',
+    });
+    if(!r) return;
+    const pass = r.value;
     const st2 = Store.get();
     const receipts = await Promise.all(st2.receipts.map(async r => {
       const dataUri = await FilesDB.asDataURL(r.id);
@@ -2364,9 +2437,15 @@ BINDERS.settings = (root, st) => {
       try{
         let payload;
         if(parsed && parsed.v === 2 && parsed.ct){
-          const pass = prompt('Passphrase des Backups eingeben:');
-          if(!pass) return;
-          payload = await decryptJson(parsed, pass);
+          const r = await promptModal({
+            title: 'Backup entschlüsseln',
+            description: 'Gib die Passphrase ein, mit der das Backup erstellt wurde.',
+            label: 'Passphrase',
+            type: 'password',
+            confirmLabel: 'Entschlüsseln',
+          });
+          if(!r) return;
+          payload = await decryptJson(parsed, r.value);
         } else {
           // Tolerantes Lesen alter Klartext-Backups (v1 oder roh)
           payload = parsed;
@@ -2584,10 +2663,12 @@ function openRecoveryModal(){
 // ============================================================
 // ONBOARDING-WIZARD
 // ============================================================
-let _onboardingStep = 0;
+function setOnboardingStep(n){
+  Store.update(s => ({...s, settings:{...s.settings, onboardingStep: n}}));
+}
 function renderOnboarding(){
   const st = Store.get();
-  const step = _onboardingStep;
+  const step = st.settings.onboardingStep || 0;
   const view = $('#view');
   const dots = [0,1,2].map(i => `<div class="dot ${i===step?'active':''}"></div>`).join('');
 
@@ -2665,9 +2746,9 @@ function renderOnboarding(){
     Store.update(s => ({...s, settings:{...s.settings, locale:b.dataset.obLang}}));
   });
   const next = view.querySelector('[data-ob-next]');
-  if(next) next.onclick = () => { _onboardingStep = 1; render(); };
+  if(next) next.onclick = () => { setOnboardingStep(1); render(); };
   const skip = view.querySelector('[data-ob-skip]');
-  if(skip) skip.onclick = () => { _onboardingStep = 2; render(); };
+  if(skip) skip.onclick = () => { setOnboardingStep(2); render(); };
 
   const setPin = view.querySelector('[data-ob-set-pin]');
   if(setPin) setPin.onclick = async () => {
@@ -2681,19 +2762,19 @@ function renderOnboarding(){
       const code = await setupVault(p);
       const { pinHash, pinSalt, pinIter } = await hashPin(p);
       Store.update(s => ({...s, settings:{...s.settings, pinHash, pinSalt, pinIter}}));
-      showRecoveryCodeModal(code, () => { _onboardingStep = 2; render(); });
+      showRecoveryCodeModal(code, () => { setOnboardingStep(2); render(); });
     }catch(e){
       err.textContent = 'Setup fehlgeschlagen: ' + (e && e.message ? e.message : e);
       setPin.disabled = false; setPin.textContent = 'PIN setzen';
     }
   };
   const skipPin = view.querySelector('[data-ob-skip-pin]');
-  if(skipPin) skipPin.onclick = () => { _onboardingStep = 2; render(); };
+  if(skipPin) skipPin.onclick = () => { setOnboardingStep(2); render(); };
 
   const finish = view.querySelector('[data-ob-finish]');
   if(finish) finish.onclick = () => {
     Store.update(s => ({...s, settings:{...s.settings, onboardingDone:true}}));
-    _onboardingStep = 0;
+    setOnboardingStep(0);
     render();
   };
   const addProp = view.querySelector('[data-ob-add-prop]');
@@ -2707,7 +2788,7 @@ function renderOnboarding(){
       createdAt: new Date().toISOString(),
     };
     Store.update(s => ({...s, properties:[...s.properties, property], settings:{...s.settings, onboardingDone:true}}));
-    _onboardingStep = 0;
+    setOnboardingStep(0);
     render();
   };
 }
