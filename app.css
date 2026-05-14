@@ -304,6 +304,44 @@ button.icon svg{margin:0}
 }
 .search-input input:focus{box-shadow:none}
 
+/* Drag-and-Drop-Overlay */
+.drop-overlay{
+  position:fixed;inset:0;z-index:200;
+  background:color-mix(in oklab, var(--accent) 18%, transparent);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  display:none;align-items:center;justify-content:center;
+  pointer-events:none;
+}
+.drop-overlay.active{display:flex;animation:dropFadeIn .18s ease}
+@keyframes dropFadeIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+.drop-overlay .drop-card{
+  padding:36px 48px;
+  background:var(--surface);
+  border:2px dashed var(--accent);
+  border-radius:var(--radius-lg);
+  text-align:center;
+  box-shadow:var(--shadow-2);
+  color:var(--text);
+}
+.drop-overlay .drop-card svg{color:var(--accent);margin-bottom:8px}
+.drop-overlay h2{margin:4px 0 6px;font-size:22px;font-weight:600;letter-spacing:.01em}
+
+/* Tab-Badge */
+nav.tabs button{position:relative}
+.tab-badge{
+  position:absolute;top:4px;right:4px;
+  min-width:18px;height:18px;padding:0 5px;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--berry);color:#FFF;
+  border-radius:9px;font-size:11px;font-weight:600;line-height:1;
+  box-shadow:0 0 0 2px var(--surface);
+  animation:badgePop .25s ease;
+}
+@keyframes badgePop{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+@media (max-width:760px){
+  .tab-badge{top:2px;right:2px;min-width:16px;height:16px;font-size:10px}
+}
+
 /* Shortcut-Help-Overlay */
 .shortcut-grid{display:flex;flex-direction:column;gap:6px}
 .shortcut-row{

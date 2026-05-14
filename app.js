@@ -1043,8 +1043,26 @@ const TABS = [
   {id:'settings',   label:'Einstellungen',icon:'settings'},
 ];
 
+function tabBadgeCount(tabId, st){
+  if(tabId === 'receipts') return (st.receipts || []).filter(r => !r.bookingId).length;
+  if(tabId === 'tools'){
+    const now = Date.now();
+    const threshold = 30 * 24 * 3600 * 1000;
+    return (st.contracts || []).filter(c => {
+      if(!c.endsAt) return false;
+      const t = new Date(c.endsAt + 'T12:00:00').getTime();
+      return t - now < threshold && t - now > -threshold;
+    }).length;
+  }
+  return 0;
+}
 function renderTabs(active){
-  const html = TABS.map(t => `<button data-tab="${t.id}" class="${active===t.id?'active':''}"><span class="tab-content">${icon(t.icon,'md')}<span>${t.label}</span></span></button>`).join('');
+  const st = Store.get();
+  const html = TABS.map(t => {
+    const badge = tabBadgeCount(t.id, st);
+    const badgeHtml = badge > 0 ? `<span class="tab-badge">${badge}</span>` : '';
+    return `<button data-tab="${t.id}" class="${active===t.id?'active':''}"><span class="tab-content">${icon(t.icon,'md')}<span>${t.label}</span></span>${badgeHtml}</button>`;
+  }).join('');
   $('#tabs').innerHTML = html;
   $('#tabs').querySelectorAll('button').forEach(b => {
     b.onclick = () => setTab(b.dataset.tab);
@@ -3102,6 +3120,66 @@ function renderOnboarding(){
 $('#advisorToggle').onchange = (e) => {
   Store.update(s => ({...s, settings:{...s.settings, advisorMode: e.target.checked}}));
 };
+
+// =============================================================
+// DRAG-AND-DROP für Belege
+// =============================================================
+async function ingestReceiptFiles(fileList){
+  const accepted = ['image/', 'application/pdf', 'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+  const files = Array.from(fileList).filter(f => accepted.some(a => f.type.startsWith(a) || f.name.match(/\.(jpe?g|png|webp|heic|pdf|docx?)$/i)));
+  if(!files.length){ Toast.info('Keine unterstützten Dateien'); return; }
+  let n = 0;
+  for(const f of files){
+    const id = uid('rcp');
+    await FilesDB.put(id, f);
+    const parsed = parseFilename(f.name);
+    Store.update(s => ({...s, receipts: [...s.receipts, {
+      id, filename: f.name, size: f.size, mimeType: f.type,
+      amount: parsed.amount, date: parsed.date, counterparty: parsed.counterparty, categoryId: parsed.categoryId || null,
+      propertyId: null, bookingId: null, createdAt: new Date().toISOString(),
+    }]}));
+    n++;
+  }
+  render();
+  Toast.success(`${n} Beleg${n===1?'':'e'} hinzugefügt`);
+}
+let _dragDepth = 0;
+function setupDragDrop(){
+  const overlay = document.createElement('div');
+  overlay.className = 'drop-overlay';
+  overlay.innerHTML = `
+    <div class="drop-card">
+      ${icon('upload','lg')}
+      <h2>Beleg fallen lassen</h2>
+      <p class="muted">PDF, JPG, PNG oder Word-Datei</p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  window.addEventListener('dragenter', (e) => {
+    if(!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+    _dragDepth++;
+    overlay.classList.add('active');
+  });
+  window.addEventListener('dragover', (e) => {
+    if(!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+  });
+  window.addEventListener('dragleave', (e) => {
+    if(!e.dataTransfer) return;
+    _dragDepth = Math.max(0, _dragDepth - 1);
+    if(_dragDepth === 0) overlay.classList.remove('active');
+  });
+  window.addEventListener('drop', async (e) => {
+    if(!e.dataTransfer || !e.dataTransfer.files?.length) return;
+    e.preventDefault();
+    _dragDepth = 0;
+    overlay.classList.remove('active');
+    await ingestReceiptFiles(e.dataTransfer.files);
+  });
+}
+setupDragDrop();
 
 // Such-Palette: Ctrl/Cmd+K + Topbar-Button
 $('#search-trigger').onclick = () => openSearchPalette();
