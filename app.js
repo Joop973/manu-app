@@ -486,6 +486,23 @@ function openSearchPalette(){
 }
 
 // =============================================================
+// Duplikat-Erkennung — gleicher Betrag (±1 ct), Empfänger, ±2 Tg Datum
+function findDuplicate(draft, st){
+  if(!draft.amount) return null;
+  const dDate = new Date(draft.date + 'T12:00:00').getTime();
+  const key = (draft.counterparty||'').trim().toLowerCase();
+  for(const b of st.bookings){
+    if(b.type !== draft.type) continue;
+    if(Math.abs(b.amount - draft.amount) > 0.01) continue;
+    if((b.counterparty||'').trim().toLowerCase() !== key) continue;
+    const bDate = new Date(b.date + 'T12:00:00').getTime();
+    if(Math.abs(bDate - dDate) > 2 * 24 * 3600 * 1000) continue;
+    return b;
+  }
+  return null;
+}
+
+// =============================================================
 // SMART-Kategorie-Vorschlag
 // =============================================================
 // Liefert die häufigste Kategorie, die zu einem Empfänger in der
@@ -1217,26 +1234,29 @@ VIEWS.bookings = (st) => {
     </tr>`;
   }).join('') : `<tr><td colspan="6"><div class="empty"><span class="icon">${icon('receipt','lg')}</span><h3>Keine Buchungen</h3><p>Klick auf „+ Neue Buchung" zum Anlegen.</p></div></td></tr>`;
 
+  const chip = (val, label, key='typ', current=_bookingsFilter.typ) =>
+    `<button class="chip ${current===val?'active':''}" data-${key}="${val}">${label}</button>`;
   return `
     <h1 class="serif">Buchungen</h1>
     <div class="card mt-md">
+      <div class="chip-row mb-md">
+        ${chip('all','Alle')}
+        ${chip('income', `${icon('trending-up','sm')}<span>Einnahmen</span>`)}
+        ${chip('expense', `${icon('coins','sm')}<span>Ausgaben</span>`)}
+        <span class="chip-sep"></span>
+        <button class="chip ${_bookingsFilter.taxOnly?'active':''}" data-tax-toggle>${icon('star','sm')}<span>nur steuerrelevant</span></button>
+      </div>
       <div class="row mb-md">
         <select id="f-month" class="mxw-200"><option value="all">Alle Monate</option>${monthOpts}</select>
-        <select id="f-typ" class="mxw-160">
-          <option value="all" ${_bookingsFilter.typ==='all'?'selected':''}>Alle Typen</option>
-          <option value="income" ${_bookingsFilter.typ==='income'?'selected':''}>Einnahmen</option>
-          <option value="expense" ${_bookingsFilter.typ==='expense'?'selected':''}>Ausgaben</option>
-        </select>
         <select id="f-prop" class="mxw-200">
           <option value="all">Alle Objekte</option>
           <option value="">Privat-Beet</option>
           ${propOpts}
         </select>
-        <input id="f-q" placeholder="🔍 Suche Empfänger oder Notiz…" value="${escapeHtml(_bookingsFilter.q)}" class="mxw-260" />
-        <label class="toggle"><input type="checkbox" id="f-tax" ${_bookingsFilter.taxOnly?'checked':''} /><span class="switch"></span><span>nur ★ steuerrelevant</span></label>
+        <div class="search-input flex-1 mxw-300">${icon('search','sm')}<input id="f-q" placeholder="Empfänger oder Notiz…" value="${escapeHtml(_bookingsFilter.q)}" /></div>
         <span style="flex:1"></span>
         <label class="toggle"><input type="checkbox" id="bulk-toggle" ${_bulkMode?'checked':''} /><span class="switch"></span><span>Auswahl-Modus</span></label>
-        <button class="primary" data-action="new-booking">+ Neue Buchung</button>
+        <button class="primary" data-action="new-booking">${icon('plus','sm')}<span>Neue Buchung</span></button>
       </div>
       ${_bulkMode && _selected.size > 0 ? `
         <div class="banner">
@@ -1277,10 +1297,11 @@ VIEWS.bookings = (st) => {
 BINDERS.bookings = (root, st) => {
   const refilter = (patch) => { _bookingsFilter = {..._bookingsFilter, ...patch}; render(); };
   root.querySelector('#f-month').onchange = e => refilter({month: e.target.value});
-  root.querySelector('#f-typ').onchange = e => refilter({typ: e.target.value});
   root.querySelector('#f-prop').onchange = e => refilter({propId: e.target.value});
   root.querySelector('#f-q').oninput = e => { _bookingsFilter.q = e.target.value; if(e.target.value.length===0 || e.target.value.length>=2) render(); };
-  root.querySelector('#f-tax').onchange = e => refilter({taxOnly: e.target.checked});
+  root.querySelectorAll('[data-typ]').forEach(b => b.onclick = () => refilter({typ: b.dataset.typ}));
+  const taxBtn = root.querySelector('[data-tax-toggle]');
+  if(taxBtn) taxBtn.onclick = () => refilter({taxOnly: !_bookingsFilter.taxOnly});
   root.querySelector('#bulk-toggle').onchange = e => { _bulkMode = e.target.checked; _selected.clear(); render(); };
   const allCb = root.querySelector('#bulk-all');
   if(allCb) allCb.onchange = e => {
@@ -1468,12 +1489,40 @@ function openBookingModal(booking){
       const recurrence = body.querySelector('#m-rec').value;
       const tagIds = Array.from(body.querySelector('#m-tags').selectedOptions).map(o => o.value);
       const data = {type, amount, date, categoryId, propertyId, counterparty, note, recurrence, tagIds};
-      if(booking){
-        Store.update(s => ({...s, bookings: s.bookings.map(b => b.id===booking.id ? {...b, ...data} : b)}));
-      } else {
-        Store.update(s => ({...s, bookings: [...s.bookings, {...newBookingDraft(), ...data, id: uid('bkg'), createdAt: new Date().toISOString()}]}));
+      const persist = () => {
+        if(booking){
+          Store.update(s => ({...s, bookings: s.bookings.map(b => b.id===booking.id ? {...b, ...data} : b)}));
+        } else {
+          Store.update(s => ({...s, bookings: [...s.bookings, {...newBookingDraft(), ...data, id: uid('bkg'), createdAt: new Date().toISOString()}]}));
+        }
+        close();
+      };
+      // Duplikat-Check nur bei NEUEN Buchungen
+      const dup = booking ? null : findDuplicate(data, Store.get());
+      if(dup){
+        close();
+        const cat = categoryById(dup.categoryId);
+        openModal('Möglicher Duplikat-Fund', `
+          <p class="mb-md">Wir haben eine ähnliche Buchung gefunden:</p>
+          <div class="card mb-md">
+            <div class="row" style="justify-content:space-between">
+              <strong>${escapeHtml(dup.counterparty || '(ohne Empfänger)')}</strong>
+              <span class="amount ${dup.type==='income'?'income':'expense'}">${dup.type==='income'?'+':'−'} ${fmtEur(dup.amount)}</span>
+            </div>
+            <div class="muted">${fmtDate(dup.date)} · ${cat?escapeHtml(cat.label):'—'}</div>
+          </div>
+          <p class="mb-md muted">Trotzdem als neue Buchung speichern, oder vorhandene Buchung verwenden?</p>
+          <div class="modal-actions">
+            <button data-cancel-dup>Abbrechen</button>
+            <button class="primary" data-save-dup>Trotzdem speichern</button>
+          </div>
+        `, (b, c) => {
+          b.querySelector('[data-cancel-dup]').onclick = c;
+          b.querySelector('[data-save-dup]').onclick = () => { c(); persist(); };
+        });
+        return;
       }
-      close();
+      persist();
     };
   });
 }

@@ -261,6 +261,49 @@ button.icon svg{margin:0}
 .search-result .sr-meta{font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search-palette .muted.center{padding:12px}
 
+/* Filter-Chips */
+.chip-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip-sep{width:1px;height:24px;background:var(--border);margin:0 4px}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:7px 14px;
+  background:var(--surface);
+  border:1px solid var(--border-strong);
+  border-radius:var(--radius-pill);
+  font-size:13px;font-weight:500;
+  color:var(--text-muted);
+  cursor:pointer;
+  transition:background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-fast);
+  box-shadow:none;
+}
+.chip:hover{color:var(--text);border-color:var(--accent);transform:none}
+.chip.active{
+  background:var(--accent);color:#FFFFFF;
+  border-color:var(--accent);
+  box-shadow:0 4px 12px -4px var(--accent-ring);
+}
+.chip.active svg{color:#FFFFFF}
+
+/* Such-Input mit Icon */
+.search-input{
+  display:flex;align-items:center;gap:8px;
+  padding:0 10px 0 12px;
+  background:var(--surface);
+  border:1px solid var(--border-strong);
+  border-radius:var(--radius);
+  transition:border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.search-input:focus-within{
+  border-color:var(--accent);
+  box-shadow:var(--shadow-ring);
+}
+.search-input svg{color:var(--text-muted);flex-shrink:0}
+.search-input input{
+  flex:1;border:none;background:transparent;
+  padding:9px 0;outline:none;box-shadow:none;
+}
+.search-input input:focus{box-shadow:none}
+
 /* Smart-Kategorie-Hint */
 .cat-suggest{
   display:inline-flex;align-items:center;gap:8px;
