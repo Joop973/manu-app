@@ -85,6 +85,10 @@ function cardTitle(iconName, label, tone=''){
 function iconBtn(iconName, label, extraClass='', dataAttrs=''){
   return `<button class="${extraClass}"${dataAttrs ? ' '+dataAttrs : ''}>${icon(iconName,'sm')}<span>${escapeHtml(label)}</span></button>`;
 }
+// `helpHint('Wohnfläche', 'Erklärung …')` → ?-Icon mit Hover/Click-Tooltip
+function helpHint(body){
+  return `<span class="help-hint" tabindex="0" data-hint="${escapeHtml(body)}" aria-label="Hilfe">?</span>`;
+}
 
 // -------- Toast-Notifications ----------
 const Toast = (() => {
@@ -1407,15 +1411,31 @@ BINDERS.bookings = (root, st) => {
     if(e.target.checked) _selected.add(c.dataset.bulk); else _selected.delete(c.dataset.bulk);
     render();
   });
-  root.querySelectorAll('[data-edit]').forEach(tr => tr.onclick = (e) => {
-    if(e.target.matches('input,button,a')) return;
-    if(_bulkMode){
-      const id = tr.dataset.edit;
-      if(_selected.has(id)) _selected.delete(id); else _selected.add(id);
-      render();
-      return;
-    }
-    openBookingModal(st.bookings.find(b => b.id === tr.dataset.edit));
+  root.querySelectorAll('[data-edit]').forEach(tr => {
+    tr.onclick = (e) => {
+      if(e.target.matches('input,button,a,svg,use')) return;
+      if(_bulkMode){
+        const id = tr.dataset.edit;
+        if(_selected.has(id)) _selected.delete(id); else _selected.add(id);
+        render();
+        return;
+      }
+      openBookingModal(st.bookings.find(b => b.id === tr.dataset.edit));
+    };
+    tr.oncontextmenu = (e) => {
+      e.preventDefault();
+      openBookingContextMenu(e.clientX, e.clientY, tr.dataset.edit);
+    };
+    // Long-Press auf Mobile
+    let pressTimer = null;
+    tr.ontouchstart = (e) => {
+      pressTimer = setTimeout(() => {
+        const t = e.touches[0];
+        openBookingContextMenu(t.clientX, t.clientY, tr.dataset.edit);
+      }, 500);
+    };
+    tr.ontouchend = () => clearTimeout(pressTimer);
+    tr.ontouchmove = () => clearTimeout(pressTimer);
   });
   root.querySelectorAll('[data-del]').forEach(b => b.onclick = (e) => {
     e.stopPropagation();
@@ -1665,7 +1685,7 @@ function openPropertyModal(property){
       </div>
       <div class="grid cols-2">
         <div>
-          <label>Wohnfläche gesamt (m²)</label>
+          <label>Wohnfläche gesamt (m²) ${helpHint('Verteilungsschlüssel für Nebenkosten- und Mieter-Splits. Bei Mehrfamilienhäusern die Summe aller vermieteten Einheiten.')}</label>
           <input id="p-area" type="number" value="${draft.totalLivingArea||''}" />
         </div>
         <div>
@@ -1677,11 +1697,11 @@ function openPropertyModal(property){
       </div>
       <div class="grid cols-2">
         <div>
-          <label>AfA-Anschaffungswert (€)</label>
+          <label>AfA-Anschaffungswert (€) ${helpHint('Gebäudewert ohne Grundstücksanteil. Anschaffungs- oder Herstellungskosten, von denen jedes Jahr ein Prozentsatz als Abschreibung abgezogen wird.')}</label>
           <input id="p-afa-val" type="number" value="${draft.afa?.acquisitionValue||''}" placeholder="Gebäudewert" />
         </div>
         <div>
-          <label>AfA-Satz (%)</label>
+          <label>AfA-Satz (%) ${helpHint('Standard 2 % linear (Gebäude nach 1925). Bei Denkmalschutz oder Sonder-AfA andere Sätze. Im Zweifel Steuerberater fragen.')}</label>
           <input id="p-afa-rate" type="number" step="0.1" value="${draft.afa?.ratePercent||'2'}" />
         </div>
       </div>
@@ -3228,6 +3248,86 @@ function setupDragDrop(){
   });
 }
 setupDragDrop();
+
+// =============================================================
+// Help-Hint-Tooltip (delegated)
+// =============================================================
+function setupHelpHints(){
+  let tip = null;
+  const hide = () => { tip?.remove(); tip = null; };
+  const show = (el) => {
+    hide();
+    tip = document.createElement('div');
+    tip.className = 'help-tip';
+    tip.textContent = el.dataset.hint;
+    document.body.appendChild(tip);
+    const r = el.getBoundingClientRect();
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = r.left + r.width/2 - tw/2;
+    let top = r.bottom + 8;
+    if(top + th > window.innerHeight - 12) top = r.top - th - 8;
+    left = Math.max(8, Math.min(window.innerWidth - tw - 8, left));
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+  };
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target.closest?.('.help-hint');
+    if(el) show(el);
+  });
+  document.addEventListener('mouseout', (e) => {
+    const el = e.target.closest?.('.help-hint');
+    if(el) hide();
+  });
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest?.('.help-hint');
+    if(el){ e.stopPropagation(); show(el); setTimeout(hide, 3500); }
+    else hide();
+  });
+}
+setupHelpHints();
+
+// =============================================================
+// Right-Click-Kontextmenü auf Buchungs-Zeilen
+// =============================================================
+function openBookingContextMenu(x, y, bookingId){
+  document.querySelectorAll('.context-menu').forEach(el => el.remove());
+  const b = Store.get().bookings.find(x => x.id === bookingId);
+  if(!b) return;
+  const cat = categoryById(b.categoryId);
+  const taxLabel = cat?.taxRelevant ? '★ Steuerrelevant entfernen' : '★ Steuerrelevant markieren';
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.innerHTML = `
+    <button data-act="edit">${icon('edit-2','sm')}<span>Bearbeiten</span></button>
+    <button data-act="duplicate">${icon('copy','sm')}<span>Duplizieren</span></button>
+    <button data-act="tax">${icon('star','sm')}<span>${taxLabel}</span></button>
+    <div class="ctx-sep"></div>
+    <button data-act="delete" class="danger">${icon('trash','sm')}<span>Löschen</span></button>
+  `;
+  document.body.appendChild(menu);
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  menu.style.left = Math.min(x, window.innerWidth - mw - 8) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - mh - 8) + 'px';
+  const close = () => { menu.remove(); document.removeEventListener('click', onDoc); document.removeEventListener('keydown', onKey); };
+  const onDoc = (e) => { if(!menu.contains(e.target)) close(); };
+  const onKey = (e) => { if(e.key === 'Escape') close(); };
+  setTimeout(() => { document.addEventListener('click', onDoc); document.addEventListener('keydown', onKey); }, 0);
+  menu.querySelector('[data-act="edit"]').onclick = () => { close(); openBookingModal(b); };
+  menu.querySelector('[data-act="duplicate"]').onclick = () => {
+    close();
+    const dup = {...b, id: uid('bkg'), createdAt: new Date().toISOString(), date: todayIso()};
+    Store.update(s => ({...s, bookings: [...s.bookings, dup]}));
+    render();
+    Toast.success('Buchung dupliziert');
+  };
+  menu.querySelector('[data-act="tax"]').onclick = () => {
+    close();
+    if(!cat){ Toast.info('Keine Kategorie zum Markieren'); return; }
+    Store.update(s => ({...s, categories: s.categories.map(c => c.id === cat.id ? {...c, taxRelevant: !c.taxRelevant} : c)}));
+    render();
+  };
+  menu.querySelector('[data-act="delete"]').onclick = () => { close(); softDeleteBooking(b.id); };
+}
 
 // Such-Palette: Ctrl/Cmd+K + Topbar-Button
 $('#search-trigger').onclick = () => openSearchPalette();

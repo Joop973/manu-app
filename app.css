@@ -331,6 +331,62 @@ tr.day-header td:first-child{border-left:3px solid var(--accent)}
 tr.day-header td.right{font-weight:600}
 tr.day-header:hover td{background:var(--surface-2)}
 
+/* Help-Hint mit ?-Icon */
+.help-hint{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:16px;height:16px;
+  margin-left:4px;
+  background:var(--surface-2);
+  color:var(--text-muted);
+  border:1px solid var(--border-strong);
+  border-radius:50%;
+  font-size:11px;font-weight:600;
+  cursor:help;
+  vertical-align:middle;
+  transition:background var(--t-fast), color var(--t-fast);
+}
+.help-hint:hover,.help-hint:focus{
+  background:var(--accent);color:#FFF;border-color:var(--accent);outline:none;
+}
+.help-tip{
+  position:fixed;z-index:300;
+  max-width:280px;
+  padding:10px 14px;
+  background:var(--surface);
+  color:var(--text);
+  border:1px solid var(--border-strong);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow-2);
+  font-size:13px;line-height:1.4;
+  pointer-events:none;
+  animation:tipIn .12s ease;
+}
+@keyframes tipIn{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:translateY(0)}}
+
+/* Right-Click Context-Menu */
+.context-menu{
+  position:fixed;z-index:200;
+  min-width:200px;
+  padding:6px;
+  background:var(--surface);
+  border:1px solid var(--border-strong);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow-2);
+  display:flex;flex-direction:column;gap:2px;
+  animation:tipIn .12s ease;
+}
+.context-menu button{
+  display:flex;align-items:center;gap:10px;
+  width:100%;padding:8px 10px;
+  background:transparent;border:none;
+  text-align:left;font-size:14px;color:var(--text);
+  border-radius:6px;box-shadow:none;justify-content:flex-start;
+}
+.context-menu button:hover{background:var(--accent-soft);color:var(--text);transform:none}
+.context-menu button.danger{color:var(--berry)}
+.context-menu button.danger:hover{background:color-mix(in oklab, var(--berry) 14%, transparent)}
+.context-menu .ctx-sep{height:1px;background:var(--border);margin:4px 0}
+
 /* Drag-and-Drop-Overlay */
 .drop-overlay{
   position:fixed;inset:0;z-index:200;
