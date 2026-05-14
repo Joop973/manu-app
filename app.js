@@ -358,6 +358,155 @@ function confirmAlert(msg, onYes){
   });
 }
 
+// ============================================================
+// SEARCH-PALETTE (Cmd/Ctrl + K)
+// ============================================================
+function buildSearchIndex(st){
+  const idx = [];
+  for(const b of st.bookings){
+    const cat = st.categories?.find(c => c.id === b.categoryId) || BUILTIN_CATEGORIES.find(c => c.id === b.categoryId);
+    idx.push({
+      kind:'Buchung', icon:'receipt', tab:'bookings',
+      label: `${escapeHtml(b.counterparty || '(ohne Empfänger)')} · ${fmtEur(b.amount)}`,
+      meta: `${fmtDate(b.date)} · ${cat?.label || ''}`,
+      search: `${b.counterparty||''} ${b.note||''} ${b.amount} ${b.date} ${cat?.label||''}`.toLowerCase(),
+    });
+  }
+  for(const p of st.properties){
+    idx.push({
+      kind:'Eiche', icon:'tree', tab:'oak',
+      label: escapeHtml(p.name),
+      meta: p.address ? escapeHtml(p.address) : '',
+      search: `${p.name||''} ${p.address||''}`.toLowerCase(),
+      onSelect: () => Store.update(s => ({...s, _filterPropertyId: p.id})),
+    });
+  }
+  for(const t of (st.tenants||[])){
+    idx.push({
+      kind:'Mieter', icon:'users', tab:'oak',
+      label: escapeHtml(t.name),
+      meta: t.iban ? `IBAN ${escapeHtml(t.iban)}` : '',
+      search: `${t.name||''} ${t.iban||''}`.toLowerCase(),
+    });
+  }
+  for(const c of (st.craftsmen||[])){
+    idx.push({
+      kind:'Handwerker', icon:'hammer', tab:'tools',
+      label: escapeHtml(c.name),
+      meta: c.phone ? escapeHtml(c.phone) : '',
+      search: `${c.name||''} ${c.phone||''}`.toLowerCase(),
+    });
+  }
+  const cats = [...BUILTIN_CATEGORIES, ...(st.categories||[])];
+  for(const c of cats){
+    idx.push({
+      kind:'Kategorie', icon:'list', tab:'bookings',
+      label: escapeHtml(c.label),
+      meta: c.taxRelevant ? 'steuerrelevant' : '',
+      search: `${c.label||''}`.toLowerCase(),
+    });
+  }
+  return idx;
+}
+
+let _searchOpen = false;
+function openSearchPalette(){
+  if(_searchOpen) return;
+  _searchOpen = true;
+  const st = Store.get();
+  const all = buildSearchIndex(st);
+  const host = $('#modal-host');
+  host.innerHTML = `
+    <div class="modal-overlay" data-overlay>
+      <div class="modal search-palette mxw-560">
+        <div class="search-bar">${icon('search','md')}
+          <input id="sp-input" placeholder="Buchung, Eiche, Mieter, Kategorie suchen …" autofocus />
+          <button class="ghost icon" data-close-sp aria-label="Schließen">${icon('x','sm')}</button>
+        </div>
+        <div class="search-results" id="sp-results"></div>
+        <div class="muted center mt-md" style="font-size:12px">↑ ↓ navigieren · Enter öffnen · Esc schließen</div>
+      </div>
+    </div>
+  `;
+  const input = host.querySelector('#sp-input');
+  const results = host.querySelector('#sp-results');
+  let selected = 0;
+  let filtered = [];
+
+  const close = () => { _searchOpen = false; host.innerHTML = ''; document.removeEventListener('keydown', onKey); };
+  host.querySelector('[data-close-sp]').onclick = close;
+  host.querySelector('[data-overlay]').onclick = (e) => { if(e.target === e.currentTarget) close(); };
+
+  const renderResults = () => {
+    if(!filtered.length){
+      results.innerHTML = `<div class="muted center" style="padding:20px">Keine Treffer</div>`;
+      return;
+    }
+    results.innerHTML = filtered.slice(0, 30).map((r,i) => `
+      <div class="search-result ${i===selected?'active':''}" data-idx="${i}">
+        <span class="sr-icon">${icon(r.icon,'md')}</span>
+        <div class="sr-body">
+          <div class="sr-label">${r.label} <span class="muted" style="font-size:11px">· ${r.kind}</span></div>
+          ${r.meta ? `<div class="sr-meta">${r.meta}</div>` : ''}
+        </div>
+      </div>
+    `).join('');
+    results.querySelectorAll('[data-idx]').forEach(el => {
+      el.onclick = () => { selectAt(Number(el.dataset.idx)); commit(); };
+    });
+  };
+  const selectAt = (i) => { selected = Math.max(0, Math.min(filtered.length-1, i)); renderResults(); };
+  const commit = () => {
+    const r = filtered[selected];
+    if(!r) return;
+    close();
+    Store.update(s => ({...s, settings:{...s.settings, activeTab: r.tab}}));
+    if(r.onSelect) r.onSelect();
+    render();
+  };
+  const update = () => {
+    const q = input.value.trim().toLowerCase();
+    if(!q){
+      filtered = all.slice(0, 12);
+    } else {
+      filtered = all.filter(r => r.search.includes(q)).slice(0, 50);
+    }
+    selected = 0;
+    renderResults();
+  };
+  const onKey = (e) => {
+    if(e.key === 'Escape'){ close(); }
+    else if(e.key === 'ArrowDown'){ e.preventDefault(); selectAt(selected+1); }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); selectAt(selected-1); }
+    else if(e.key === 'Enter'){ e.preventDefault(); commit(); }
+  };
+  input.oninput = update;
+  document.addEventListener('keydown', onKey);
+  update();
+}
+
+// =============================================================
+// SMART-Kategorie-Vorschlag
+// =============================================================
+// Liefert die häufigste Kategorie, die zu einem Empfänger in der
+// Historie verwendet wurde. Returns {id, label, count} oder null.
+function suggestCategoryFor(counterparty, st){
+  const key = (counterparty||'').trim().toLowerCase();
+  if(!key) return null;
+  const matches = st.bookings.filter(b =>
+    b.categoryId && (b.counterparty||'').trim().toLowerCase() === key
+  );
+  if(!matches.length) return null;
+  const counts = {};
+  for(const b of matches){ counts[b.categoryId] = (counts[b.categoryId]||0) + 1; }
+  const best = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+  if(!best) return null;
+  const allCats = [...BUILTIN_CATEGORIES, ...(st.categories||[])];
+  const cat = allCats.find(c => c.id === best[0]);
+  if(!cat) return null;
+  return { id: cat.id, label: cat.label, count: best[1] };
+}
+
 // openProgressModal — zeigt Skeleton + Live-Text, returns {update, close}.
 function openProgressModal(title, initialMsg=''){
   let bodyEl = null, closeFn = () => {};
@@ -1282,22 +1431,27 @@ function openBookingModal(booking){
     updatePreview();
     const $cp = body.querySelector('#m-cp');
     const $cpS = body.querySelector('#m-cp-sug');
-    $cp.oninput = () => {
+    const $cat = body.querySelector('#m-cat');
+    const $catSug = body.querySelector('#m-cat-tax');
+    const refreshCpSuggest = () => {
       const q = $cp.value.trim().toLowerCase();
       if(q.length < 2){ $cpS.innerHTML = ''; return; }
       const matches = uniq(Store.get().bookings.map(b => b.counterparty).filter(Boolean).filter(c => c.toLowerCase().includes(q))).slice(0,5);
       $cpS.innerHTML = matches.map(m => `<span class="pill" style="cursor:pointer;margin:6px 4px 0 0" data-pick="${escapeHtml(m)}">${escapeHtml(m)}</span>`).join('');
-      $cpS.querySelectorAll('[data-pick]').forEach(p => p.onclick = () => { $cp.value = p.dataset.pick; $cpS.innerHTML=''; });
+      $cpS.querySelectorAll('[data-pick]').forEach(p => p.onclick = () => { $cp.value = p.dataset.pick; $cpS.innerHTML=''; refreshCatSuggest(); });
     };
-    const $cat = body.querySelector('#m-cat');
-    const updateTaxHint = () => {
+    const refreshCatSuggest = () => {
+      const s = suggestCategoryFor($cp.value, Store.get());
       const c = categoryById($cat.value);
-      const hint = body.querySelector('#m-cat-tax');
-      if(c?.taxRelevant) hint.innerHTML = `<span class="gold-text">★ Diese Buchung erscheint im Berater-Modus</span>`;
-      else hint.innerHTML = '';
+      const tax = c?.taxRelevant ? `<div class="gold-text mt-xs">${icon('star','sm')} Diese Buchung erscheint im Berater-Modus</div>` : '';
+      const sug = (s && s.id !== $cat.value) ? `<div class="cat-suggest" data-apply-cat>${icon('zap','sm')}<span>Vorschlag: <strong>${escapeHtml(s.label)}</strong> (${s.count}× verwendet)</span></div>` : '';
+      $catSug.innerHTML = sug + tax;
+      const apply = $catSug.querySelector('[data-apply-cat]');
+      if(apply && s) apply.onclick = () => { $cat.value = s.id; refreshCatSuggest(); };
     };
-    $cat.onchange = updateTaxHint;
-    updateTaxHint();
+    $cp.oninput = () => { refreshCpSuggest(); refreshCatSuggest(); };
+    $cat.onchange = refreshCatSuggest;
+    refreshCatSuggest();
     body.querySelector('[data-cancel]').onclick = close;
     if(booking){
       body.querySelector('[data-rm]').onclick = () => { confirmAlert('Buchung in Papierkorb verschieben?', () => { softDeleteBooking(booking.id); close(); }); };
@@ -2833,6 +2987,15 @@ function renderOnboarding(){
 $('#advisorToggle').onchange = (e) => {
   Store.update(s => ({...s, settings:{...s.settings, advisorMode: e.target.checked}}));
 };
+
+// Such-Palette: Ctrl/Cmd+K + Topbar-Button
+$('#search-trigger').onclick = () => openSearchPalette();
+document.addEventListener('keydown', (e) => {
+  if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k'){
+    e.preventDefault();
+    openSearchPalette();
+  }
+});
 
 // Auto-Lock
 let idleTimer = null;
