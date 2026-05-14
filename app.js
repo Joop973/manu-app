@@ -51,6 +51,7 @@ function applyCountUpToView(root){
 
 // -------- Konfetti (CSS-only) ----------
 function fireConfetti(durationMs=1400){
+  tap([10, 30, 10]);
   const colors = ['#10B981','#A47A29','#1FAB89','#F4F0E8','#4A7C59'];
   const host = document.createElement('div');
   host.className = 'confetti-host';
@@ -70,6 +71,10 @@ function fireConfetti(durationMs=1400){
 // `icon('plus')` → <svg class="icon icon-md"><use href="#i-plus"/></svg>
 function icon(name, size='md', extra=''){
   return `<svg class="icon icon-${size} ${extra}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+}
+// `tap()` — kurzer haptischer Tick wo der Browser es kann
+function tap(pattern=12){
+  try{ if(navigator.vibrate) navigator.vibrate(pattern); }catch{}
 }
 // `cardTitle('icon', 'Label', 'gold' | 'berry')` → standardisierter Card-Header
 function cardTitle(iconName, label, tone=''){
@@ -1026,6 +1031,7 @@ function renderTabs(active){
 function setTab(id){
   Store.update(s => ({...s, settings:{...s.settings, activeTab:id}}));
   location.hash = '#/'+id;
+  tap(8);
   render();
 }
 
@@ -1905,6 +1911,10 @@ VIEWS.receipts = (st) => {
     <div class="card mt-md">
       <div class="row">
         <input id="rcp-file" type="file" accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple class="mxw-340" />
+        <label class="btn-like camera-only show-on-mobile" title="Foto direkt mit Kamera">
+          <input id="rcp-camera" type="file" accept="image/*" capture="environment" hidden />
+          ${icon('plus','sm')}<span>Kamera</span>
+        </label>
         <button class="primary" id="rcp-upload">${icon('paperclip','sm')}<span>Hochladen</span></button>
         <span class="muted" id="rcp-info"></span>
       </div>
@@ -1913,6 +1923,26 @@ VIEWS.receipts = (st) => {
   `;
 };
 BINDERS.receipts = (root, st) => {
+  // Foto aus Kamera direkt verarbeiten
+  const cameraInput = root.querySelector('#rcp-camera');
+  if(cameraInput) cameraInput.onchange = async (e) => {
+    const files = e.target.files;
+    if(!files || !files.length) return;
+    const info = root.querySelector('#rcp-info');
+    for(const f of files){
+      const id = uid('rcp');
+      await FilesDB.put(id, f);
+      const parsed = parseFilename(f.name);
+      Store.update(s => ({...s, receipts: [...s.receipts, {
+        id, filename: f.name || `foto-${Date.now()}.jpg`, size: f.size, mimeType: f.type,
+        amount: parsed.amount, date: parsed.date, counterparty: parsed.counterparty, categoryId: parsed.categoryId || null,
+        propertyId: null, bookingId: null, createdAt: new Date().toISOString(),
+      }]}));
+      info.textContent = `Foto gespeichert`;
+    }
+    setTimeout(render, 500);
+  };
+
   root.querySelector('#rcp-upload').onclick = async () => {
     const files = root.querySelector('#rcp-file').files;
     if(!files || files.length === 0){ Toast.info('Bitte Datei wählen'); return; }
@@ -3051,6 +3081,7 @@ let idleTimer = null;
 function lockNow(){
   sessionStorage.removeItem('manu.unlocked');
   clearMasterKey();
+  tap(30);
   render();
 }
 function isProtected(){

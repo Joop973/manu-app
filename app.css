@@ -871,7 +871,49 @@ body.advisor .leaf-img{display:none !important}
 /* ---------------------------------------------------------
    Mobile-Optimierungen
 --------------------------------------------------------- */
+.btn-like{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:10px 14px;border-radius:var(--radius);
+  border:1px solid var(--border-strong);background:var(--surface);
+  color:var(--text);cursor:pointer;font-weight:500;font-size:15px;
+  box-shadow:var(--shadow-1);
+  transition:background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-fast);
+}
+.btn-like:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+.show-on-mobile{display:none}
 @media (max-width:760px){
+  .show-on-mobile{display:inline-flex}
+}
+
+@media (max-width:760px){
+  /* Backdrop-Filter auf header.topbar erzeugt einen Containing-Block
+     für fixed-positionierte Kinder. Auf Mobile entfernen wir das,
+     damit nav.tabs sich am viewport-Boden ausrichten kann. */
+  header.topbar{
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none;
+    background:var(--surface);
+  }
+}
+
+@media (max-width:760px){
+  /* Bottom-Sheet statt Center-Modal */
+  .modal-overlay{align-items:flex-end;padding:0}
+  .modal-overlay .modal:not(.search-palette){
+    max-width:100%;width:100%;border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+    max-height:88vh;padding-bottom:max(26px, env(safe-area-inset-bottom));
+    animation:sheetIn var(--t-base);
+  }
+  .modal:not(.search-palette)::before{
+    content:'';display:block;width:42px;height:4px;border-radius:2px;
+    background:var(--border-strong);margin:-12px auto 18px;opacity:.6;
+  }
+  @keyframes sheetIn{
+    from{opacity:.5;transform:translateY(40%)}
+    to{opacity:1;transform:translateY(0)}
+  }
+  /* Suchpalette bleibt zentriert / oben */
+  .modal-overlay:has(.search-palette){align-items:flex-start;padding-top:max(16px, env(safe-area-inset-top))}
   header.topbar{
     padding:12px 16px;
     gap:10px;
