@@ -304,6 +304,25 @@ button.icon svg{margin:0}
 }
 .search-input input:focus{box-shadow:none}
 
+/* Shortcut-Help-Overlay */
+.shortcut-grid{display:flex;flex-direction:column;gap:6px}
+.shortcut-row{
+  display:flex;align-items:center;gap:14px;
+  padding:8px 10px;border-radius:var(--radius);
+}
+.shortcut-row:hover{background:var(--surface-2)}
+.shortcut-row kbd{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:4px 10px;min-width:42px;
+  background:var(--surface);border:1px solid var(--border-strong);
+  border-bottom-width:2px;
+  border-radius:6px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12px;font-weight:600;color:var(--text);
+  box-shadow:0 1px 0 var(--border-strong);
+}
+.shortcut-row span{flex:1;color:var(--text)}
+
 /* Smart-Kategorie-Hint */
 .cat-suggest{
   display:inline-flex;align-items:center;gap:8px;

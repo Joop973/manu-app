@@ -3105,10 +3105,73 @@ $('#advisorToggle').onchange = (e) => {
 
 // Such-Palette: Ctrl/Cmd+K + Topbar-Button
 $('#search-trigger').onclick = () => openSearchPalette();
+
+// Globale Tastatur-Shortcuts
+const SHORTCUTS = [
+  { key: 'Cmd/Ctrl + K', desc: 'Suche öffnen' },
+  { key: '/', desc: 'Filter-Suche / Such-Palette' },
+  { key: 'N', desc: 'Neue Buchung' },
+  { key: '1 – 7', desc: 'Tab wechseln (Hauptsaal … Einstellungen)' },
+  { key: 'Esc', desc: 'Modal schließen' },
+  { key: '?', desc: 'Diese Hilfe anzeigen' },
+];
+function openShortcutHelp(){
+  const html = `
+    <div class="shortcut-grid">
+      ${SHORTCUTS.map(s => `<div class="shortcut-row">
+        <kbd>${escapeHtml(s.key)}</kbd>
+        <span>${escapeHtml(s.desc)}</span>
+      </div>`).join('')}
+    </div>
+    <p class="muted mt-md" style="font-size:12px">Shortcuts greifen nicht in Eingabefeldern.</p>
+  `;
+  openModal('Tastatur-Shortcuts', html);
+}
+function isTypingTarget(el){
+  if(!el) return false;
+  const tag = el.tagName;
+  if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if(el.isContentEditable) return true;
+  return false;
+}
 document.addEventListener('keydown', (e) => {
   if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k'){
     e.preventDefault();
     openSearchPalette();
+    return;
+  }
+  // Esc schließt das oberste offene Modal
+  if(e.key === 'Escape'){
+    const overlay = document.querySelector('#modal-host .modal-overlay');
+    if(overlay){
+      const closeBtn = overlay.querySelector('[data-cancel],[data-close-sp],[data-overlay]');
+      if(closeBtn) closeBtn.click();
+      else document.getElementById('modal-host').innerHTML = '';
+    }
+    return;
+  }
+  if(isTypingTarget(e.target)) return;
+  if(e.metaKey || e.ctrlKey || e.altKey) return;
+
+  if(e.key === 'n' || e.key === 'N'){
+    e.preventDefault(); openBookingModal(); return;
+  }
+  if(e.key === '/'){
+    e.preventDefault();
+    const fq = document.getElementById('f-q');
+    if(fq){ fq.focus(); fq.select?.(); }
+    else openSearchPalette();
+    return;
+  }
+  if(e.key === '?'){
+    e.preventDefault(); openShortcutHelp(); return;
+  }
+  if(/^[1-9]$/.test(e.key)){
+    const idx = Number(e.key) - 1;
+    if(idx < TABS.length){
+      e.preventDefault();
+      setTab(TABS[idx].id);
+    }
   }
 });
 
