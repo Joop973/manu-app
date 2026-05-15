@@ -2138,8 +2138,9 @@ VIEWS.oak = (st) => {
       </div>
 
       <div class="row" style="margin-top:14px;gap:8px">
-        <button data-edit-property>✏️ Objekt bearbeiten</button>
-        <button class="gold" data-anlage-v>★ Anlage V für ${new Date().getFullYear()-1}</button>
+        <button data-edit-property>${icon('edit-2','sm')}<span>Objekt bearbeiten</span></button>
+        <button class="primary" data-import-statement>${icon('database','sm')}<span>Kontoauszug einlesen</span></button>
+        <button class="gold" data-anlage-v>${icon('star','sm')}<span>Anlage V für ${new Date().getFullYear()-1}</span></button>
         <button data-nk>NK-Abrechnung</button>
       </div>
     `;
@@ -2193,6 +2194,8 @@ BINDERS.oak = (root, st) => {
   if(av) av.onclick = () => openAnlageV(st._filterPropertyId);
   const nk = root.querySelector('[data-nk]');
   if(nk) nk.onclick = () => openNkAbrechnung(st._filterPropertyId);
+  const impStmt = root.querySelector('[data-import-statement]');
+  if(impStmt) impStmt.onclick = () => openStatementImportModal(st._filterPropertyId);
 };
 
 // ---- Tenant Modal -----
@@ -2855,10 +2858,8 @@ VIEWS.tools = (st) => {
       </div>
       <div class="card">
         ${cardTitle('database', 'Kontoauszug importieren')}
-        <p class="muted">CSV-Export der Bank einlesen (DKB · Sparkasse · ING · N26 · comdirect · Volksbank). Datum, Empfänger und Betrag werden automatisch erkannt, Kategorien vorgeschlagen.</p>
-        <input id="csv-file" type="file" accept=".csv,text/csv,text/plain" class="mt-2" />
+        <p class="muted">PDF-Kontoauszug oder CSV-Export der Bank einlesen (Volksbank · DKB · Sparkasse · ING · N26 · comdirect). Datum, Empfänger und Betrag werden automatisch erkannt, Kategorien vorgeschlagen.</p>
         <button class="primary mt-2" id="csv-import">${icon('database','sm')}<span>Auszug einlesen</span></button>
-        <div id="csv-info" class="muted mt-sm"></div>
       </div>
     </div>
   `;
@@ -2888,18 +2889,7 @@ BINDERS.tools = (root, st) => {
   bnB.oninput = compute; bnC.onchange = compute;
 
   const csvImport = root.querySelector('#csv-import');
-  if(csvImport) csvImport.onclick = async () => {
-    const f = root.querySelector('#csv-file').files[0];
-    const info = root.querySelector('#csv-info');
-    if(!f){ Toast.info('Bitte zuerst eine CSV-Datei wählen'); return; }
-    let text;
-    try{ text = await f.text(); }
-    catch{ info.textContent = 'Datei konnte nicht gelesen werden'; return; }
-    const parsed = parseBankStatement(text);
-    if(parsed.error){ info.textContent = parsed.error; return; }
-    info.textContent = `${parsed.rows.length} Posten erkannt — bitte im Fenster prüfen.`;
-    openBankImportModal(parsed);
-  };
+  if(csvImport) csvImport.onclick = () => openStatementImportModal(null);
 };
 function splitCSV(line, d){
   const out=[]; let cur=''; let q=false;
@@ -2973,6 +2963,253 @@ function autoCategory(text, categories){
   }
   return null;
 }
+// =============================================================
+// PDF-KONTOAUSZUG: Text-Extraktion mit nativen Browser-APIs
+// =============================================================
+// Wandelt Bytes in einen Latin-1-String (chunked, sonst Stack-Overflow).
+function bytesToLatin1(u8){
+  let s = '';
+  const CH = 8192;
+  for(let i=0; i<u8.length; i+=CH){
+    s += String.fromCharCode.apply(null, u8.subarray(i, Math.min(i+CH, u8.length)));
+  }
+  return s;
+}
+// FlateDecode (zlib) entpacken via DecompressionStream.
+async function pdfInflate(bytes){
+  for(const fmt of ['deflate', 'deflate-raw']){
+    try{
+      const ds = new DecompressionStream(fmt);
+      const stream = new Response(new Blob([bytes])).body.pipeThrough(ds);
+      const ab = await new Response(stream).arrayBuffer();
+      const out = new Uint8Array(ab);
+      if(out.length) return out;
+    }catch(e){ /* nächstes Format probieren */ }
+  }
+  return null;
+}
+// PDF-Literal-String "(...)" mit Escapes parsen.
+function pdfReadLiteral(s, i){
+  let depth = 1, out = '';
+  while(i < s.length && depth > 0){
+    const ch = s[i++];
+    if(ch === '\\'){
+      const n = s[i++];
+      if(n === 'n') out += '\n';
+      else if(n === 'r') out += '\r';
+      else if(n === 't') out += '\t';
+      else if(n === 'b') out += '\b';
+      else if(n === 'f') out += '\f';
+      else if(n === '(' || n === ')' || n === '\\') out += n;
+      else if(n >= '0' && n <= '7'){
+        let oct = n;
+        for(let k=0; k<2 && s[i] >= '0' && s[i] <= '7'; k++) oct += s[i++];
+        out += String.fromCharCode(parseInt(oct,8) & 0xFF);
+      }
+      else if(n === '\n'){ /* Zeilenfortsetzung */ }
+      else if(n === '\r'){ if(s[i] === '\n') i++; }
+      else out += n;
+    }
+    else if(ch === '('){ depth++; out += ch; }
+    else if(ch === ')'){ depth--; if(depth > 0) out += ch; }
+    else out += ch;
+  }
+  return { str: out, next: i };
+}
+// WinAnsi-Sonderzeichen, die nicht mit Latin-1 übereinstimmen.
+const WINANSI_FIX = {0x80:'€',0x82:'‚',0x84:'„',0x85:'…',0x91:'‘',0x92:'’',0x93:'„',0x94:'"',0x96:'–',0x97:'—',0x99:'™'};
+function fixWinAnsi(str){
+  let out = '';
+  for(let i=0; i<str.length; i++){
+    const c = str.charCodeAt(i);
+    out += (c >= 0x80 && c <= 0x9F && WINANSI_FIX[c]) ? WINANSI_FIX[c] : str[i];
+  }
+  return out;
+}
+// Einen Content-Stream tokenisieren und Text-Positionen sammeln.
+function pdfExtractRecords(str){
+  const records = [];
+  const isWS = c => c===' '||c==='\n'||c==='\r'||c==='\t'||c==='\f'||c==='\0';
+  const isDelim = c => '()<>[]{}/%'.indexOf(c) >= 0;
+  const mul = (m,n) => [
+    m[0]*n[0]+m[1]*n[2], m[0]*n[1]+m[1]*n[3],
+    m[2]*n[0]+m[3]*n[2], m[2]*n[1]+m[3]*n[3],
+    m[4]*n[0]+m[5]*n[2]+n[4], m[4]*n[1]+m[5]*n[3]+n[5],
+  ];
+  let tm = [1,0,0,1,0,0], tlm = [1,0,0,1,0,0], leading = 0;
+  let stack = [];
+  const show = (text) => { if(text) records.push({ x: tm[4], y: tm[5], text }); };
+  let i = 0; const n = str.length;
+  while(i < n){
+    const c = str[i];
+    if(isWS(c)){ i++; continue; }
+    if(c === '%'){ while(i<n && str[i]!=='\n' && str[i]!=='\r') i++; continue; }
+    if(c === '('){ const r = pdfReadLiteral(str, i+1); stack.push({t:'str', v:r.str}); i = r.next; continue; }
+    if(c === '<'){
+      if(str[i+1] === '<'){
+        let depth = 0, j = i;
+        while(j < n){
+          if(str[j]==='<' && str[j+1]==='<'){ depth++; j+=2; }
+          else if(str[j]==='>' && str[j+1]==='>'){ depth--; j+=2; if(depth===0) break; }
+          else j++;
+        }
+        i = j; stack = []; continue;
+      }
+      let j = i+1, hex = '';
+      while(j < n && str[j] !== '>'){ if(!isWS(str[j])) hex += str[j]; j++; }
+      if(hex.length % 2) hex += '0';
+      let out = '';
+      for(let k=0; k<hex.length; k+=2) out += String.fromCharCode(parseInt(hex.substr(k,2),16));
+      stack.push({t:'str', v:out}); i = j+1; continue;
+    }
+    if(c === '['){
+      let j = i+1; const arr = [];
+      while(j < n && str[j] !== ']'){
+        if(isWS(str[j])){ j++; continue; }
+        if(str[j] === '('){ const r = pdfReadLiteral(str, j+1); arr.push({t:'str', v:r.str}); j = r.next; }
+        else if(str[j] === '<'){
+          let k=j+1, hex=''; while(k<n && str[k]!=='>'){ if(!isWS(str[k])) hex+=str[k]; k++; }
+          if(hex.length%2) hex+='0';
+          let o=''; for(let q=0;q<hex.length;q+=2) o+=String.fromCharCode(parseInt(hex.substr(q,2),16));
+          arr.push({t:'str', v:o}); j = k+1;
+        }
+        else { let num=''; while(j<n && !isWS(str[j]) && str[j]!==']'){ num+=str[j]; j++; } arr.push({t:'num', v:parseFloat(num)}); }
+      }
+      stack.push({t:'arr', v:arr}); i = j+1; continue;
+    }
+    if(c === '/'){ let j=i+1; while(j<n && !isWS(str[j]) && !isDelim(str[j])) j++; stack.push({t:'name', v:str.slice(i+1,j)}); i=j; continue; }
+    if(c===']'||c==='>'||c==='}'||c===')'){ i++; continue; }
+    let j = i; while(j<n && !isWS(str[j]) && !isDelim(str[j])) j++;
+    const tok = str.slice(i, j); i = j;
+    if(/^[+-]?(\d+\.?\d*|\.\d+)$/.test(tok)){ stack.push({t:'num', v:parseFloat(tok)}); continue; }
+    const num = (k) => { const e = stack[stack.length-k]; return e && e.t==='num' ? e.v : 0; };
+    const lastStr = () => { const e = stack[stack.length-1]; return e && e.t==='str' ? e.v : null; };
+    if(tok === 'BT'){ tm=[1,0,0,1,0,0]; tlm=[1,0,0,1,0,0]; }
+    else if(tok === 'Td'){ tlm = mul([1,0,0,1,num(2),num(1)], tlm); tm = tlm.slice(); }
+    else if(tok === 'TD'){ leading = -num(1); tlm = mul([1,0,0,1,num(2),num(1)], tlm); tm = tlm.slice(); }
+    else if(tok === 'Tm'){ const a = stack.slice(-6).map(e => e.t==='num'?e.v:0); if(a.length===6){ tm=a.slice(); tlm=a.slice(); } }
+    else if(tok === 'T*'){ tlm = mul([1,0,0,1,0,-leading], tlm); tm = tlm.slice(); }
+    else if(tok === 'TL'){ leading = num(1); }
+    else if(tok === 'Tj'){ const v = lastStr(); if(v!=null) show(v); }
+    else if(tok === "'"){ tlm = mul([1,0,0,1,0,-leading], tlm); tm = tlm.slice(); const v = lastStr(); if(v!=null) show(v); }
+    else if(tok === '"'){ tlm = mul([1,0,0,1,0,-leading], tlm); tm = tlm.slice(); const v = lastStr(); if(v!=null) show(v); }
+    else if(tok === 'TJ'){
+      const e = stack[stack.length-1];
+      if(e && e.t==='arr'){
+        let s = '';
+        for(const el of e.v){
+          if(el.t==='str') s += el.v;
+          else if(el.t==='num' && el.v <= -120) s += ' ';
+        }
+        show(s);
+      }
+    }
+    stack = [];
+  }
+  return records;
+}
+// Text-Records nach Y-Position zu Zeilen gruppieren.
+function pdfGroupLines(records){
+  if(!records.length) return '';
+  records.forEach(r => { r._row = Math.round(r.y / 3); });
+  records.sort((a,b) => (b._row - a._row) || (a.x - b.x));
+  let out = '', lastRow = records[0]._row;
+  for(const r of records){
+    if(r._row !== lastRow){ out += '\n'; lastRow = r._row; }
+    else if(out && !out.endsWith('\n')) out += ' ';
+    out += r.text;
+  }
+  return out;
+}
+// Haupt-Funktion: PDF-ArrayBuffer → extrahierter Text.
+async function extractPdfText(arrayBuffer){
+  const bytes = new Uint8Array(arrayBuffer);
+  const bin = bytesToLatin1(bytes);
+  if(bin.slice(0,5) !== '%PDF-') throw new Error('Keine gültige PDF-Datei');
+  // Alle stream … endstream Blöcke finden
+  const re = /stream\r?\n/g;
+  let m, pages = [];
+  while((m = re.exec(bin))){
+    const start = m.index + m[0].length;
+    const end = bin.indexOf('endstream', start);
+    if(end < 0) continue;
+    let sEnd = end;
+    while(sEnd > start && (bin[sEnd-1] === '\n' || bin[sEnd-1] === '\r')) sEnd--;
+    let data = bytes.subarray(start, sEnd);
+    let inflated = await pdfInflate(data);
+    const content = inflated ? bytesToLatin1(inflated) : bytesToLatin1(data);
+    if(/\bBT\b/.test(content) && /\b(Tj|TJ)\b/.test(content)){
+      pages.push(pdfGroupLines(pdfExtractRecords(content)));
+    }
+    re.lastIndex = end + 9;
+  }
+  return pages.map(fixWinAnsi).join('\n');
+}
+
+// =============================================================
+// VOLKSBANK-KONTOAUSZUG: Text → Buchungs-Posten
+// =============================================================
+function parseVolksbankStatement(text){
+  const lines = text.split(/\r?\n/).map(l => l.replace(/\s+$/,''));
+  // Jahr + Monat des Auszugs ermitteln
+  let year = null, stmtMonth = null;
+  for(const l of lines){
+    const m1 = l.match(/Kontoauszug[\s\S]{0,40}?\b(\d{1,2})\s*\/\s*(20\d{2})\b/);
+    if(m1){ stmtMonth = Number(m1[1]); year = m1[2]; break; }
+    const m2 = l.match(/erstellt am \d{2}\.(\d{2})\.(20\d{2})/);
+    if(m2){ stmtMonth = Number(m2[1]); year = m2[2]; break; }
+  }
+  if(!year){
+    const ym = text.match(/\b(20\d{2})\b/);
+    year = ym ? ym[1] : String(new Date().getFullYear());
+  }
+  // Header-Zeile einer Buchung: "01.04.  01.04. Vorgang … 823,00 S"
+  const txnRe = /^\s*(\d{2})\.(\d{2})\.\s+\d{2}\.\d{2}\.\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+([SH])\s*$/;
+  const skipRe = /alter Kontostand|neuer Kontostand|Übertrag (auf|von) Blatt|Bu-Tag\s+Wert|Bitte beachten|Volksbank|Kontoauszug|Kontokorrent|EUR-Konto|^IBAN:|BIC: GENODE|Lookenstraße|elvb\.de|Postfach|Blatt \d+ von|^Herrn?$|^Frau$/i;
+  const rows = [];
+  let cur = null;
+  const finish = () => {
+    if(!cur) return;
+    cur.purpose = [cur.vorgang, ...cur._desc].join(' · ').replace(/\s+/g,' ').trim().slice(0, 220);
+    delete cur._desc;
+    if(!cur.counterparty) cur.counterparty = cur.vorgang;
+    rows.push(cur);
+    cur = null;
+  };
+  for(const line of lines){
+    if(!line.trim()) continue;
+    const m = line.match(txnRe);
+    if(m){
+      finish();
+      const [, dd, mm, vorgang, amtStr, sh] = m;
+      let yr = Number(year);
+      if(stmtMonth && Number(mm) > stmtMonth) yr -= 1; // Jahreswechsel-Heuristik
+      cur = {
+        date: `${yr}-${mm}-${dd}`,
+        amount: Math.abs(parseGermanAmount(amtStr) || 0),
+        type: sh === 'S' ? 'expense' : 'income',
+        vorgang: vorgang.trim(),
+        counterparty: '',
+        purpose: '',
+        _desc: [],
+      };
+      continue;
+    }
+    if(cur && !skipRe.test(line)){
+      const t = line.trim();
+      if(!t) continue;
+      if(!cur.counterparty) cur.counterparty = t.slice(0, 80);
+      else cur._desc.push(t);
+    }
+  }
+  finish();
+  return {
+    error: rows.length ? null : 'Keine Buchungen erkannt. Stammt der Text aus einem Volksbank-Kontoauszug?',
+    rows,
+    meta: { year, count: rows.length },
+  };
+}
+
 // Findet Header-Zeile + Spalten-Indizes und liest alle Buchungs-Posten.
 function parseBankStatement(text){
   const rawLines = text.split(/\r?\n/);
@@ -3069,17 +3306,18 @@ function openSimpleEntityModal(title, fields, onSave){
 
 // Review-Modal für Kontoauszug-Import: jede Buchung prüfen,
 // Kategorie + Objekt zuweisen, Duplikate erkennen, dann übernehmen.
-function openBankImportModal(parsed){
+function openBankImportModal(parsed, defaultPropId){
   const st = Store.get();
   const cats = st.categories;
   const props = st.properties;
+  const initialProp = (defaultPropId !== undefined ? defaultPropId : (props[0]?.id ?? null));
   // Arbeits-Liste mit UI-State pro Posten
   const items = parsed.rows.map((r, i) => {
     const dup = findDuplicate(r, st);
     return {
       ...r, _i: i,
       _categoryId: autoCategory(`${r.counterparty} ${r.purpose}`, cats),
-      _propertyId: props[0]?.id ?? null,
+      _propertyId: initialProp,
       _isDup: !!dup,
       _selected: !dup, // Duplikate sind standardmäßig abgewählt
     };
@@ -3119,7 +3357,7 @@ function openBankImportModal(parsed){
       <button data-sel-nodup>Ohne Duplikate</button>
       <span style="flex:1"></span>
       <label class="muted" style="font-size:13px">Alle Objekt:</label>
-      <select id="bi-bulk-prop" class="bi-mini">${propOpts(props[0]?.id ?? null)}</select>
+      <select id="bi-bulk-prop" class="bi-mini">${propOpts(initialProp)}</select>
     </div>
     <div class="bi-table-wrap">
       <table class="data bi-table">
@@ -3187,6 +3425,74 @@ function openBankImportModal(parsed){
       render();
       fireConfetti(900);
       Toast.success(`${newBookings.length} Buchung${newBookings.length===1?'':'en'} aus dem Kontoauszug übernommen`);
+    };
+  });
+}
+
+// Einstiegs-Modal für den Kontoauszug-Import (PDF hochladen oder Text einfügen).
+// propId scopt den Import optional auf ein bestimmtes Objekt.
+function openStatementImportModal(propId){
+  const st = Store.get();
+  const prop = propId ? st.properties.find(p => p.id === propId) : null;
+  const scopeHtml = prop
+    ? `<div class="bi-summary" style="margin-bottom:14px">${icon('tree','sm')} Import für Objekt <strong>${escapeHtml(prop.name)}</strong></div>`
+    : '';
+  const html = `
+    ${scopeHtml}
+    <p class="muted mb-2">Lade den PDF-Kontoauszug Deiner Bank hoch — Datum, Empfänger und Betrag werden automatisch ausgelesen. Funktioniert offline, die Datei verlässt das Gerät nicht.</p>
+    <label class="btn-like" style="width:100%;justify-content:center" id="si-pdf-label">
+      <input id="si-pdf" type="file" accept="application/pdf,.pdf" hidden />
+      ${icon('file-text','sm')}<span>PDF-Kontoauszug wählen</span>
+    </label>
+    <div id="si-status" class="muted mt-2" style="font-size:13px"></div>
+    <details class="mt-md">
+      <summary class="muted" style="cursor:pointer;font-size:13px">Klappt die PDF-Erkennung nicht? Text manuell einfügen</summary>
+      <p class="muted mt-2" style="font-size:12px">Öffne das PDF, markiere alle Buchungen, kopiere sie und füge sie hier ein.</p>
+      <textarea id="si-text" rows="6" placeholder="Kontoauszug-Text hier einfügen…"></textarea>
+      <button class="mt-2" id="si-text-go">Eingefügten Text verarbeiten</button>
+    </details>
+    <div class="modal-actions">
+      <button data-cancel>Schließen</button>
+    </div>
+  `;
+  openModal('Kontoauszug importieren', html, (body, close) => {
+    const status = body.querySelector('#si-status');
+    body.querySelector('[data-cancel]').onclick = close;
+
+    const process = (parsed) => {
+      if(parsed.error || !parsed.rows.length){
+        status.innerHTML = `<span class="expense">${escapeHtml(parsed.error || 'Keine Buchungen gefunden')}</span>`;
+        return;
+      }
+      close();
+      openBankImportModal(parsed, propId);
+    };
+
+    body.querySelector('#si-pdf').onchange = async (e) => {
+      const f = e.target.files[0];
+      if(!f) return;
+      status.innerHTML = `${icon('clock','sm')} „${escapeHtml(f.name)}" wird gelesen …`;
+      try{
+        const buf = await f.arrayBuffer();
+        const text = await extractPdfText(buf);
+        if(!text || text.replace(/\s/g,'').length < 20){
+          status.innerHTML = `<span class="expense">Kein lesbarer Text im PDF gefunden. Vermutlich ein gescanntes Bild — bitte den Text manuell einfügen (siehe unten).</span>`;
+          return;
+        }
+        const parsed = parseVolksbankStatement(text);
+        process(parsed);
+      }catch(err){
+        status.innerHTML = `<span class="expense">PDF konnte nicht gelesen werden: ${escapeHtml(err.message||'Fehler')}. Bitte Text manuell einfügen.</span>`;
+      }
+    };
+
+    body.querySelector('#si-text-go').onclick = () => {
+      const txt = body.querySelector('#si-text').value;
+      if(!txt.trim()){ status.textContent = 'Bitte zuerst Text einfügen'; return; }
+      // Erst Volksbank-Layout, sonst CSV-Heuristik versuchen
+      let parsed = parseVolksbankStatement(txt);
+      if(parsed.error) parsed = parseBankStatement(txt);
+      process(parsed);
     };
   });
 }
@@ -4169,6 +4475,6 @@ render();
 resetIdle();
 
 // Globale API für Inline-Onclicks
-window.Manu = { Store, render, FilesDB, openQuickAdd, openSearchPalette, parseQuickAdd, ingestReceiptFiles, suggestBookingForReceipt, parseBankStatement, openBankImportModal, autoCategory };
+window.Manu = { Store, render, FilesDB, openQuickAdd, openSearchPalette, parseQuickAdd, ingestReceiptFiles, suggestBookingForReceipt, parseBankStatement, openBankImportModal, autoCategory, extractPdfText, parseVolksbankStatement, openStatementImportModal };
 
 console.log('🌳 Manu Deep Jungle ist bereit. localStorage-Key: '+STORE_KEY);
