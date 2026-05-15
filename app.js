@@ -1434,7 +1434,21 @@ BINDERS.dashboard = (root, st) => {
 function hasTax(bookings){ return bookings.some(b => isTaxRelevant(b)); }
 
 // ---- Buchungen -----
-let _bookingsFilter = { typ:'all', propId:'all', q:'', month:'', taxOnly:false, sortKey:'date', sortDir:'desc' };
+let _bookingsFilter = { typ:'all', propId:'all', q:'', month:'', taxOnly:false, sortKey:'date', sortDir:'desc', range:'month' };
+function dateRangeFilter(range){
+  const now = new Date();
+  const today = todayIso();
+  const ago = (days) => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days);
+    return d.toISOString().slice(0,10);
+  };
+  if(range === 'today') return (b) => b.date === today;
+  if(range === 'week') return (b) => b.date >= ago(7) && b.date <= today;
+  if(range === 'month') return (b) => b.date.startsWith(now.toISOString().slice(0,7));
+  if(range === 'q') return (b) => b.date >= ago(90) && b.date <= today;
+  if(range === 'year') return (b) => b.date.startsWith(String(now.getFullYear()));
+  return () => true; // 'all'
+}
 let _bulkMode = false;
 let _selected = new Set();
 
@@ -1447,7 +1461,12 @@ VIEWS.bookings = (st) => {
   const monthOpts = months.map(m => `<option value="${m}" ${_bookingsFilter.month===m?'selected':''}>${monthLabel(m)}</option>`).join('');
 
   let list = st.bookings.slice();
-  if(_bookingsFilter.month && _bookingsFilter.month !== 'all') list = list.filter(b => b.date.startsWith(_bookingsFilter.month));
+  // Date-Range hat Vorrang über month-Dropdown wenn != 'month'
+  if(_bookingsFilter.range && _bookingsFilter.range !== 'month'){
+    list = list.filter(dateRangeFilter(_bookingsFilter.range));
+  } else if(_bookingsFilter.month && _bookingsFilter.month !== 'all'){
+    list = list.filter(b => b.date.startsWith(_bookingsFilter.month));
+  }
   if(_bookingsFilter.typ !== 'all') list = list.filter(b => b.type === _bookingsFilter.typ);
   if(_bookingsFilter.propId !== 'all') list = list.filter(b => b.propertyId === _bookingsFilter.propId);
   if(_bookingsFilter.taxOnly) list = list.filter(isTaxRelevant);
@@ -1518,6 +1537,12 @@ VIEWS.bookings = (st) => {
   return `
     <h1 class="serif">Buchungen</h1>
     <div class="card mt-md">
+      <div class="chip-row mb-2">
+        ${['today','week','month','q','year','all'].map(r => {
+          const labels = {today:'Heute', week:'7 Tage', month:'Monat', q:'3 Mt', year:'Jahr', all:'Alle'};
+          return `<button class="chip ${_bookingsFilter.range===r?'active':''}" data-range="${r}">${labels[r]}</button>`;
+        }).join('')}
+      </div>
       <div class="chip-row mb-md">
         ${chip('all','Alle')}
         ${chip('income', `${icon('trending-up','sm')}<span>Einnahmen</span>`)}
@@ -1579,6 +1604,7 @@ BINDERS.bookings = (root, st) => {
   root.querySelector('#f-prop').onchange = e => refilter({propId: e.target.value});
   root.querySelector('#f-q').oninput = e => { _bookingsFilter.q = e.target.value; if(e.target.value.length===0 || e.target.value.length>=2) render(); };
   root.querySelectorAll('[data-typ]').forEach(b => b.onclick = () => refilter({typ: b.dataset.typ}));
+  root.querySelectorAll('[data-range]').forEach(b => b.onclick = () => refilter({range: b.dataset.range}));
   const taxBtn = root.querySelector('[data-tax-toggle]');
   if(taxBtn) taxBtn.onclick = () => refilter({taxOnly: !_bookingsFilter.taxOnly});
   // Sortable Spaltenköpfe
