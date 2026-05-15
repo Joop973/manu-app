@@ -2307,11 +2307,13 @@ BINDERS.receipts = (root, st) => {
   root.querySelectorAll('[data-receipt]').forEach(el => el.onclick = () => openReceiptModal(el.dataset.receipt));
 };
 function parseFilename(name){
-  const cleaned = name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ');
+  const noExt = name.replace(/\.[^.]+$/,'');
+  // Datum VOR dem _/-Cleanup matchen, sonst werden 2026-05-10 zu Whitespace zerlegt
+  const dateMatch = noExt.match(/(\d{4})[-_./\s]?(\d{2})[-_./\s]?(\d{2})/);
+  const date = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : null;
+  const cleaned = noExt.replace(/[_-]+/g,' ');
   const amountMatch = cleaned.match(/(\d{1,5}[.,]\d{2})/);
   const amount = amountMatch ? Number(amountMatch[1].replace(',','.')) : null;
-  const dateMatch = cleaned.match(/(\d{4})[-_./]?(\d{2})[-_./]?(\d{2})/);
-  const date = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : null;
   const vendors = [
     {k:['stadtwerk'],            cat:'cat-strom',         name:'Stadtwerke'},
     {k:['telekom','vodafone'],    cat:'cat-internet',      name:'Telekom'},
@@ -3464,25 +3466,68 @@ $('#advisorToggle').onchange = (e) => {
 // =============================================================
 // DRAG-AND-DROP für Belege
 // =============================================================
+// Findet die wahrscheinlichste Buchung zu einem Beleg:
+// - Betrag (±0,01 €) UND Datum-Differenz ≤7 Tage zählen als Match
+// - Empfänger-Match bevorzugt
+function suggestBookingForReceipt(receipt, st){
+  if(!receipt.amount || !receipt.date) return null;
+  const refTs = new Date(receipt.date + 'T12:00:00').getTime();
+  const candidates = st.bookings.filter(b => {
+    if(b.receiptId) return false;
+    if(Math.abs(b.amount - receipt.amount) > 0.01) return false;
+    const d = Math.abs(new Date(b.date + 'T12:00:00').getTime() - refTs);
+    return d <= 7 * 86400000;
+  });
+  if(!candidates.length) return null;
+  // Bevorzuge Empfänger-Match
+  const cpKey = (receipt.counterparty || '').toLowerCase().trim();
+  if(cpKey){
+    const cpHit = candidates.find(b => (b.counterparty || '').toLowerCase().trim().includes(cpKey));
+    if(cpHit) return cpHit;
+  }
+  // Sonst kleinster Datum-Abstand
+  candidates.sort((a, b) => {
+    const ad = Math.abs(new Date(a.date + 'T12:00:00').getTime() - refTs);
+    const bd = Math.abs(new Date(b.date + 'T12:00:00').getTime() - refTs);
+    return ad - bd;
+  });
+  return candidates[0];
+}
 async function ingestReceiptFiles(fileList){
   const accepted = ['image/', 'application/pdf', 'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
   const files = Array.from(fileList).filter(f => accepted.some(a => f.type.startsWith(a) || f.name.match(/\.(jpe?g|png|webp|heic|pdf|docx?)$/i)));
   if(!files.length){ Toast.info('Keine unterstützten Dateien'); return; }
-  let n = 0;
+  let n = 0, autoLinked = 0;
   for(const f of files){
     const id = uid('rcp');
     await FilesDB.put(id, f);
     const parsed = parseFilename(f.name);
-    Store.update(s => ({...s, receipts: [...s.receipts, {
+    const newReceipt = {
       id, filename: f.name, size: f.size, mimeType: f.type,
       amount: parsed.amount, date: parsed.date, counterparty: parsed.counterparty, categoryId: parsed.categoryId || null,
       propertyId: null, bookingId: null, createdAt: new Date().toISOString(),
-    }]}));
+    };
+    // Auto-Verknüpfung: gibt es eine passende Buchung?
+    const match = suggestBookingForReceipt(newReceipt, Store.get());
+    if(match){
+      newReceipt.bookingId = match.id;
+      Store.update(s => ({...s,
+        receipts: [...s.receipts, newReceipt],
+        bookings: s.bookings.map(b => b.id === match.id ? {...b, receiptId: id} : b),
+      }));
+      autoLinked++;
+    } else {
+      Store.update(s => ({...s, receipts: [...s.receipts, newReceipt]}));
+    }
     n++;
   }
   render();
-  Toast.success(`${n} Beleg${n===1?'':'e'} hinzugefügt`);
+  if(autoLinked > 0){
+    Toast.success(`${n} Beleg${n===1?'':'e'} hinzugefügt · ${autoLinked} automatisch verknüpft`);
+  } else {
+    Toast.success(`${n} Beleg${n===1?'':'e'} hinzugefügt`);
+  }
 }
 let _dragDepth = 0;
 function setupDragDrop(){
@@ -3724,6 +3769,6 @@ render();
 resetIdle();
 
 // Globale API für Inline-Onclicks
-window.Manu = { Store, render, FilesDB, openQuickAdd, openSearchPalette, parseQuickAdd };
+window.Manu = { Store, render, FilesDB, openQuickAdd, openSearchPalette, parseQuickAdd, ingestReceiptFiles, suggestBookingForReceipt };
 
 console.log('🌳 Manu Deep Jungle ist bereit. localStorage-Key: '+STORE_KEY);
