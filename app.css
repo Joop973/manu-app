@@ -531,6 +531,16 @@ nav.tabs button{position:relative}
 }
 .shortcut-row span{flex:1;color:var(--text)}
 
+/* Quick-Add Preview-Card */
+.qa-preview{padding:6px 12px 0}
+.qa-card{
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:14px 18px;
+  margin-bottom:10px;
+}
+
 /* Smart-Kategorie-Hint */
 .cat-suggest{
   display:inline-flex;align-items:center;gap:8px;

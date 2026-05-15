@@ -440,6 +440,147 @@ function buildSearchIndex(st){
   return idx;
 }
 
+// =============================================================
+// QUICK-ADD: Natural-Language-Buchungs-Parser
+// =============================================================
+// Versteht Eingaben wie:
+//   "100 Strom gestern Stadtwerke"
+//   "+1500 Miete 01.05. Müller"
+//   "−42,50 Pizza heute"
+function parseQuickAdd(input, st){
+  const text = input.trim();
+  if(!text) return null;
+  const allCats = [...BUILTIN_CATEGORIES, ...(st.categories||[])];
+  let type = 'expense', amount = null, date = todayIso(), categoryId = null, counterparty = '';
+  let rest = text;
+
+  const amtMatch = rest.match(/^([+\-−])?\s*([\d.,+\-*\/\s]+?)(?=\s+\D|$)/);
+  if(amtMatch){
+    const sign = amtMatch[1];
+    if(sign === '+') type = 'income';
+    if(sign === '-' || sign === '−') type = 'expense';
+    const cleaned = amtMatch[2].replace(/\./g,'').replace(',', '.');
+    amount = evalExpression(cleaned);
+    if(amount && amount > 0){
+      rest = rest.slice(amtMatch[0].length).trim();
+    } else {
+      amount = null;
+    }
+  }
+  if(!amount) return null;
+
+  const today = new Date();
+  const setDate = (offsetDays) => {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offsetDays);
+    date = d.toISOString().slice(0,10);
+  };
+  const tokenRegex = /(heute|gestern|vorgestern|letzte\s+woche|vor\s+(\d+)\s+tag(?:en)?|\d{1,2}\.\d{1,2}\.\d{2,4}|\d{1,2}\.\d{1,2}\.|\d{4}-\d{2}-\d{2})/i;
+  const dateMatch = rest.match(tokenRegex);
+  if(dateMatch){
+    const tok = dateMatch[0].toLowerCase();
+    if(tok === 'heute') setDate(0);
+    else if(tok === 'gestern') setDate(1);
+    else if(tok === 'vorgestern') setDate(2);
+    else if(tok.startsWith('letzte')) setDate(7);
+    else if(tok.startsWith('vor ')) setDate(Number(dateMatch[2] || 0));
+    else if(/^\d{4}-\d{2}-\d{2}$/.test(tok)) date = tok;
+    else {
+      const m = tok.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})?/);
+      if(m){
+        let y = m[3] ? (m[3].length === 2 ? '20'+m[3] : m[3]) : String(today.getFullYear());
+        date = `${y}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+      }
+    }
+    rest = (rest.slice(0, dateMatch.index) + ' ' + rest.slice(dateMatch.index + dateMatch[0].length)).trim();
+  }
+
+  const lower = rest.toLowerCase();
+  let bestCat = null, bestLen = 0;
+  for(const c of allCats){
+    const lbl = c.label.toLowerCase();
+    if(lower.includes(lbl) && lbl.length > bestLen){ bestCat = c; bestLen = lbl.length; }
+  }
+  if(bestCat){
+    categoryId = bestCat.id;
+    const idx = lower.indexOf(bestCat.label.toLowerCase());
+    rest = (rest.slice(0, idx) + ' ' + rest.slice(idx + bestCat.label.length)).trim();
+    if(bestCat.income && !amtMatch?.[1]) type = 'income';
+  }
+
+  counterparty = rest.replace(/\s+/g, ' ').trim();
+
+  return { type, amount, date, categoryId, counterparty,
+    propertyId: st.properties[0]?.id ?? null, note:'', recurrence:'none', tagIds:[] };
+}
+
+let _quickAddOpen = false;
+function openQuickAdd(){
+  if(_quickAddOpen) return;
+  _quickAddOpen = true;
+  const host = $('#modal-host');
+  host.innerHTML = `
+    <div class="modal-overlay" data-overlay>
+      <div class="modal search-palette mxw-560">
+        <div class="search-bar">${icon('zap','md')}
+          <input id="qa-input" placeholder="z.B. 100 Strom gestern Stadtwerke" autofocus />
+          <button class="ghost icon" data-close-qa aria-label="Schließen">${icon('x','sm')}</button>
+        </div>
+        <div id="qa-preview" class="qa-preview"></div>
+        <div class="muted center" style="padding:10px 12px;font-size:12px">Enter speichert · Esc schließt · ↓ öffnet das volle Modal</div>
+      </div>
+    </div>
+  `;
+  const input = host.querySelector('#qa-input');
+  const preview = host.querySelector('#qa-preview');
+  let parsed = null;
+  const close = () => { _quickAddOpen = false; host.innerHTML = ''; document.removeEventListener('keydown', onKey); };
+  host.querySelector('[data-close-qa]').onclick = close;
+  host.querySelector('[data-overlay]').onclick = (e) => { if(e.target === e.currentTarget) close(); };
+
+  const refresh = () => {
+    parsed = parseQuickAdd(input.value, Store.get());
+    if(!parsed){
+      preview.innerHTML = `<div class="muted" style="padding:14px 18px">Tippe Betrag + optional Datum + Kategorie + Empfänger</div>`;
+      return;
+    }
+    const cat = categoryById(parsed.categoryId);
+    const sign = parsed.type === 'income' ? '+' : '−';
+    const cls = parsed.type === 'income' ? 'income' : 'expense';
+    preview.innerHTML = `
+      <div class="qa-card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div>
+            <div class="serif" style="font-size:17px">${escapeHtml(parsed.counterparty || '(ohne Empfänger)')}</div>
+            <div class="muted mt-xs">${fmtDate(parsed.date)}${cat?` · <span class="pill ${cat.group||'neutral'}">${escapeHtml(cat.label)}</span>`:''}</div>
+          </div>
+          <div class="amount lg ${cls}">${sign} ${fmtEur(parsed.amount)}</div>
+        </div>
+      </div>
+    `;
+  };
+  const commit = () => {
+    if(!parsed) return;
+    const data = {...parsed, id: uid('bkg'), createdAt: new Date().toISOString()};
+    Store.update(s => ({...s, bookings: [...s.bookings, data]}));
+    close();
+    render();
+    Toast.success(`Buchung gespeichert · ${fmtEur(data.amount)}`);
+  };
+  const onKey = (e) => {
+    if(e.key === 'Escape'){ close(); }
+    else if(e.key === 'Enter'){ e.preventDefault(); commit(); }
+    else if(e.key === 'ArrowDown'){
+      e.preventDefault();
+      close();
+      const draft = parsed;
+      openBookingModal(draft && draft.amount ? {...newBookingDraft(), ...draft} : null);
+    }
+  };
+  input.oninput = refresh;
+  document.addEventListener('keydown', onKey);
+  refresh();
+}
+
 let _searchOpen = false;
 function openSearchPalette(){
   if(_searchOpen) return;
@@ -3440,6 +3581,7 @@ $('#search-trigger').onclick = () => openSearchPalette();
 // Globale Tastatur-Shortcuts
 const SHORTCUTS = [
   { key: 'Cmd/Ctrl + K', desc: 'Suche öffnen' },
+  { key: 'Cmd/Ctrl + Shift + N', desc: 'Quick-Add (z. B. „100 Strom gestern")' },
   { key: '/', desc: 'Filter-Suche / Such-Palette' },
   { key: 'N', desc: 'Neue Buchung' },
   { key: '1 – 7', desc: 'Tab wechseln (Hauptsaal … Einstellungen)' },
@@ -3466,6 +3608,11 @@ function isTypingTarget(el){
   return false;
 }
 document.addEventListener('keydown', (e) => {
+  if((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'n'){
+    e.preventDefault();
+    openQuickAdd();
+    return;
+  }
   if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k'){
     e.preventDefault();
     openSearchPalette();
@@ -3551,6 +3698,6 @@ render();
 resetIdle();
 
 // Globale API für Inline-Onclicks
-window.Manu = { Store, render, FilesDB };
+window.Manu = { Store, render, FilesDB, openQuickAdd, openSearchPalette, parseQuickAdd };
 
 console.log('🌳 Manu Deep Jungle ist bereit. localStorage-Key: '+STORE_KEY);
