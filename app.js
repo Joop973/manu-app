@@ -1245,6 +1245,8 @@ function render(){
   applyCountUpToView(view);
   // Berater-Modus syncen
   $('#advisorToggle').checked = !!st.settings.advisorMode;
+  // Notif-Dot aktualisieren
+  refreshNotifBadge();
   document.body.classList.toggle('advisor', !!st.settings.advisorMode);
   // Theme: light = :root default (kein Attribut), dark / auto explizit
   const scheme = st.settings.colorScheme || 'light';
@@ -3732,8 +3734,107 @@ function openBookingContextMenu(x, y, bookingId){
   menu.querySelector('[data-act="delete"]').onclick = () => { close(); softDeleteBooking(b.id); };
 }
 
+// =============================================================
+// Notifications-Bell
+// =============================================================
+function buildNotifications(st){
+  const items = [];
+  const meta = loadMeta();
+  // 1) Recovery-Code fehlt obwohl Vault verschlüsselt
+  if(isEncrypted() && meta && !meta.recoveryEnvelope){
+    items.push({
+      kind:'warn', icon:'shield-check',
+      title:'Recovery-Code fehlt',
+      body:'Falls Du Deinen PIN vergisst, kannst Du den Tresor nicht entsperren. Lege jetzt einen Recovery-Code an.',
+      tab:'settings',
+    });
+  }
+  // 2) Verträge die in <30 Tagen auslaufen
+  const now = Date.now();
+  const soon = (st.contracts || []).filter(c => {
+    if(!c.endsAt && !c.earliestEndDate) return false;
+    const d = c.endsAt || c.earliestEndDate;
+    const t = new Date(d + 'T12:00:00').getTime();
+    const diff = t - now;
+    return diff > -86400000 && diff < 30*86400000;
+  });
+  for(const c of soon){
+    const d = c.endsAt || c.earliestEndDate;
+    const days = Math.round((new Date(d+'T12:00:00').getTime() - now) / 86400000);
+    items.push({
+      kind: days < 7 ? 'urgent' : 'info', icon:'file-text',
+      title: `Vertrag „${c.label}"`,
+      body: days <= 0 ? 'Läuft heute ab' : `Läuft in ${days} ${days===1?'Tag':'Tagen'} ab`,
+      tab:'tools',
+    });
+  }
+  // 3) Belege ohne Buchung
+  const orphan = (st.receipts || []).filter(r => !r.bookingId).length;
+  if(orphan >= 3){
+    items.push({
+      kind:'info', icon:'file-text',
+      title:`${orphan} unverknüpfte Belege`,
+      body:'Belege noch keiner Buchung zugeordnet — vielleicht beim Hochladen automatisch verbinden lassen.',
+      tab:'receipts',
+    });
+  }
+  return items;
+}
+let _notifOpen = false;
+function openNotifications(){
+  if(_notifOpen){ closeNotifications(); return; }
+  _notifOpen = true;
+  const items = buildNotifications(Store.get());
+  const trigger = document.getElementById('notif-trigger');
+  const r = trigger.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.className = 'notif-popover';
+  pop.id = 'notif-popover';
+  pop.innerHTML = items.length
+    ? `<div class="notif-head">Benachrichtigungen</div><div class="notif-list">${items.map((n,i) => `
+        <div class="notif-row notif-${n.kind}" data-idx="${i}">
+          <span class="notif-icon">${icon(n.icon,'sm')}</span>
+          <div class="notif-body">
+            <div class="notif-title">${escapeHtml(n.title)}</div>
+            <div class="notif-text">${escapeHtml(n.body)}</div>
+          </div>
+        </div>`).join('')}</div>`
+    : `<div class="notif-empty">${icon('check-circle','md')}<div>Alles im Grünen.</div><div class="muted" style="font-size:12px">Keine offenen Hinweise</div></div>`;
+  document.body.appendChild(pop);
+  pop.style.right = (window.innerWidth - r.right) + 'px';
+  pop.style.top = (r.bottom + 8) + 'px';
+  pop.querySelectorAll('[data-idx]').forEach(el => el.onclick = () => {
+    const n = items[Number(el.dataset.idx)];
+    closeNotifications();
+    if(n.tab) setTab(n.tab);
+  });
+  setTimeout(() => {
+    document.addEventListener('click', onDocClick);
+    document.addEventListener('keydown', onKey);
+  }, 0);
+}
+function closeNotifications(){
+  _notifOpen = false;
+  document.getElementById('notif-popover')?.remove();
+  document.removeEventListener('click', onDocClick);
+  document.removeEventListener('keydown', onKey);
+}
+function onDocClick(e){
+  if(!e.target.closest('#notif-popover, #notif-trigger')) closeNotifications();
+}
+function onKey(e){ if(e.key === 'Escape') closeNotifications(); }
+function refreshNotifBadge(){
+  const items = buildNotifications(Store.get());
+  const dot = document.getElementById('notif-dot');
+  if(!dot) return;
+  if(items.length === 0){ dot.hidden = true; return; }
+  dot.hidden = false;
+  dot.textContent = items.length;
+}
+
 // Such-Palette: Ctrl/Cmd+K + Topbar-Button
 $('#search-trigger').onclick = () => openSearchPalette();
+$('#notif-trigger').onclick = (e) => { e.stopPropagation(); openNotifications(); };
 
 // Globale Tastatur-Shortcuts
 const SHORTCUTS = [

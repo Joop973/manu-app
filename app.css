@@ -368,6 +368,67 @@ button.icon svg{margin:0}
 .feed-amount.income{color:var(--accent)}
 .feed-amount.expense{color:var(--berry)}
 
+/* Notifications-Bell + Popover */
+.notif-btn{position:relative;background:transparent;border:1px solid transparent;color:var(--text-muted);box-shadow:none;padding:8px}
+.notif-btn:hover{color:var(--accent);background:var(--surface-2);border-color:var(--border);transform:none}
+.notif-dot{
+  position:absolute;top:4px;right:4px;
+  min-width:18px;height:18px;padding:0 5px;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--berry);color:#FFF;
+  border-radius:9px;font-size:10px;font-weight:700;line-height:1;
+  box-shadow:0 0 0 2px var(--surface);
+  animation:badgePop .25s ease;
+}
+.notif-popover{
+  position:fixed;z-index:200;
+  min-width:320px;max-width:380px;
+  background:var(--surface);
+  border:1px solid var(--border-strong);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow-2);
+  overflow:hidden;
+  animation:tipIn .14s ease;
+}
+.notif-head{
+  padding:10px 14px;
+  font-size:12px;font-weight:600;
+  color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:.06em;
+  border-bottom:1px solid var(--border);
+}
+.notif-list{max-height:60vh;overflow-y:auto}
+.notif-row{
+  display:flex;gap:12px;
+  padding:12px 14px;cursor:pointer;
+  border-bottom:1px solid var(--border);
+  transition:background var(--t-fast);
+}
+.notif-row:last-child{border-bottom:none}
+.notif-row:hover{background:var(--surface-2)}
+.notif-icon{
+  width:32px;height:32px;flex-shrink:0;
+  border-radius:10px;
+  background:var(--surface-2);
+  display:inline-flex;align-items:center;justify-content:center;
+  color:var(--text-muted);
+}
+.notif-row.notif-warn .notif-icon,
+.notif-row.notif-urgent .notif-icon{
+  background:color-mix(in oklab, var(--berry) 14%, transparent);color:var(--berry);
+}
+.notif-row.notif-info .notif-icon{
+  background:color-mix(in oklab, var(--accent) 14%, transparent);color:var(--accent);
+}
+.notif-body{flex:1;min-width:0}
+.notif-title{font-weight:600;color:var(--text);margin-bottom:2px}
+.notif-text{font-size:13px;color:var(--text-muted);line-height:1.4}
+.notif-empty{
+  padding:32px 18px;text-align:center;color:var(--text-muted);
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+}
+.notif-empty svg{color:var(--accent);margin-bottom:6px}
+
 /* Kategorien-Donut */
 .donut-wrap{
   display:flex;align-items:center;gap:18px;
