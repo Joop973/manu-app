@@ -368,6 +368,18 @@ button.icon svg{margin:0}
 .feed-amount.income{color:var(--accent)}
 .feed-amount.expense{color:var(--berry)}
 
+/* Sticky Table-Head */
+table.data.sticky-head thead th{
+  position:sticky;
+  top:0;
+  background:var(--surface);
+  z-index:5;
+  box-shadow:inset 0 -1px 0 var(--border);
+}
+@media (max-width:760px){
+  table.data.sticky-head thead th{top:0}
+}
+
 /* Sortable Column-Headers */
 table.data.sortable th{padding:6px 8px}
 button.th-sort{

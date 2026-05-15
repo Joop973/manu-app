@@ -1497,19 +1497,28 @@ VIEWS.bookings = (st) => {
   // Group-by-Day nur wenn nach Datum desc sortiert
   const groupByDay = sk === 'date' && sd === 'desc';
 
+  // Running-Saldo: chronologisch aufsummieren (älteste zuerst), dann auf
+  // jede Buchung mappen. Anzeige bleibt im Sort-Order (z.B. desc).
+  const ascList = list.slice().sort((a,b) => a.date.localeCompare(b.date) || (a.createdAt||'').localeCompare(b.createdAt||''));
+  const runningById = {};
+  let acc = 0;
+  for(const b of ascList){
+    acc += b.type === 'income' ? b.amount : -b.amount;
+    runningById[b.id] = acc;
+  }
+
   let rows = '';
   if(!list.length){
-    rows = `<tr><td colspan="6"><div class="empty"><span class="icon">${icon('receipt','lg')}</span><h3>Keine Buchungen</h3><p>Klick auf „+ Neue Buchung" zum Anlegen.</p></div></td></tr>`;
+    rows = `<tr><td colspan="7"><div class="empty"><span class="icon">${icon('receipt','lg')}</span><h3>Keine Buchungen</h3><p>Klick auf „+ Neue Buchung" zum Anlegen.</p></div></td></tr>`;
   } else {
     let lastDate = '';
     for(const b of list){
       if(groupByDay && b.date !== lastDate){
-        // Tages-Header: Datum + Tages-Saldo
         const dayItems = list.filter(x => x.date === b.date);
         const daySum = dayItems.reduce((s,x) => s + (x.type==='income' ? x.amount : -x.amount), 0);
         const daySign = daySum >= 0 ? '+' : '−';
         const dayCls = daySum >= 0 ? 'income' : 'expense';
-        rows += `<tr class="day-header"><td colspan="5"><span class="serif">${fmtDate(b.date)}</span> <span class="muted">· ${dayItems.length} ${dayItems.length===1?'Buchung':'Buchungen'}</span></td><td class="right amount ${dayCls}">${daySign} ${fmtEur(Math.abs(daySum))}</td></tr>`;
+        rows += `<tr class="day-header"><td colspan="5"><span class="serif">${fmtDate(b.date)}</span> <span class="muted">· ${dayItems.length} ${dayItems.length===1?'Buchung':'Buchungen'}</span></td><td class="right amount ${dayCls}">${daySign} ${fmtEur(Math.abs(daySum))}</td><td></td></tr>`;
         lastDate = b.date;
       }
       const cat = categoryById(b.categoryId);
@@ -1518,12 +1527,15 @@ VIEWS.bookings = (st) => {
       const sign = b.type==='income' ? '+' : '−';
       const cls = b.type==='income' ? 'income' : 'expense';
       const cb = _bulkMode ? `<input type="checkbox" data-bulk="${b.id}" ${_selected.has(b.id)?'checked':''} />` : '';
+      const saldo = runningById[b.id] || 0;
+      const sCls = saldo >= 0 ? 'income' : 'expense';
       rows += `<tr class="${tax?'gold-row':''}" data-edit="${b.id}">
         <td>${cb} <span class="serif">${fmtDate(b.date)}</span></td>
         <td>${escapeHtml(b.counterparty || '—')}${b.note?`<div class="muted">${escapeHtml(b.note)}</div>`:''}</td>
         <td>${cat ? `<span class="pill ${cat.group||'neutral'}">${escapeHtml(cat.label)}</span>${tax?'<span class="tax-dot" title="steuerrelevant"></span>':''}` : '—'}</td>
         <td>${prop ? escapeHtml(prop.name) : '<span class="muted">Privat-Beet</span>'}</td>
         <td class="right amount ${cls}">${sign} ${fmtEur(b.amount)}</td>
+        <td class="right amount muted ${sCls}" title="Laufender Saldo">${fmtEur(saldo)}</td>
         <td class="right"><button class="icon" data-del="${b.id}" title="In Papierkorb">${icon('trash','sm')}</button></td>
       </tr>`;
     }
@@ -1571,13 +1583,14 @@ VIEWS.bookings = (st) => {
             <button class="danger" data-bulk-del>Löschen</button>
           </div>
         </div>` : ''}
-      <table class="data sortable">
+      <table class="data sortable sticky-head">
         <thead><tr>
           <th>${_bulkMode?`<input type="checkbox" id="bulk-all" ${list.length>0&&list.every(b=>_selected.has(b.id))?'checked':''} /> `:''}${sortable('date','Datum')}</th>
           <th>${sortable('counterparty','Empfänger / Notiz')}</th>
           <th>${sortable('category','Kategorie')}</th>
           <th>Objekt</th>
           <th class="right">${sortable('amount','Betrag')}</th>
+          <th class="right">Saldo</th>
           <th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -1590,6 +1603,7 @@ VIEWS.bookings = (st) => {
               <span class="expense">−${fmtEur(sumOut)}</span>
             </td>
             <td class="right amount" style="color:${sumIn-sumOut>=0?'var(--accent)':'var(--berry)'}">${fmtEur(sumIn-sumOut)}</td>
+            <td></td>
           </tr>
         </tfoot>
       </table>
