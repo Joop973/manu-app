@@ -2854,10 +2854,10 @@ VIEWS.tools = (st) => {
         </div>
       </div>
       <div class="card">
-        ${cardTitle('database', 'CSV-Import')}
-        <p class="muted">Bank-Export einlesen (DKB / Sparkasse / ING / N26)</p>
-        <input id="csv-file" type="file" accept=".csv,text/csv,text/plain" />
-        <button class="primary mt-2" id="csv-import">Importieren</button>
+        ${cardTitle('database', 'Kontoauszug importieren')}
+        <p class="muted">CSV-Export der Bank einlesen (DKB · Sparkasse · ING · N26 · comdirect · Volksbank). Datum, Empfänger und Betrag werden automatisch erkannt, Kategorien vorgeschlagen.</p>
+        <input id="csv-file" type="file" accept=".csv,text/csv,text/plain" class="mt-2" />
+        <button class="primary mt-2" id="csv-import">${icon('database','sm')}<span>Auszug einlesen</span></button>
         <div id="csv-info" class="muted mt-sm"></div>
       </div>
     </div>
@@ -2887,44 +2887,18 @@ BINDERS.tools = (root, st) => {
   };
   bnB.oninput = compute; bnC.onchange = compute;
 
-  root.querySelector('#csv-import').onclick = async () => {
+  const csvImport = root.querySelector('#csv-import');
+  if(csvImport) csvImport.onclick = async () => {
     const f = root.querySelector('#csv-file').files[0];
     const info = root.querySelector('#csv-info');
-    if(!f){ Toast.info('Datei wählen'); return; }
-    const text = await f.text();
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    let imported = 0;
-    const buchungen = [];
-    // Einfache Heuristik: finde Header-Zeile mit "Datum" und "Betrag"
-    let delim = ';'; let headerIdx = -1;
-    for(let i=0;i<Math.min(15,lines.length);i++){
-      const l = lines[i].toLowerCase();
-      if(l.includes('datum') && (l.includes('betrag')||l.includes('umsatz')||l.includes('wert'))){
-        headerIdx = i;
-        delim = lines[i].split(';').length > lines[i].split(',').length ? ';' : ',';
-        break;
-      }
-    }
-    if(headerIdx < 0){ info.textContent='Kein Banking-Format erkannt'; return; }
-    const headers = splitCSV(lines[headerIdx], delim).map(h => h.toLowerCase());
-    const idxDate = headers.findIndex(h => h.includes('datum')||h.includes('buchungstag'));
-    const idxAmount = headers.findIndex(h => h.includes('betrag')||h.includes('umsatz'));
-    const idxCp = headers.findIndex(h => h.includes('empfänger')||h.includes('auftraggeber')||h.includes('name'));
-    const idxNote = headers.findIndex(h => h.includes('verwendung')||h.includes('text'));
-    for(let i=headerIdx+1;i<lines.length;i++){
-      const cols = splitCSV(lines[i], delim);
-      if(cols.length < 2) continue;
-      const d = parseGermanDate(cols[idxDate]);
-      const amount = parseGermanAmount(cols[idxAmount]);
-      if(!d || amount==null) continue;
-      buchungen.push({...newBookingDraft(), id:uid('imp'), type: amount<0?'expense':'income', amount: Math.abs(amount), date:d, counterparty: cols[idxCp]||'', note: cols[idxNote]||'', createdAt: new Date().toISOString()});
-      imported++;
-    }
-    if(!imported){ info.textContent='Keine Buchungen erkannt'; return; }
-    confirmAlert(`${imported} Buchungen importieren?`, () => {
-      Store.update(s => ({...s, bookings:[...s.bookings, ...buchungen]}));
-      info.textContent = `✓ ${imported} importiert`;
-    });
+    if(!f){ Toast.info('Bitte zuerst eine CSV-Datei wählen'); return; }
+    let text;
+    try{ text = await f.text(); }
+    catch{ info.textContent = 'Datei konnte nicht gelesen werden'; return; }
+    const parsed = parseBankStatement(text);
+    if(parsed.error){ info.textContent = parsed.error; return; }
+    info.textContent = `${parsed.rows.length} Posten erkannt — bitte im Fenster prüfen.`;
+    openBankImportModal(parsed);
   };
 };
 function splitCSV(line, d){
@@ -2939,16 +2913,131 @@ function splitCSV(line, d){
 }
 function parseGermanDate(s){
   if(!s) return null;
-  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
-  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+  const str = String(s).trim();
+  if(/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0,10);
+  const m = str.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
   if(!m) return null;
-  let y = m[3]; if(y.length===2) y = (Number(y)>50?'19':'20')+y;
+  let y = m[3]; if(y.length===2) y = (Number(y)>70?'19':'20')+y;
   return `${y}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
 }
+// Parst Beträge in DE- ("1.234,56") und EN-Format ("1,234.56"):
+// der rechteste Separator mit 1–2 Nachkommastellen ist der Dezimaltrenner.
 function parseGermanAmount(s){
-  if(!s) return null;
-  const c = String(s).replace(/\s/g,'').replace(/\./g,'').replace(',','.').replace(/[^0-9.\-+]/g,'');
-  const n = Number(c); return Number.isFinite(n) ? n : null;
+  if(s == null || s === '') return null;
+  let str = String(s).trim();
+  const negative = str.includes('-') || /^\(.*\)$/.test(str);
+  str = str.replace(/[^\d.,]/g,'');
+  if(!str || !/\d/.test(str)) return null;
+  const lastSep = Math.max(str.lastIndexOf('.'), str.lastIndexOf(','));
+  if(lastSep >= 0){
+    const decimals = str.length - lastSep - 1;
+    if(decimals >= 1 && decimals <= 2){
+      const intPart = str.slice(0, lastSep).replace(/[.,]/g,'');
+      str = intPart + '.' + str.slice(lastSep + 1);
+    } else {
+      str = str.replace(/[.,]/g,'');
+    }
+  }
+  let n = Number(str);
+  if(!Number.isFinite(n)) return null;
+  return negative ? -Math.abs(n) : n;
+}
+
+// =============================================================
+// KONTOAUSZUG-IMPORT: robuster Bank-CSV-Parser
+// =============================================================
+const CATEGORY_KEYWORDS = [
+  { cat:'cat-strom',         kw:['strom','e.on','eon ','enbw','vattenfall','yello','lichtblick','naturstrom','stromio'] },
+  { cat:'cat-gas',           kw:['gas','heizung','heizoel','heizöl','erdgas'] },
+  { cat:'cat-wasser',        kw:['wasser','wasserwerk','abwasser','wasserversorg'] },
+  { cat:'cat-internet',      kw:['telekom','vodafone','o2 ','1&1','1und1','pyur','unitymedia','internet','mobilfunk','telefonica'] },
+  { cat:'cat-versicherung',  kw:['versicher','allianz','huk','axa ','ergo','gothaer','generali','provinzial','wgv','devk','signal iduna','debeka'] },
+  { cat:'cat-gez',           kw:['rundfunk','rundfunkbeitrag','beitragsservice','ard zdf'] },
+  { cat:'cat-grundsteuer',   kw:['grundsteuer','finanzamt','finanzkasse','stadtkasse'] },
+  { cat:'cat-hausgeld',      kw:['hausgeld','hausverwalt','wohngeld','weg-verwalt','immobilienverwalt'] },
+  { cat:'cat-miete',         kw:['miete','mietzahlung','kaltmiete','warmmiete'] },
+  { cat:'cat-nk',            kw:['nebenkosten','betriebskosten'] },
+  { cat:'cat-kredit',        kw:['darlehen','kredit','zins','tilgung','baufinanz','hypothek','annuität'] },
+  { cat:'cat-reparatur',     kw:['reparatur','handwerk','sanitär','elektro','installat','klempner','dachdecker','heizungsbau'] },
+  { cat:'cat-steuerberater', kw:['steuerberat','datev','lohnbüro'] },
+  { cat:'cat-einkauf',       kw:['rewe','edeka','aldi','lidl','kaufland','rossmann','amazon','penny','netto marken','globus','real ','obi','bauhaus','ikea'] },
+  { cat:'cat-restaurant',    kw:['restaurant','mcdonald','burger king','pizz','lieferando','gastro','cafe ','café','bäckerei'] },
+];
+function autoCategory(text, categories){
+  const t = (text || '').toLowerCase();
+  if(!t) return null;
+  for(const m of CATEGORY_KEYWORDS){
+    if(m.kw.some(k => t.includes(k)) && categories.some(c => c.id === m.cat)){
+      return m.cat;
+    }
+  }
+  return null;
+}
+// Findet Header-Zeile + Spalten-Indizes und liest alle Buchungs-Posten.
+function parseBankStatement(text){
+  const rawLines = text.split(/\r?\n/);
+  // Delimiter raten: Median-Spaltenzahl der ersten gefüllten Zeilen
+  const sample = rawLines.filter(l => l.trim()).slice(0, 25);
+  let delim = ';', bestScore = 0;
+  for(const d of [';', '\t', ',']){
+    const counts = sample.map(l => splitCSV(l, d).length).sort((a,b)=>a-b);
+    const median = counts[Math.floor(counts.length/2)] || 0;
+    if(median > bestScore){ bestScore = median; delim = d; }
+  }
+  // Header-Zeile finden
+  let headerIdx = -1, headers = [];
+  for(let i=0; i<Math.min(30, rawLines.length); i++){
+    const cols = splitCSV(rawLines[i], delim).map(h => h.toLowerCase().trim());
+    const joined = cols.join(' ');
+    if(/datum|buchungstag|buchung|valuta/.test(joined) && /betrag|umsatz|soll|haben|wert/.test(joined)){
+      headerIdx = i; headers = cols; break;
+    }
+  }
+  if(headerIdx < 0) return { error: 'Kein Banking-Format erkannt. Erwartet wird eine CSV-Datei mit Spalten für Datum und Betrag.', rows: [] };
+
+  const find = (...keys) => headers.findIndex(h => keys.some(k => h.includes(k)));
+  const idxDate    = find('buchungstag','buchungsdatum','datum','buchung','valuta');
+  const idxAmount  = find('betrag','umsatz');
+  const idxDebit   = find('soll','belastung','auszahlung','abgang');
+  const idxCredit  = find('haben','gutschrift','einzahlung','zugang','eingang');
+  const idxSign    = find('soll/haben','soll-haben','s/h','haben/soll','kennzeichen');
+  const idxCp      = find('begünstigt','beguenstigt','auftraggeber','empfänger','empfaenger','zahlungsbeteiligt','zahlungspflichtig','name zahlungsbeteiligter','kontoinhaber');
+  const idxPurpose = find('verwendungszweck','buchungstext','vorgang','umsatztext','beschreibung','text');
+
+  const rows = [];
+  for(let i=headerIdx+1; i<rawLines.length; i++){
+    if(!rawLines[i].trim()) continue;
+    const cols = splitCSV(rawLines[i], delim);
+    if(cols.length < 2) continue;
+    const date = parseGermanDate(idxDate >= 0 ? cols[idxDate] : '');
+    if(!date) continue;
+    let amount = null;
+    if(idxAmount >= 0 && cols[idxAmount] != null && cols[idxAmount] !== ''){
+      amount = parseGermanAmount(cols[idxAmount]);
+      if(amount != null && idxSign >= 0){
+        const sh = (cols[idxSign]||'').trim().toUpperCase();
+        if(sh.startsWith('S')) amount = -Math.abs(amount);
+        else if(sh.startsWith('H')) amount = Math.abs(amount);
+      }
+    } else if(idxDebit >= 0 || idxCredit >= 0){
+      const debit  = Math.abs(parseGermanAmount(cols[idxDebit]) || 0);
+      const credit = Math.abs(parseGermanAmount(cols[idxCredit]) || 0);
+      if(debit === 0 && credit === 0) continue;
+      amount = credit - debit;
+    }
+    if(amount == null || amount === 0) continue;
+    let counterparty = idxCp >= 0 ? (cols[idxCp]||'').trim() : '';
+    const purpose = idxPurpose >= 0 ? (cols[idxPurpose]||'').replace(/\s+/g,' ').trim() : '';
+    if(!counterparty && purpose){
+      // Fallback: erste prägnante Wortgruppe aus dem Verwendungszweck
+      counterparty = purpose.split(/[,/]| {2,}/)[0].slice(0, 48).trim();
+    }
+    rows.push({
+      date, amount: Math.abs(amount), type: amount < 0 ? 'expense' : 'income',
+      counterparty, purpose,
+    });
+  }
+  return { error: rows.length ? null : 'Keine Buchungs-Posten in der Datei gefunden.', rows };
 }
 
 function openSimpleEntityModal(title, fields, onSave){
@@ -2974,6 +3063,130 @@ function openSimpleEntityModal(title, fields, onSave){
       }
       onSave(data);
       close();
+    };
+  });
+}
+
+// Review-Modal für Kontoauszug-Import: jede Buchung prüfen,
+// Kategorie + Objekt zuweisen, Duplikate erkennen, dann übernehmen.
+function openBankImportModal(parsed){
+  const st = Store.get();
+  const cats = st.categories;
+  const props = st.properties;
+  // Arbeits-Liste mit UI-State pro Posten
+  const items = parsed.rows.map((r, i) => {
+    const dup = findDuplicate(r, st);
+    return {
+      ...r, _i: i,
+      _categoryId: autoCategory(`${r.counterparty} ${r.purpose}`, cats),
+      _propertyId: props[0]?.id ?? null,
+      _isDup: !!dup,
+      _selected: !dup, // Duplikate sind standardmäßig abgewählt
+    };
+  });
+  const dupCount = items.filter(x => x._isDup).length;
+  const fmtSummary = () => {
+    const sel = items.filter(x => x._selected);
+    const inc = sel.filter(x => x.type==='income').reduce((s,x)=>s+x.amount,0);
+    const exp = sel.filter(x => x.type==='expense').reduce((s,x)=>s+x.amount,0);
+    return `${sel.length} von ${items.length} ausgewählt · <span class="income">+${fmtEur(inc)}</span> · <span class="expense">−${fmtEur(exp)}</span>`;
+  };
+  const catOpts = (selId) => `<option value="">— keine —</option>` +
+    cats.map(c => `<option value="${c.id}" ${selId===c.id?'selected':''}>${c.taxRelevant?'★ ':''}${escapeHtml(c.label)}</option>`).join('');
+  const propOpts = (selId) => `<option value="">Privat-Beet</option>` +
+    props.map(p => `<option value="${p.id}" ${selId===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
+
+  const rowHtml = (x) => `
+    <tr class="bi-row ${x._isDup?'bi-dup':''}" data-i="${x._i}">
+      <td><input type="checkbox" data-sel="${x._i}" ${x._selected?'checked':''} /></td>
+      <td class="serif">${fmtDate(x.date)}</td>
+      <td>
+        <div>${escapeHtml(x.counterparty || '—')}</div>
+        ${x.purpose ? `<div class="muted" style="font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(x.purpose)}</div>` : ''}
+        ${x._isDup ? '<span class="pill berry" style="font-size:10px">möglicher Duplikat</span>' : ''}
+      </td>
+      <td><select data-cat="${x._i}" class="bi-mini">${catOpts(x._categoryId)}</select></td>
+      <td><select data-prop="${x._i}" class="bi-mini">${propOpts(x._propertyId)}</select></td>
+      <td class="right amount ${x.type==='income'?'income':'expense'}">${x.type==='income'?'+':'−'} ${fmtEur(x.amount)}</td>
+    </tr>`;
+
+  const html = `
+    <div class="bi-summary" id="bi-summary">${fmtSummary()}</div>
+    ${dupCount ? `<p class="muted mb-2" style="font-size:13px">${icon('alert-circle','sm')} ${dupCount} mögliche Duplikat${dupCount===1?'':'e'} erkannt und vorab abgewählt.</p>` : ''}
+    <div class="row mb-2" style="gap:8px">
+      <button data-sel-all>Alle</button>
+      <button data-sel-none>Keine</button>
+      <button data-sel-nodup>Ohne Duplikate</button>
+      <span style="flex:1"></span>
+      <label class="muted" style="font-size:13px">Alle Objekt:</label>
+      <select id="bi-bulk-prop" class="bi-mini">${propOpts(props[0]?.id ?? null)}</select>
+    </div>
+    <div class="bi-table-wrap">
+      <table class="data bi-table">
+        <thead><tr>
+          <th></th><th>Datum</th><th>Empfänger / Verwendungszweck</th>
+          <th>Kategorie</th><th>Objekt</th><th class="right">Betrag</th>
+        </tr></thead>
+        <tbody>${items.map(rowHtml).join('')}</tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button data-cancel>Abbrechen</button>
+      <button class="primary" data-import>${icon('database','sm')}<span>Ausgewählte übernehmen</span></button>
+    </div>
+  `;
+  openModal(`Kontoauszug — ${items.length} Posten gefunden`, html, (body, close) => {
+    const summaryEl = body.querySelector('#bi-summary');
+    const refreshSummary = () => { summaryEl.innerHTML = fmtSummary(); };
+    body.querySelectorAll('[data-sel]').forEach(cb => cb.onchange = () => {
+      const it = items.find(x => x._i === Number(cb.dataset.sel));
+      if(it){ it._selected = cb.checked; refreshSummary(); }
+    });
+    body.querySelectorAll('[data-cat]').forEach(sel => sel.onchange = () => {
+      const it = items.find(x => x._i === Number(sel.dataset.cat));
+      if(it) it._categoryId = sel.value || null;
+    });
+    body.querySelectorAll('[data-prop]').forEach(sel => sel.onchange = () => {
+      const it = items.find(x => x._i === Number(sel.dataset.prop));
+      if(it) it._propertyId = sel.value || null;
+    });
+    const setAll = (fn) => {
+      items.forEach(fn);
+      body.querySelectorAll('[data-sel]').forEach(cb => {
+        const it = items.find(x => x._i === Number(cb.dataset.sel));
+        cb.checked = it._selected;
+      });
+      refreshSummary();
+    };
+    body.querySelector('[data-sel-all]').onclick = () => setAll(x => x._selected = true);
+    body.querySelector('[data-sel-none]').onclick = () => setAll(x => x._selected = false);
+    body.querySelector('[data-sel-nodup]').onclick = () => setAll(x => x._selected = !x._isDup);
+    body.querySelector('#bi-bulk-prop').onchange = (e) => {
+      const v = e.target.value || null;
+      items.forEach(x => x._propertyId = v);
+      body.querySelectorAll('[data-prop]').forEach(sel => sel.value = v || '');
+    };
+    body.querySelector('[data-cancel]').onclick = close;
+    body.querySelector('[data-import]').onclick = () => {
+      const chosen = items.filter(x => x._selected);
+      if(!chosen.length){ Toast.info('Keine Posten ausgewählt'); return; }
+      const newBookings = chosen.map(x => ({
+        ...newBookingDraft(),
+        id: uid('imp'),
+        type: x.type,
+        amount: x.amount,
+        date: x.date,
+        counterparty: x.counterparty,
+        note: x.purpose || '',
+        categoryId: x._categoryId || null,
+        propertyId: x._propertyId || null,
+        createdAt: new Date().toISOString(),
+      }));
+      Store.update(s => ({...s, bookings: [...s.bookings, ...newBookings]}));
+      close();
+      render();
+      fireConfetti(900);
+      Toast.success(`${newBookings.length} Buchung${newBookings.length===1?'':'en'} aus dem Kontoauszug übernommen`);
     };
   });
 }
@@ -3956,6 +4169,6 @@ render();
 resetIdle();
 
 // Globale API für Inline-Onclicks
-window.Manu = { Store, render, FilesDB, openQuickAdd, openSearchPalette, parseQuickAdd, ingestReceiptFiles, suggestBookingForReceipt };
+window.Manu = { Store, render, FilesDB, openQuickAdd, openSearchPalette, parseQuickAdd, ingestReceiptFiles, suggestBookingForReceipt, parseBankStatement, openBankImportModal, autoCategory };
 
 console.log('🌳 Manu Deep Jungle ist bereit. localStorage-Key: '+STORE_KEY);
