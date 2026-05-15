@@ -1338,6 +1338,67 @@ VIEWS.dashboard = (st) => {
     </div><div class="bar-label">${m.slice(5)}</div></div>`;
   }).join('')}</div>`;
 
+  // Kategorien-Donut: Ausgaben-Verteilung im aktuellen Monat
+  const expenseByCat = {};
+  for(const b of mb){
+    if(b.type !== 'expense') continue;
+    const c = categoryById(b.categoryId);
+    const label = c ? c.label : 'Ohne Kategorie';
+    expenseByCat[label] = (expenseByCat[label] || 0) + b.amount;
+  }
+  const catEntries = Object.entries(expenseByCat).sort((a,b) => b[1] - a[1]).slice(0, 6);
+  const catTotal = catEntries.reduce((s, [,v]) => s + v, 0);
+  const palette = ['var(--accent)','var(--moss)','var(--berry)','var(--gold)','var(--sage)','var(--text-muted)'];
+  let cumPct = 0;
+  const slices = catEntries.map(([label, v], i) => {
+    const pct = catTotal > 0 ? (v / catTotal) * 100 : 0;
+    const s = { start: cumPct, end: cumPct + pct, color: palette[i % palette.length], label, value: v, pct };
+    cumPct += pct;
+    return s;
+  });
+  // SVG conic-gradient via stroke-dasharray
+  const C = 60, R = 50, CIRC = 2 * Math.PI * R;
+  const donutSvg = catTotal > 0 ? `
+    <svg viewBox="0 0 120 120" class="donut-svg">
+      <circle cx="${C}" cy="${C}" r="${R}" fill="none" stroke="var(--surface-2)" stroke-width="14"/>
+      ${slices.map(s => {
+        const len = (s.pct / 100) * CIRC;
+        const offset = -((s.start / 100) * CIRC);
+        return `<circle cx="${C}" cy="${C}" r="${R}" fill="none" stroke="${s.color}"
+          stroke-width="14" stroke-dasharray="${len} ${CIRC-len}"
+          stroke-dashoffset="${offset}" transform="rotate(-90 ${C} ${C})" />`;
+      }).join('')}
+      <text x="${C}" y="${C-2}" text-anchor="middle" class="donut-label" fill="var(--text-muted)" font-size="9">Σ Mt</text>
+      <text x="${C}" y="${C+12}" text-anchor="middle" class="donut-total" fill="var(--text)" font-size="13" font-weight="600">${fmtEur(catTotal)}</text>
+    </svg>` : `<div class="muted center" style="padding:24px">Noch keine Ausgaben diesen Monat</div>`;
+  const donutLegend = slices.length ? `<div class="donut-legend">${slices.map(s => `
+    <div class="donut-leg-row">
+      <span class="donut-dot" style="background:${s.color}"></span>
+      <span class="donut-leg-label">${escapeHtml(s.label)}</span>
+      <span class="donut-leg-val">${fmtEur(s.value)}</span>
+    </div>`).join('')}</div>` : '';
+
+  // Top-Empfänger der letzten 90 Tage
+  const ago90 = (() => { const d = new Date(); d.setDate(d.getDate()-90); return d.toISOString().slice(0,10); })();
+  const cpAgg = {};
+  for(const b of st.bookings){
+    if(b.date < ago90 || !b.counterparty) continue;
+    const k = b.counterparty.trim();
+    cpAgg[k] = cpAgg[k] || { count:0, sum:0, type:b.type };
+    cpAgg[k].count++;
+    cpAgg[k].sum += b.amount;
+  }
+  const topCps = Object.entries(cpAgg).sort((a,b) => b[1].sum - a[1].sum).slice(0, 5);
+  const topCpsHtml = topCps.length ? topCps.map(([name, agg]) => `
+    <div class="feed-row">
+      <div class="feed-icon ${agg.type==='income'?'income':'expense'}">${icon(agg.type==='income'?'trending-up':'coins','sm')}</div>
+      <div class="feed-body">
+        <div class="feed-label">${escapeHtml(name)}</div>
+        <div class="muted feed-meta">${agg.count}× in 90 Tagen</div>
+      </div>
+      <div class="feed-amount ${agg.type==='income'?'income':'expense'}">${fmtEur(agg.sum)}</div>
+    </div>`).join('') : `<div class="muted center" style="padding:18px">Noch keine Empfänger erfasst</div>`;
+
   // Aktivitäts-Feed: letzte 5 Buchungen über alle Monate
   const recent = st.bookings.slice().sort((a,b) => b.date.localeCompare(a.date)).slice(0, 5);
   const feedHtml = recent.length ? recent.map(b => {
@@ -1389,6 +1450,17 @@ VIEWS.dashboard = (st) => {
       <div class="card">
         ${cardTitle('history', 'Aktivität')}
         <div class="feed">${feedHtml}</div>
+      </div>
+    </div>
+
+    <div class="grid cols-2 hide-on-advisor mt-md">
+      <div class="card">
+        ${cardTitle('list', 'Ausgaben nach Kategorie')}
+        <div class="donut-wrap">${donutSvg}${donutLegend}</div>
+      </div>
+      <div class="card">
+        ${cardTitle('users', 'Top-Empfänger (90 Tage)')}
+        <div class="feed">${topCpsHtml}</div>
       </div>
     </div>
 
