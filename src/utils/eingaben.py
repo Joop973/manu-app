@@ -11,6 +11,16 @@ from decimal import Decimal, InvalidOperation
 # Zwei Nachkommastellen — Standardgenauigkeit für Geldbeträge.
 _GENAUIGKEIT = Decimal("0.01")
 
+# Monatsnamen (Index 0 = Januar) für Auswahlfelder und Tabellen.
+MONATSNAMEN = [
+    "Januar", "Februar", "März", "April", "Mai", "Juni",
+    "Juli", "August", "September", "Oktober", "November", "Dezember",
+]
+MONATSNAMEN_KURZ = [
+    "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+    "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
+]
+
 
 class ValidierungsFehler(Exception):
     """Fehler bei der Prüfung von Benutzereingaben.

@@ -21,6 +21,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.ui.buchungen_seite import BuchungenSeite
+from src.ui.dashboard_seite import DashboardSeite
+from src.ui.mieter_seite import MieterZahlungenSeite
 from src.ui.stammdaten_seite import StammdatenSeite
 
 # Reihenfolge der Bereiche in der Navigationsleiste.
@@ -77,11 +80,17 @@ class MainWindow(QMainWindow):
         self._navigation.currentRowChanged.connect(self._bereich_wechseln)
         layout.addWidget(self._navigation)
 
-        # Inhaltsbereich rechts
+        # Inhaltsbereich rechts — fertige Bereiche je Phase
         self._inhalt = QStackedWidget()
+        seiten = {
+            "Dashboard": lambda: DashboardSeite(self._verbindung),
+            "Buchungen": lambda: BuchungenSeite(self._verbindung),
+            "Mieter": lambda: MieterZahlungenSeite(self._verbindung),
+            "Stammdaten": lambda: StammdatenSeite(self._verbindung),
+        }
         for bereich in NAVIGATIONSBEREICHE:
-            if bereich == "Stammdaten":
-                self._inhalt.addWidget(StammdatenSeite(self._verbindung))
+            if bereich in seiten:
+                self._inhalt.addWidget(seiten[bereich]())
             else:
                 self._inhalt.addWidget(self._platzhalter_seite(bereich))
         layout.addWidget(self._inhalt, stretch=1)
@@ -111,6 +120,10 @@ class MainWindow(QMainWindow):
         return seite
 
     def _bereich_wechseln(self, zeile: int) -> None:
-        """Schaltet den Inhaltsbereich passend zur Navigationsauswahl um."""
-        if 0 <= zeile < self._inhalt.count():
-            self._inhalt.setCurrentIndex(zeile)
+        """Schaltet den Inhaltsbereich um und lädt dessen Daten neu."""
+        if not 0 <= zeile < self._inhalt.count():
+            return
+        self._inhalt.setCurrentIndex(zeile)
+        seite = self._inhalt.widget(zeile)
+        if hasattr(seite, "aktualisieren"):
+            seite.aktualisieren()

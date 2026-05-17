@@ -98,6 +98,16 @@ def mieter_laden(
     ).fetchall()
 
 
+def mieter_alle_laden(verbindung: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Lädt alle Mieter über alle Häuser hinweg, inkl. Hausname."""
+    return verbindung.execute(
+        "SELECT m.id, m.objekt_id, m.name, m.kaltmiete, m.nebenkosten, "
+        "m.ruecklage, m.aktiv_von, m.aktiv_bis, o.name AS objekt_name "
+        "FROM mieter m JOIN objekte o ON o.id = m.objekt_id "
+        "ORDER BY o.name COLLATE NOCASE, m.name COLLATE NOCASE"
+    ).fetchall()
+
+
 def _mieter_name_belegt(
     verbindung: sqlite3.Connection,
     objekt_id: int,

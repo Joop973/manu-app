@@ -1,17 +1,17 @@
 """Stammdatenverwaltung: Häuser, Mieter und Kategorien pflegen.
 
-Der Bereich besteht aus drei Unterreitern. Beim Wechsel eines Reiters
-wird dessen Inhalt neu geladen, damit z. B. ein neu angelegtes Haus
-sofort in der Mieter-Auswahl erscheint.
+Der Bereich besteht aus drei Unterreitern. Tabellen sind sortierbar,
+inaktive Einträge lassen sich ausblenden, und vor dem Deaktivieren
+wird eine Bestätigung eingeholt.
 """
 
 from __future__ import annotations
 
 import sqlite3
+from decimal import Decimal
 
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -34,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.db import stammdaten
+from src.ui.tabelle import SortierItem, tabelle_vorbereiten
 from src.utils.eingaben import (
     ValidierungsFehler,
     betrag_formatieren,
@@ -41,14 +41,20 @@ from src.utils.eingaben import (
     datum_anzeigen,
 )
 
+# Eintrag im Combo, der „alle Häuser" repräsentiert.
+ALLE_HAEUSER = "— Alle Häuser —"
 
-def _tabelle_vorbereiten(tabelle: QTableWidget) -> None:
-    """Setzt die gemeinsamen Tabelleneinstellungen (nur Lesen, Zeilenauswahl)."""
-    tabelle.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    tabelle.setSelectionBehavior(QAbstractItemView.SelectRows)
-    tabelle.setSelectionMode(QAbstractItemView.SingleSelection)
-    tabelle.verticalHeader().setVisible(False)
-    tabelle.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+def _deaktivieren_bestaetigt(widget: QWidget, bezeichnung: str) -> bool:
+    """Fragt vor dem Deaktivieren eines Eintrags nach."""
+    antwort = QMessageBox.question(
+        widget,
+        "Deaktivieren bestätigen",
+        f"„{bezeichnung}“ wirklich deaktivieren?",
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    )
+    return antwort == QMessageBox.Yes
 
 
 # =========================================================================
@@ -64,21 +70,24 @@ class HaeuserTab(QWidget):
         self._verbindung = verbindung
 
         layout = QVBoxLayout(self)
+        self._nur_aktive = QCheckBox("Nur aktive anzeigen")
+        self._nur_aktive.toggled.connect(self.aktualisieren)
+        layout.addWidget(self._nur_aktive)
+
         self._tabelle = QTableWidget(0, 2)
         self._tabelle.setHorizontalHeaderLabels(["Haus", "Status"])
-        _tabelle_vorbereiten(self._tabelle)
+        tabelle_vorbereiten(self._tabelle)
         layout.addWidget(self._tabelle)
 
         knopfleiste = QHBoxLayout()
-        knopf_neu = QPushButton("Neues Haus")
-        knopf_neu.clicked.connect(self._neues_haus)
-        knopf_umbenennen = QPushButton("Umbenennen")
-        knopf_umbenennen.clicked.connect(self._umbenennen)
-        knopf_status = QPushButton("Status ändern")
-        knopf_status.clicked.connect(self._status_aendern)
-        knopfleiste.addWidget(knopf_neu)
-        knopfleiste.addWidget(knopf_umbenennen)
-        knopfleiste.addWidget(knopf_status)
+        for beschriftung, methode in (
+            ("Neues Haus", self._neues_haus),
+            ("Umbenennen", self._umbenennen),
+            ("Status ändern", self._status_aendern),
+        ):
+            knopf = QPushButton(beschriftung)
+            knopf.clicked.connect(methode)
+            knopfleiste.addWidget(knopf)
         knopfleiste.addStretch()
         layout.addLayout(knopfleiste)
 
@@ -86,14 +95,18 @@ class HaeuserTab(QWidget):
 
     def aktualisieren(self) -> None:
         """Lädt die Hausliste neu aus der Datenbank."""
-        haeuser = stammdaten.objekte_laden(self._verbindung)
+        haeuser = stammdaten.objekte_laden(
+            self._verbindung, nur_aktive=self._nur_aktive.isChecked()
+        )
+        self._tabelle.setSortingEnabled(False)
         self._tabelle.setRowCount(len(haeuser))
         for zeile, haus in enumerate(haeuser):
             name_item = QTableWidgetItem(haus["name"])
             name_item.setData(Qt.UserRole, haus["id"])
-            status_text = "aktiv" if haus["aktiv"] else "inaktiv"
+            status = "aktiv" if haus["aktiv"] else "inaktiv"
             self._tabelle.setItem(zeile, 0, name_item)
-            self._tabelle.setItem(zeile, 1, QTableWidgetItem(status_text))
+            self._tabelle.setItem(zeile, 1, QTableWidgetItem(status))
+        self._tabelle.setSortingEnabled(True)
 
     def _ausgewaehltes_haus(self) -> tuple[int, str, bool] | None:
         """Liefert (id, name, aktiv) der markierten Zeile oder None."""
@@ -148,6 +161,8 @@ class HaeuserTab(QWidget):
                                     "Bitte zuerst ein Haus auswählen.")
             return
         objekt_id, name, aktiv = auswahl
+        if aktiv and not _deaktivieren_bestaetigt(self, name):
+            return
         try:
             stammdaten.objekt_aktiv_setzen(self._verbindung, objekt_id, not aktiv)
         except sqlite3.Error as fehler:
@@ -162,7 +177,11 @@ class HaeuserTab(QWidget):
 
 
 class MieterTab(QWidget):
-    """Mieterliste je Haus mit Anlegen und Bearbeiten."""
+    """Mieterliste je Haus (oder über alle Häuser) mit Anlegen/Bearbeiten."""
+
+    # Spaltenreihenfolge der Tabelle.
+    SPALTE_HAUS = 0
+    SPALTE_NAME = 1
 
     def __init__(self, verbindung: sqlite3.Connection, parent=None) -> None:
         super().__init__(parent)
@@ -177,12 +196,12 @@ class MieterTab(QWidget):
         auswahlzeile.addWidget(self._haus_auswahl, stretch=1)
         layout.addLayout(auswahlzeile)
 
-        self._tabelle = QTableWidget(0, 6)
+        self._tabelle = QTableWidget(0, 7)
         self._tabelle.setHorizontalHeaderLabels(
-            ["Name", "Kaltmiete", "Nebenkosten", "Rücklage",
+            ["Haus", "Name", "Kaltmiete", "Nebenkosten", "Rücklage",
              "Aktiv von", "Aktiv bis"]
         )
-        _tabelle_vorbereiten(self._tabelle)
+        tabelle_vorbereiten(self._tabelle)
         layout.addWidget(self._tabelle)
 
         knopfleiste = QHBoxLayout()
@@ -202,57 +221,70 @@ class MieterTab(QWidget):
         bisher = self._haus_auswahl.currentData()
         self._haus_auswahl.blockSignals(True)
         self._haus_auswahl.clear()
+        self._haus_auswahl.addItem(ALLE_HAEUSER, None)
         for haus in stammdaten.objekte_laden(self._verbindung):
             beschriftung = haus["name"]
             if not haus["aktiv"]:
                 beschriftung += "  (inaktiv)"
             self._haus_auswahl.addItem(beschriftung, haus["id"])
-        if bisher is not None:
-            index = self._haus_auswahl.findData(bisher)
-            if index >= 0:
-                self._haus_auswahl.setCurrentIndex(index)
+        index = self._haus_auswahl.findData(bisher)
+        self._haus_auswahl.setCurrentIndex(max(index, 0))
         self._haus_auswahl.blockSignals(False)
         self._mieter_laden()
 
     def _aktuelles_haus(self) -> int | None:
-        """Liefert die ID des gewählten Hauses oder None."""
+        """Liefert die ID des gewählten Hauses oder None bei „alle Häuser"."""
         return self._haus_auswahl.currentData()
 
     def _mieter_laden(self) -> None:
-        """Füllt die Mietertabelle für das gewählte Haus."""
-        self._tabelle.setRowCount(0)
+        """Füllt die Mietertabelle passend zur Hausauswahl."""
         objekt_id = self._aktuelles_haus()
-        if objekt_id is None:
-            return
-        mieter = stammdaten.mieter_laden(self._verbindung, objekt_id)
+        alle = objekt_id is None
+        self._tabelle.setColumnHidden(self.SPALTE_HAUS, not alle)
+
+        if alle:
+            mieter = stammdaten.mieter_alle_laden(self._verbindung)
+        else:
+            mieter = stammdaten.mieter_laden(self._verbindung, objekt_id)
+
+        self._tabelle.setSortingEnabled(False)
         self._tabelle.setRowCount(len(mieter))
         for zeile, person in enumerate(mieter):
+            haus_text = person["objekt_name"] if alle else ""
+            haus_item = QTableWidgetItem(haus_text)
+
             name_item = QTableWidgetItem(person["name"])
             name_item.setData(Qt.UserRole, person["id"])
+            name_item.setData(Qt.UserRole + 1, person["objekt_id"])
+
             werte = [
+                haus_item,
                 name_item,
-                QTableWidgetItem(betrag_formatieren(person["kaltmiete"]) + " €"),
-                QTableWidgetItem(betrag_formatieren(person["nebenkosten"]) + " €"),
-                QTableWidgetItem(betrag_formatieren(person["ruecklage"]) + " €"),
-                QTableWidgetItem(datum_anzeigen(person["aktiv_von"])),
-                QTableWidgetItem(datum_anzeigen(person["aktiv_bis"])),
+                _betrag_zelle(person["kaltmiete"]),
+                _betrag_zelle(person["nebenkosten"]),
+                _betrag_zelle(person["ruecklage"]),
+                _datum_zelle(person["aktiv_von"]),
+                _datum_zelle(person["aktiv_bis"]),
             ]
             for spalte, item in enumerate(werte):
                 self._tabelle.setItem(zeile, spalte, item)
+        self._tabelle.setSortingEnabled(True)
 
-    def _ausgewaehlter_mieter(self) -> int | None:
-        """Liefert die ID des markierten Mieters oder None."""
+    def _ausgewaehlter_mieter(self) -> tuple[int, int] | None:
+        """Liefert (mieter_id, objekt_id) des markierten Mieters oder None."""
         zeile = self._tabelle.currentRow()
         if zeile < 0:
             return None
-        return self._tabelle.item(zeile, 0).data(Qt.UserRole)
+        item = self._tabelle.item(zeile, self.SPALTE_NAME)
+        return item.data(Qt.UserRole), item.data(Qt.UserRole + 1)
 
     def _neuer_mieter(self) -> None:
         objekt_id = self._aktuelles_haus()
         if objekt_id is None:
             QMessageBox.information(
-                self, "Kein Haus", "Bitte zuerst ein Haus auswählen "
-                "oder im Reiter „Häuser“ anlegen."
+                self, "Kein Haus gewählt",
+                "Bitte zuerst ein einzelnes Haus auswählen, "
+                "um dort einen Mieter anzulegen."
             )
             return
         dialog = MieterDialog(self._verbindung, objekt_id, parent=self)
@@ -260,17 +292,27 @@ class MieterTab(QWidget):
             self._mieter_laden()
 
     def _mieter_bearbeiten(self) -> None:
-        mieter_id = self._ausgewaehlter_mieter()
-        if mieter_id is None:
+        auswahl = self._ausgewaehlter_mieter()
+        if auswahl is None:
             QMessageBox.information(self, "Kein Mieter gewählt",
                                     "Bitte zuerst einen Mieter auswählen.")
             return
-        objekt_id = self._aktuelles_haus()
+        mieter_id, objekt_id = auswahl
         dialog = MieterDialog(
             self._verbindung, objekt_id, mieter_id=mieter_id, parent=self
         )
         if dialog.exec() == QDialog.Accepted:
             self._mieter_laden()
+
+
+def _betrag_zelle(wert) -> SortierItem:
+    """Erzeugt eine numerisch sortierbare Betragszelle."""
+    return SortierItem(betrag_formatieren(wert) + " €", Decimal(str(wert)))
+
+
+def _datum_zelle(iso_text: str | None) -> SortierItem:
+    """Erzeugt eine sortierbare Datumszelle (Sortierung nach ISO-Wert)."""
+    return SortierItem(datum_anzeigen(iso_text), iso_text or "")
 
 
 class MieterDialog(QDialog):
@@ -423,12 +465,17 @@ class _KategorieListe(QWidget):
         self._typ = typ
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         gruppe = QGroupBox(titel)
         gruppen_layout = QVBoxLayout(gruppe)
 
+        self._nur_aktive = QCheckBox("Nur aktive anzeigen")
+        self._nur_aktive.toggled.connect(self.aktualisieren)
+        gruppen_layout.addWidget(self._nur_aktive)
+
         self._tabelle = QTableWidget(0, 2)
         self._tabelle.setHorizontalHeaderLabels(["Kategorie", "Status"])
-        _tabelle_vorbereiten(self._tabelle)
+        tabelle_vorbereiten(self._tabelle)
         gruppen_layout.addWidget(self._tabelle)
 
         knopfleiste = QHBoxLayout()
@@ -442,12 +489,15 @@ class _KategorieListe(QWidget):
         gruppen_layout.addLayout(knopfleiste)
 
         layout.addWidget(gruppe)
-        layout.setContentsMargins(0, 0, 0, 0)
         self.aktualisieren()
 
     def aktualisieren(self) -> None:
         """Lädt die Kategorienliste neu."""
-        kategorien = stammdaten.kategorien_laden(self._verbindung, self._typ)
+        kategorien = stammdaten.kategorien_laden(
+            self._verbindung, self._typ,
+            nur_aktive=self._nur_aktive.isChecked(),
+        )
+        self._tabelle.setSortingEnabled(False)
         self._tabelle.setRowCount(len(kategorien))
         for zeile, kategorie in enumerate(kategorien):
             name_item = QTableWidgetItem(kategorie["name"])
@@ -455,15 +505,17 @@ class _KategorieListe(QWidget):
             status = "aktiv" if kategorie["aktiv"] else "inaktiv"
             self._tabelle.setItem(zeile, 0, name_item)
             self._tabelle.setItem(zeile, 1, QTableWidgetItem(status))
+        self._tabelle.setSortingEnabled(True)
 
-    def _ausgewaehlt(self) -> tuple[int, bool] | None:
-        """Liefert (id, aktiv) der markierten Kategorie oder None."""
+    def _ausgewaehlt(self) -> tuple[int, str, bool] | None:
+        """Liefert (id, name, aktiv) der markierten Kategorie oder None."""
         zeile = self._tabelle.currentRow()
         if zeile < 0:
             return None
         kategorie_id = self._tabelle.item(zeile, 0).data(Qt.UserRole)
+        name = self._tabelle.item(zeile, 0).text()
         aktiv = self._tabelle.item(zeile, 1).text() == "aktiv"
-        return kategorie_id, aktiv
+        return kategorie_id, name, aktiv
 
     def _neue_kategorie(self) -> None:
         name, ok = QInputDialog.getText(
@@ -487,7 +539,9 @@ class _KategorieListe(QWidget):
             QMessageBox.information(self, "Keine Kategorie gewählt",
                                     "Bitte zuerst eine Kategorie auswählen.")
             return
-        kategorie_id, aktiv = auswahl
+        kategorie_id, name, aktiv = auswahl
+        if aktiv and not _deaktivieren_bestaetigt(self, name):
+            return
         try:
             stammdaten.kategorie_aktiv_setzen(
                 self._verbindung, kategorie_id, not aktiv
@@ -541,3 +595,7 @@ class StammdatenSeite(QWidget):
         widget = self._reiter.widget(index)
         if hasattr(widget, "aktualisieren"):
             widget.aktualisieren()
+
+    def aktualisieren(self) -> None:
+        """Lädt den aktuell sichtbaren Reiter neu."""
+        self._reiter_gewechselt(self._reiter.currentIndex())
