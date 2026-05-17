@@ -1,0 +1,7 @@
+# Manu-App — Abhängigkeiten
+# Installation:  pip install -r requirements.txt
+
+PySide6>=6.6        # GUI-Framework (Qt für Python)
+pdfplumber>=0.11    # Auslesen der Kontoauszug-PDFs (ab Phase 4)
+openpyxl>=3.1       # Excel-Export der Jahresübersicht (ab Phase 5)
+pyinstaller>=6.0    # Build der eigenständigen Windows-.exe (Phase 5)
