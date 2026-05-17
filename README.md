@@ -31,23 +31,26 @@ ManuApp/
 ├── belege/                  archivierte Belege
 ├── exports/                 Excel-Exporte
 └── src/
-    ├── db/                  Datenbank-Layer
-    │   ├── schema.py        Tabellendefinitionen und Seed-Daten
-    │   ├── database.py      Verbindungsaufbau
-    │   └── init.py          Initialisierung und Stammdaten-Seed
-    ├── ui/                  PySide6-Fenster und -Dialoge
-    │   ├── login_dialog.py  PIN festlegen / Anmeldung
-    │   └── main_window.py   Hauptfenster mit Navigation
-    ├── logic/               Geschäftslogik (ab späteren Phasen)
-    └── utils/               Hilfsfunktionen
-        ├── paths.py         zentrale Pfadverwaltung
-        └── security.py      PIN-Hashing (SHA-256 + Salt)
+    ├── db/                   Datenbank-Layer
+    │   ├── schema.py         Tabellendefinitionen und Seed-Daten
+    │   ├── database.py       Verbindungsaufbau (WAL-Modus)
+    │   ├── init.py           Initialisierung und Stammdaten-Seed
+    │   └── stammdaten.py     Datenzugriff für Häuser/Mieter/Kategorien
+    ├── ui/                   PySide6-Fenster und -Dialoge
+    │   ├── login_dialog.py   PIN festlegen / Anmeldung (mit Sperre)
+    │   ├── main_window.py    Hauptfenster mit Navigation
+    │   └── stammdaten_seite.py  Stammdatenverwaltung (drei Reiter)
+    ├── logic/                Geschäftslogik (ab späteren Phasen)
+    └── utils/                Hilfsfunktionen
+        ├── paths.py          zentrale Pfadverwaltung
+        ├── security.py       PIN-Hashing (SHA-256 + Salt)
+        └── eingaben.py       Betrag parsen/formatieren, Validierung
 ```
 
 ## Entwicklungsstand
 
 * **Phase 1 — abgeschlossen:** Grundgerüst, Datenbank, PIN-Login
-* Phase 2 — Stammdatenverwaltung *(geplant)*
+* **Phase 2 — abgeschlossen:** Stammdatenverwaltung (Häuser, Mieter, Kategorien)
 * Phase 3 — Buchungserfassung und Dashboard *(geplant)*
 * Phase 4 — PDF-Import mit Lernsystem *(geplant)*
 * Phase 5 — Excel-Export, Auto-Backup, .exe-Build *(geplant)*

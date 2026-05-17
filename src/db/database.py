@@ -12,8 +12,13 @@ from pathlib import Path
 
 
 def verbindung_aufbauen(datenbank_pfad: Path) -> sqlite3.Connection:
-    """Öffnet eine SQLite-Verbindung mit den App-Standardeinstellungen."""
+    """Öffnet eine SQLite-Verbindung mit den App-Standardeinstellungen.
+
+    Der WAL-Modus (Write-Ahead-Logging) macht die Datenbank robuster
+    gegen Datenverlust, falls die App unsauber beendet wird.
+    """
     verbindung = sqlite3.connect(str(datenbank_pfad))
     verbindung.row_factory = sqlite3.Row
     verbindung.execute("PRAGMA foreign_keys = ON")
+    verbindung.execute("PRAGMA journal_mode = WAL")
     return verbindung

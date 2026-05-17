@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from src.db.init import datenbank_initialisieren
 from src.ui.login_dialog import LoginDialog, PinFestlegenDialog
-from src.ui.main_window import MainWindow
+from src.ui.main_window import MainWindow, manu_symbol
 from src.utils import paths, security
 
 
@@ -23,6 +23,7 @@ def main() -> int:
     """Startet die Anwendung und liefert den Exit-Code."""
     app = QApplication(sys.argv)
     app.setApplicationName("Manu")
+    app.setWindowIcon(manu_symbol())
 
     paths.verzeichnisse_sicherstellen()
 

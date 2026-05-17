@@ -1,16 +1,16 @@
 """Hauptfenster der Anwendung.
 
-In Phase 1 enthält das Fenster nur die Navigationsleiste und für jeden
-Bereich eine Platzhalterseite. Die eigentlichen Inhalte (Dashboard,
-Buchungen, Mieter, Import, Stammdaten, Export, Einstellungen) folgen in
-den späteren Phasen.
+Die Navigationsleiste führt zu den sieben Bereichen. Der Bereich
+„Stammdaten" ist ab Phase 2 voll funktionsfähig; die übrigen Bereiche
+zeigen weiterhin Platzhalterseiten, bis sie in späteren Phasen folgen.
 """
 
 from __future__ import annotations
 
 import sqlite3
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from src.ui.stammdaten_seite import StammdatenSeite
 
 # Reihenfolge der Bereiche in der Navigationsleiste.
 NAVIGATIONSBEREICHE: list[str] = [
@@ -33,6 +35,25 @@ NAVIGATIONSBEREICHE: list[str] = [
 ]
 
 
+def manu_symbol() -> QIcon:
+    """Erzeugt das App-Symbol (grünes Quadrat mit „M") ohne Bilddatei."""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.transparent)
+    maler = QPainter(pixmap)
+    maler.setRenderHint(QPainter.Antialiasing)
+    maler.setPen(Qt.NoPen)
+    maler.setBrush(QColor("#1f7a4d"))
+    maler.drawRoundedRect(QRectF(2, 2, 60, 60), 14, 14)
+    maler.setPen(QColor("#ffffff"))
+    schrift = QFont()
+    schrift.setPointSize(34)
+    schrift.setBold(True)
+    maler.setFont(schrift)
+    maler.drawText(pixmap.rect(), Qt.AlignCenter, "M")
+    maler.end()
+    return QIcon(pixmap)
+
+
 class MainWindow(QMainWindow):
     """Rahmenfenster mit seitlicher Navigation und Inhaltsbereich."""
 
@@ -40,7 +61,9 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self._verbindung = verbindung
         self.setWindowTitle("Manu — Hausverwaltung & Controlling")
+        self.setWindowIcon(manu_symbol())
         self.resize(1000, 680)
+        self.setMinimumSize(820, 560)
 
         zentral = QWidget()
         layout = QHBoxLayout(zentral)
@@ -57,7 +80,10 @@ class MainWindow(QMainWindow):
         # Inhaltsbereich rechts
         self._inhalt = QStackedWidget()
         for bereich in NAVIGATIONSBEREICHE:
-            self._inhalt.addWidget(self._platzhalter_seite(bereich))
+            if bereich == "Stammdaten":
+                self._inhalt.addWidget(StammdatenSeite(self._verbindung))
+            else:
+                self._inhalt.addWidget(self._platzhalter_seite(bereich))
         layout.addWidget(self._inhalt, stretch=1)
 
         self.setCentralWidget(zentral)

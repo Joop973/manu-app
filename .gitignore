@@ -17,6 +17,8 @@ dist/
 
 # Laufzeitdaten der App (gehören nicht ins Repository)
 controlling.db
+controlling.db-wal
+controlling.db-shm
 controlling_backup.db
 belege/
 belege_backup/
