@@ -11,7 +11,8 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate, Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
@@ -31,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.db import buchungen, stammdaten
-from src.logic.belege import beleg_archivieren
+from src.logic.belege import beleg_absolut, beleg_archivieren
 from src.ui.tabelle import SortierItem, tabelle_vorbereiten
 from src.utils.eingaben import (
     MONATSNAMEN,
@@ -247,6 +248,9 @@ class BuchungenSeite(QWidget):
              "Beleg", "Quelle"]
         )
         tabelle_vorbereiten(self._tabelle)
+        self._tabelle.itemDoubleClicked.connect(
+            lambda *_: self._buchung_bearbeiten()
+        )
         layout.addWidget(self._tabelle)
 
         # Knöpfe
@@ -255,6 +259,7 @@ class BuchungenSeite(QWidget):
             ("Neue Buchung", self._neue_buchung),
             ("Bearbeiten", self._buchung_bearbeiten),
             ("Löschen", self._buchung_loeschen),
+            ("Beleg öffnen", self._beleg_oeffnen),
         ):
             knopf = QPushButton(beschriftung)
             knopf.clicked.connect(methode)
@@ -334,6 +339,7 @@ class BuchungenSeite(QWidget):
                 datum_anzeigen(zeile["datum"]), zeile["datum"] or ""
             )
             datum_item.setData(Qt.UserRole, zeile["id"])
+            datum_item.setData(Qt.UserRole + 1, zeile["beleg_pfad"])
 
             betrag = Decimal(zeile["betrag"])
             if zeile["kategorie_typ"] == "ausgabe":
@@ -402,3 +408,26 @@ class BuchungenSeite(QWidget):
             QMessageBox.critical(self, "Datenbankfehler", str(fehler))
             return
         self.aktualisieren()
+
+    def _beleg_oeffnen(self) -> None:
+        """Öffnet den Beleg der markierten Buchung im Standardprogramm."""
+        zeile = self._tabelle.currentRow()
+        if zeile < 0:
+            QMessageBox.information(self, "Keine Buchung gewählt",
+                                    "Bitte zuerst eine Buchung auswählen.")
+            return
+        beleg = self._tabelle.item(zeile, 0).data(Qt.UserRole + 1)
+        if not beleg:
+            QMessageBox.information(
+                self, "Kein Beleg",
+                "Zu dieser Buchung ist kein Beleg hinterlegt."
+            )
+            return
+        pfad = beleg_absolut(beleg)
+        if not pfad.is_file():
+            QMessageBox.warning(
+                self, "Beleg nicht gefunden",
+                f"Die Belegdatei wurde nicht gefunden:\n{pfad}"
+            )
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(pfad)))

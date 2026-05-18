@@ -37,7 +37,8 @@ ManuApp/
     │   ├── init.py           Initialisierung und Stammdaten-Seed
     │   ├── stammdaten.py     Datenzugriff für Häuser/Mieter/Kategorien
     │   ├── buchungen.py      Datenzugriff für Buchungen + Jahres-Auswertung
-    │   └── mietzahlungen.py  Mietzahlungen erfassen/zurücknehmen
+    │   ├── mietzahlungen.py  Mietzahlungen erfassen/zurücknehmen
+    │   └── muster.py         Datenzugriff für das Lernsystem
     ├── ui/                   PySide6-Fenster und -Dialoge
     │   ├── login_dialog.py   PIN festlegen / Anmeldung (mit Sperre)
     │   ├── main_window.py    Hauptfenster mit Navigation
@@ -45,9 +46,12 @@ ManuApp/
     │   ├── dashboard_seite.py    Jahresübersicht je Haus
     │   ├── buchungen_seite.py    Buchungserfassung mit Filtern
     │   ├── mieter_seite.py       Monats-Checkliste der Mietzahlungen
+    │   ├── import_seite.py       PDF-Import und Beleg-Archivierung
     │   └── stammdaten_seite.py   Stammdatenverwaltung (drei Reiter)
     ├── logic/                Geschäftslogik
-    │   └── belege.py         Archivierung von Belegdateien
+    │   ├── belege.py         Archivierung von Belegdateien
+    │   ├── pdf_import.py     Auslesen von Kontoauszug-PDFs
+    │   └── lernsystem.py     Normalisierung + automatische Zuordnung
     └── utils/                Hilfsfunktionen
         ├── paths.py          zentrale Pfadverwaltung
         ├── security.py       PIN-Hashing (SHA-256 + Salt)
@@ -59,5 +63,6 @@ ManuApp/
 * **Phase 1 — abgeschlossen:** Grundgerüst, Datenbank, PIN-Login
 * **Phase 2 — abgeschlossen:** Stammdatenverwaltung (Häuser, Mieter, Kategorien)
 * **Phase 3 — abgeschlossen:** Buchungserfassung, Mietzahlungen, Dashboard
+* **Phase 4 — abgeschlossen:** PDF-Import mit Lernsystem, Beleg-Archivierung
 * Phase 4 — PDF-Import mit Lernsystem *(geplant)*
 * Phase 5 — Excel-Export, Auto-Backup, .exe-Build *(geplant)*

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from src.ui.buchungen_seite import BuchungenSeite
 from src.ui.dashboard_seite import DashboardSeite
+from src.ui.import_seite import ImportSeite
 from src.ui.mieter_seite import MieterZahlungenSeite
 from src.ui.stammdaten_seite import StammdatenSeite
 
@@ -86,6 +87,7 @@ class MainWindow(QMainWindow):
             "Dashboard": lambda: DashboardSeite(self._verbindung),
             "Buchungen": lambda: BuchungenSeite(self._verbindung),
             "Mieter": lambda: MieterZahlungenSeite(self._verbindung),
+            "Import": lambda: ImportSeite(self._verbindung),
             "Stammdaten": lambda: StammdatenSeite(self._verbindung),
         }
         for bereich in NAVIGATIONSBEREICHE:

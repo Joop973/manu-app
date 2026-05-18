@@ -202,6 +202,9 @@ class MieterTab(QWidget):
              "Aktiv von", "Aktiv bis"]
         )
         tabelle_vorbereiten(self._tabelle)
+        self._tabelle.itemDoubleClicked.connect(
+            lambda *_: self._mieter_bearbeiten()
+        )
         layout.addWidget(self._tabelle)
 
         knopfleiste = QHBoxLayout()

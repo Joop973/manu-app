@@ -11,6 +11,7 @@ import sqlite3
 from datetime import date
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -27,6 +28,33 @@ from PySide6.QtWidgets import (
 
 from src.db import mietzahlungen, stammdaten
 from src.utils.eingaben import MONATSNAMEN_KURZ, ValidierungsFehler
+
+# Hintergrundfarbe für Monate außerhalb des Mietzeitraums.
+_FARBE_INAKTIV = QColor("#e6e6e6")
+
+
+def _jahr_monat(iso_datum: str | None) -> tuple[int, int] | None:
+    """Wandelt ein ISO-Datum in ein (Jahr, Monat)-Tupel um."""
+    if not iso_datum:
+        return None
+    try:
+        jahr, monat, _ = iso_datum.split("-")
+        return int(jahr), int(monat)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _monat_im_zeitraum(
+    jahr_monat: tuple[int, int],
+    von: tuple[int, int] | None,
+    bis: tuple[int, int] | None,
+) -> bool:
+    """Prüft, ob ein Monat im Mietzeitraum (von … bis) liegt."""
+    if von is not None and jahr_monat < von:
+        return False
+    if bis is not None and jahr_monat > bis:
+        return False
+    return True
 
 
 class MieterZahlungenSeite(QWidget):
@@ -105,12 +133,20 @@ class MieterZahlungenSeite(QWidget):
                 bezahlt = mietzahlungen.bezahlte_monate(
                     self._verbindung, person["id"], jahr
                 )
+                von = _jahr_monat(person["aktiv_von"])
+                bis = _jahr_monat(person["aktiv_bis"])
                 for monat in range(1, 13):
                     item = QTableWidgetItem()
-                    item.setFlags(
-                        Qt.ItemIsUserCheckable | Qt.ItemIsEnabled
-                        | Qt.ItemIsSelectable
-                    )
+                    im_zeitraum = _monat_im_zeitraum((jahr, monat), von, bis)
+                    if im_zeitraum:
+                        item.setFlags(
+                            Qt.ItemIsUserCheckable | Qt.ItemIsEnabled
+                            | Qt.ItemIsSelectable
+                        )
+                    else:
+                        # Monat außerhalb des Mietzeitraums: nicht änderbar.
+                        item.setFlags(Qt.ItemIsSelectable)
+                        item.setBackground(_FARBE_INAKTIV)
                     item.setCheckState(
                         Qt.Checked if monat in bezahlt else Qt.Unchecked
                     )

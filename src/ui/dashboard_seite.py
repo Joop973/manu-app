@@ -114,6 +114,7 @@ class DashboardSeite(QWidget):
             karte = self._haus_karte(
                 haus["name"], einnahmen, ausgaben, saldo,
                 monats_saldo, MONATSNAMEN[monat - 1],
+                daten.get("anzahl", 0),
             )
             self._raster.addWidget(
                 karte, index // _SPALTEN, index % _SPALTEN
@@ -133,6 +134,7 @@ class DashboardSeite(QWidget):
         saldo: Decimal,
         monats_saldo: Decimal,
         monatsname: str,
+        anzahl: int,
     ) -> QGroupBox:
         """Erzeugt eine Karte für ein einzelnes Haus."""
         box = QGroupBox(name)
@@ -146,6 +148,9 @@ class DashboardSeite(QWidget):
             self._wertzeile(f"Saldo ({monatsname})", monats_saldo,
                             hervorheben=True)
         )
+        anzahl_label = QLabel(f"erfasste Buchungen: {anzahl}")
+        anzahl_label.setStyleSheet("color: #666666;")
+        inhalt.addWidget(anzahl_label)
         return box
 
     def _gesamt_karte(self, gesamt_saldo: Decimal) -> QGroupBox:

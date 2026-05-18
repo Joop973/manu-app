@@ -98,6 +98,17 @@ def buchung_loeschen(verbindung: sqlite3.Connection, buchung_id: int) -> None:
     verbindung.commit()
 
 
+def buchung_beleg_setzen(
+    verbindung: sqlite3.Connection, buchung_id: int, beleg_pfad: str
+) -> None:
+    """Hinterlegt den Belegpfad einer bestehenden Buchung."""
+    verbindung.execute(
+        "UPDATE buchungen SET beleg_pfad = ? WHERE id = ?",
+        (beleg_pfad, buchung_id),
+    )
+    verbindung.commit()
+
+
 def jahre_laden(verbindung: sqlite3.Connection) -> list[int]:
     """Liefert alle Jahre, für die Buchungen existieren (absteigend)."""
     zeilen = verbindung.execute(
@@ -135,6 +146,7 @@ def jahres_auswertung(
             {
                 "einnahmen": Decimal("0"),
                 "ausgaben": Decimal("0"),
+                "anzahl": 0,
                 "monat_einnahmen": {m: Decimal("0") for m in range(1, 13)},
                 "monat_ausgaben": {m: Decimal("0") for m in range(1, 13)},
             },
@@ -143,6 +155,7 @@ def jahres_auswertung(
             betrag = Decimal(zeile["betrag"])
         except (ValueError, TypeError):
             continue
+        eintrag["anzahl"] += 1
         try:
             monat = int(zeile["monat"])
         except (ValueError, TypeError):
