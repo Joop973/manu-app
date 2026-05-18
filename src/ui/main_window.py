@@ -21,8 +21,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.logic.backup import datensicherung_durchfuehren
 from src.ui.buchungen_seite import BuchungenSeite
 from src.ui.dashboard_seite import DashboardSeite
+from src.ui.einstellungen_seite import EinstellungenSeite
+from src.ui.export_seite import ExportSeite
 from src.ui.import_seite import ImportSeite
 from src.ui.mieter_seite import MieterZahlungenSeite
 from src.ui.stammdaten_seite import StammdatenSeite
@@ -89,6 +92,8 @@ class MainWindow(QMainWindow):
             "Mieter": lambda: MieterZahlungenSeite(self._verbindung),
             "Import": lambda: ImportSeite(self._verbindung),
             "Stammdaten": lambda: StammdatenSeite(self._verbindung),
+            "Export": lambda: ExportSeite(self._verbindung),
+            "Einstellungen": lambda: EinstellungenSeite(self._verbindung),
         }
         for bereich in NAVIGATIONSBEREICHE:
             if bereich in seiten:
@@ -129,3 +134,11 @@ class MainWindow(QMainWindow):
         seite = self._inhalt.widget(zeile)
         if hasattr(seite, "aktualisieren"):
             seite.aktualisieren()
+
+    def closeEvent(self, ereignis) -> None:  # noqa: N802 - Qt-Vorgabe
+        """Erstellt beim Schließen automatisch eine Datensicherung."""
+        try:
+            datensicherung_durchfuehren(self._verbindung)
+        except Exception:  # noqa: BLE001 - Schließen darf nie scheitern
+            pass
+        super().closeEvent(ereignis)

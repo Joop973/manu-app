@@ -20,6 +20,38 @@ def muster_laden(verbindung: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def muster_uebersicht(verbindung: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Lädt alle Muster inklusive Haus- und Kategoriename (für die Anzeige)."""
+    return verbindung.execute(
+        "SELECT m.id, m.erkennungstext, m.objekt_id, m.kategorie_id, "
+        "m.bestaetigt_am, o.name AS objekt_name, k.name AS kategorie_name "
+        "FROM buchungsmuster m "
+        "LEFT JOIN objekte o ON o.id = m.objekt_id "
+        "LEFT JOIN kategorien k ON k.id = m.kategorie_id "
+        "ORDER BY m.erkennungstext"
+    ).fetchall()
+
+
+def muster_aktualisieren(
+    verbindung: sqlite3.Connection,
+    muster_id: int,
+    objekt_id: int,
+    kategorie_id: int,
+) -> None:
+    """Ändert die Zuordnung eines bestehenden Musters."""
+    verbindung.execute(
+        "UPDATE buchungsmuster SET objekt_id = ?, kategorie_id = ? WHERE id = ?",
+        (objekt_id, kategorie_id, muster_id),
+    )
+    verbindung.commit()
+
+
+def muster_loeschen(verbindung: sqlite3.Connection, muster_id: int) -> None:
+    """Löscht ein gelerntes Buchungsmuster."""
+    verbindung.execute("DELETE FROM buchungsmuster WHERE id = ?", (muster_id,))
+    verbindung.commit()
+
+
 def muster_finden(
     verbindung: sqlite3.Connection, normalisierter_text: str
 ) -> sqlite3.Row | None:

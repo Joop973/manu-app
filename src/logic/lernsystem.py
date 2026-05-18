@@ -10,7 +10,7 @@ import re
 import sqlite3
 from decimal import Decimal
 
-from src.db import muster
+from src.db import buchungen, muster
 
 # Maximale Länge des gespeicherten Erkennungstextes.
 _ERKENNUNG_LAENGE = 40
@@ -117,6 +117,7 @@ def klassifizieren(
         "objekt_id": None,
         "kategorie_id": None,
         "status": "neu",
+        "dublette": buchungen.buchung_existiert(verbindung, datum, betrag),
     }
 
     treffer = muster.muster_finden(verbindung, normalisiert)

@@ -229,11 +229,16 @@ class BuchungenSeite(QWidget):
         self._filter_kategorie = QComboBox()
         self._filter_monat = QComboBox()
         self._filter_jahr = QComboBox()
+        self._filter_beleg = QComboBox()
+        self._filter_beleg.addItem("Alle", None)
+        self._filter_beleg.addItem("mit Beleg", True)
+        self._filter_beleg.addItem("ohne Beleg", False)
         for beschriftung, combo in (
             ("Haus:", self._filter_haus),
             ("Kategorie:", self._filter_kategorie),
             ("Monat:", self._filter_monat),
             ("Jahr:", self._filter_jahr),
+            ("Beleg:", self._filter_beleg),
         ):
             filterzeile.addWidget(QLabel(beschriftung))
             filterzeile.addWidget(combo)
@@ -331,6 +336,7 @@ class BuchungenSeite(QWidget):
             kategorie_id=self._filter_kategorie.currentData(),
             monat=self._filter_monat.currentData(),
             jahr=self._filter_jahr.currentData(),
+            beleg=self._filter_beleg.currentData(),
         )
         self._tabelle.setSortingEnabled(False)
         self._tabelle.setRowCount(len(zeilen))

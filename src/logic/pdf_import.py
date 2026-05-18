@@ -83,12 +83,17 @@ def buchungszeilen_aus_text(text: str) -> list[dict]:
     return ergebnis
 
 
-def kontoauszug_einlesen(pdf_pfad: str | Path) -> list[dict]:
-    """Liest einen Kontoauszug (PDF) und liefert die Buchungszeilen."""
+def rohtext_lesen(pdf_pfad: str | Path) -> str:
+    """Liefert den reinen Textinhalt eines PDF (für Diagnosezwecke)."""
     import pdfplumber  # verzögerter Import, hält den App-Start schlank
 
     text_teile: list[str] = []
     with pdfplumber.open(str(pdf_pfad)) as pdf:
         for seite in pdf.pages:
             text_teile.append(seite.extract_text() or "")
-    return buchungszeilen_aus_text("\n".join(text_teile))
+    return "\n".join(text_teile)
+
+
+def kontoauszug_einlesen(pdf_pfad: str | Path) -> list[dict]:
+    """Liest einen Kontoauszug (PDF) und liefert die Buchungszeilen."""
+    return buchungszeilen_aus_text(rohtext_lesen(pdf_pfad))

@@ -30,13 +30,14 @@ from PySide6.QtWidgets import (
 from src.db import buchungen, muster, stammdaten
 from src.logic import lernsystem
 from src.logic.belege import beleg_archivieren
-from src.logic.pdf_import import kontoauszug_einlesen
+from src.logic.pdf_import import kontoauszug_einlesen, rohtext_lesen
 from src.ui.tabelle import tabelle_vorbereiten
 from src.utils.eingaben import betrag_formatieren, datum_anzeigen
 
 # Hintergrundfarben der Vorschau-Zeilen.
 _FARBE_AUTO = QColor("#d7f0d7")      # grün — sicher zugeordnet
 _FARBE_PRUEFEN = QColor("#fbf2c4")   # gelb — Bestätigung nötig
+_FARBE_DUBLETTE = QColor("#f3cba6")  # orange — mögliche Dublette
 
 # Anzeigetexte je Status.
 _STATUS_TEXT = {
@@ -122,17 +123,25 @@ class ImportVorschauDialog(QDialog):
     def _tabelle_fuellen(self) -> None:
         """Baut die Vorschautabelle mit Auswahlfeldern je Zeile auf."""
         for zeile, kandidat in enumerate(self._kandidaten):
-            farbe = (_FARBE_AUTO if kandidat["status"] == "auto"
-                     else _FARBE_PRUEFEN)
+            if kandidat.get("dublette"):
+                farbe = _FARBE_DUBLETTE
+            elif kandidat["status"] == "auto":
+                farbe = _FARBE_AUTO
+            else:
+                farbe = _FARBE_PRUEFEN
+
+            status_text = _STATUS_TEXT.get(
+                kandidat["status"], kandidat["status"]
+            )
+            if kandidat.get("dublette"):
+                status_text += " — mögliche Dublette"
 
             datum_item = QTableWidgetItem(datum_anzeigen(kandidat["datum"]))
             betrag_item = QTableWidgetItem(
                 f"{betrag_formatieren(kandidat['betrag'])} €"
             )
             text_item = QTableWidgetItem(kandidat["text"])
-            status_item = QTableWidgetItem(
-                _STATUS_TEXT.get(kandidat["status"], kandidat["status"])
-            )
+            status_item = QTableWidgetItem(status_text)
             for spalte, item in enumerate(
                 (datum_item, betrag_item, text_item)
             ):
@@ -326,10 +335,22 @@ class ImportSeite(QWidget):
             return
 
         if not zeilen:
-            QMessageBox.information(
-                self, "Keine Buchungen erkannt",
-                "Im PDF wurden keine Buchungszeilen gefunden."
+            try:
+                rohtext = rohtext_lesen(pfad)
+            except Exception:  # noqa: BLE001 - Diagnoseanzeige
+                rohtext = ""
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Information)
+            box.setWindowTitle("Keine Buchungen erkannt")
+            box.setText(
+                "Im PDF wurden keine Buchungszeilen gefunden.\n\n"
+                "Unter „Details anzeigen“ sehen Sie den ausgelesenen "
+                "Text — daran lässt sich erkennen, ob das PDF lesbar ist."
             )
+            box.setDetailedText(
+                rohtext or "(Es konnte kein Text aus dem PDF gelesen werden.)"
+            )
+            box.exec()
             return
 
         kandidaten = [

@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.db import stammdaten
+from src.db import muster, stammdaten
 from src.ui.tabelle import SortierItem, tabelle_vorbereiten
 from src.utils.eingaben import (
     ValidierungsFehler,
@@ -573,12 +573,180 @@ class KategorienTab(QWidget):
 
 
 # =========================================================================
-# Container: Stammdaten-Seite mit den drei Unterreitern
+# Reiter: Muster (Lernsystem)
+# =========================================================================
+
+
+class MusterZuordnungDialog(QDialog):
+    """Ändert Haus und Kategorie eines gelernten Buchungsmusters."""
+
+    def __init__(
+        self, verbindung: sqlite3.Connection, muster_id: int, parent=None
+    ) -> None:
+        super().__init__(parent)
+        self._verbindung = verbindung
+        self._muster_id = muster_id
+        self.setModal(True)
+        self.setWindowTitle("Muster-Zuordnung ändern")
+
+        zeile = next(
+            (m for m in muster.muster_uebersicht(verbindung)
+             if m["id"] == muster_id),
+            None,
+        )
+
+        layout = QVBoxLayout(self)
+        formular = QFormLayout()
+        if zeile is not None:
+            formular.addRow("Erkennungstext:",
+                            QLabel(zeile["erkennungstext"]))
+
+        self._haus = QComboBox()
+        for haus in stammdaten.objekte_laden(verbindung):
+            self._haus.addItem(haus["name"], haus["id"])
+        self._kategorie = QComboBox()
+        for typ, bezeichnung in (("einnahme", "Einnahme"),
+                                 ("ausgabe", "Ausgabe")):
+            for kategorie in stammdaten.kategorien_laden(verbindung, typ):
+                self._kategorie.addItem(
+                    f"{kategorie['name']} ({bezeichnung})", kategorie["id"]
+                )
+        if zeile is not None:
+            haus_index = self._haus.findData(zeile["objekt_id"])
+            if haus_index >= 0:
+                self._haus.setCurrentIndex(haus_index)
+            kat_index = self._kategorie.findData(zeile["kategorie_id"])
+            if kat_index >= 0:
+                self._kategorie.setCurrentIndex(kat_index)
+
+        formular.addRow("Haus:", self._haus)
+        formular.addRow("Kategorie:", self._kategorie)
+        layout.addLayout(formular)
+
+        knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        knoepfe.button(QDialogButtonBox.Ok).setText("Speichern")
+        knoepfe.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        knoepfe.accepted.connect(self._speichern)
+        knoepfe.rejected.connect(self.reject)
+        layout.addWidget(knoepfe)
+
+    def _speichern(self) -> None:
+        objekt_id = self._haus.currentData()
+        kategorie_id = self._kategorie.currentData()
+        if objekt_id is None or kategorie_id is None:
+            QMessageBox.warning(self, "Auswahl fehlt",
+                                "Bitte Haus und Kategorie wählen.")
+            return
+        try:
+            muster.muster_aktualisieren(
+                self._verbindung, self._muster_id, objekt_id, kategorie_id
+            )
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.accept()
+
+
+class MusterTab(QWidget):
+    """Übersicht der gelernten Buchungsmuster mit Korrektur und Löschen."""
+
+    def __init__(self, verbindung: sqlite3.Connection, parent=None) -> None:
+        super().__init__(parent)
+        self._verbindung = verbindung
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Gelernte Buchungsmuster für den automatischen PDF-Import."
+        ))
+
+        self._tabelle = QTableWidget(0, 4)
+        self._tabelle.setHorizontalHeaderLabels(
+            ["Erkennungstext", "Haus", "Kategorie", "Gelernt am"]
+        )
+        tabelle_vorbereiten(self._tabelle)
+        self._tabelle.itemDoubleClicked.connect(
+            lambda *_: self._zuordnung_aendern()
+        )
+        layout.addWidget(self._tabelle)
+
+        knopfleiste = QHBoxLayout()
+        knopf_aendern = QPushButton("Zuordnung ändern")
+        knopf_aendern.clicked.connect(self._zuordnung_aendern)
+        knopf_loeschen = QPushButton("Löschen")
+        knopf_loeschen.clicked.connect(self._loeschen)
+        knopfleiste.addWidget(knopf_aendern)
+        knopfleiste.addWidget(knopf_loeschen)
+        knopfleiste.addStretch()
+        layout.addLayout(knopfleiste)
+
+        self.aktualisieren()
+
+    def aktualisieren(self) -> None:
+        """Lädt die Musterliste neu."""
+        eintraege = muster.muster_uebersicht(self._verbindung)
+        self._tabelle.setSortingEnabled(False)
+        self._tabelle.setRowCount(len(eintraege))
+        for zeile, eintrag in enumerate(eintraege):
+            text_item = QTableWidgetItem(eintrag["erkennungstext"])
+            text_item.setData(Qt.UserRole, eintrag["id"])
+            self._tabelle.setItem(zeile, 0, text_item)
+            self._tabelle.setItem(
+                zeile, 1, QTableWidgetItem(eintrag["objekt_name"] or "—")
+            )
+            self._tabelle.setItem(
+                zeile, 2, QTableWidgetItem(eintrag["kategorie_name"] or "—")
+            )
+            self._tabelle.setItem(
+                zeile, 3, QTableWidgetItem(eintrag["bestaetigt_am"] or "")
+            )
+        self._tabelle.setSortingEnabled(True)
+
+    def _ausgewaehltes_muster(self) -> int | None:
+        zeile = self._tabelle.currentRow()
+        if zeile < 0:
+            return None
+        return self._tabelle.item(zeile, 0).data(Qt.UserRole)
+
+    def _zuordnung_aendern(self) -> None:
+        muster_id = self._ausgewaehltes_muster()
+        if muster_id is None:
+            QMessageBox.information(self, "Kein Muster gewählt",
+                                    "Bitte zuerst ein Muster auswählen.")
+            return
+        dialog = MusterZuordnungDialog(self._verbindung, muster_id, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            self.aktualisieren()
+
+    def _loeschen(self) -> None:
+        muster_id = self._ausgewaehltes_muster()
+        if muster_id is None:
+            QMessageBox.information(self, "Kein Muster gewählt",
+                                    "Bitte zuerst ein Muster auswählen.")
+            return
+        antwort = QMessageBox.question(
+            self, "Muster löschen",
+            "Das markierte Buchungsmuster wirklich löschen?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            muster.muster_loeschen(self._verbindung, muster_id)
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.aktualisieren()
+
+
+# =========================================================================
+# Container: Stammdaten-Seite mit den vier Unterreitern
 # =========================================================================
 
 
 class StammdatenSeite(QWidget):
-    """Bündelt Häuser-, Mieter- und Kategorien-Reiter."""
+    """Bündelt Häuser-, Mieter-, Kategorien- und Muster-Reiter."""
 
     def __init__(self, verbindung: sqlite3.Connection, parent=None) -> None:
         super().__init__(parent)
@@ -587,9 +755,11 @@ class StammdatenSeite(QWidget):
         self._haeuser = HaeuserTab(verbindung)
         self._mieter = MieterTab(verbindung)
         self._kategorien = KategorienTab(verbindung)
+        self._muster = MusterTab(verbindung)
         self._reiter.addTab(self._haeuser, "Häuser")
         self._reiter.addTab(self._mieter, "Mieter")
         self._reiter.addTab(self._kategorien, "Kategorien")
+        self._reiter.addTab(self._muster, "Muster")
         self._reiter.currentChanged.connect(self._reiter_gewechselt)
         layout.addWidget(self._reiter)
 

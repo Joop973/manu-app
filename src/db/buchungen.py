@@ -18,8 +18,13 @@ def buchungen_laden(
     kategorie_id: int | None = None,
     monat: int | None = None,
     jahr: int | None = None,
+    beleg: bool | None = None,
 ) -> list[sqlite3.Row]:
-    """Lädt Buchungen, optional gefiltert nach Haus, Kategorie, Monat, Jahr."""
+    """Lädt Buchungen, optional gefiltert.
+
+    ``beleg=True`` liefert nur Buchungen mit Beleg, ``beleg=False`` nur
+    solche ohne Beleg, ``None`` schaltet den Belegfilter ab.
+    """
     sql = (
         "SELECT b.id, b.datum, b.betrag, b.objekt_id, b.kategorie_id, "
         "b.beschreibung, b.beleg_pfad, b.quelle, "
@@ -42,8 +47,26 @@ def buchungen_laden(
     if monat is not None:
         sql += " AND substr(b.datum, 6, 2) = ?"
         parameter.append(f"{monat:02d}")
+    if beleg is True:
+        sql += " AND b.beleg_pfad IS NOT NULL AND b.beleg_pfad != ''"
+    elif beleg is False:
+        sql += " AND (b.beleg_pfad IS NULL OR b.beleg_pfad = '')"
     sql += " ORDER BY b.datum DESC, b.id DESC"
     return verbindung.execute(sql, parameter).fetchall()
+
+
+def buchung_existiert(
+    verbindung: sqlite3.Connection, datum: str, betrag: Decimal
+) -> bool:
+    """Prüft, ob bereits eine Buchung mit gleichem Datum und Betrag existiert.
+
+    Dient der Dubletten-Warnung beim Import.
+    """
+    zeile = verbindung.execute(
+        "SELECT 1 FROM buchungen WHERE datum = ? AND betrag = ? LIMIT 1",
+        (datum, str(abs(betrag))),
+    ).fetchone()
+    return zeile is not None
 
 
 def buchung_anlegen(
