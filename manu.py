@@ -13,10 +13,11 @@ import sys
 
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
+from src.db.einstellungen import PIN_AKTIV, SCHLUESSEL_PIN_MODUS, einstellung_lesen
 from src.db.init import datenbank_initialisieren
-from src.ui.login_dialog import LoginDialog, PinFestlegenDialog
+from src.ui.login_dialog import LoginDialog, PinEinrichtenDialog
 from src.ui.main_window import MainWindow, manu_symbol
-from src.utils import paths, security
+from src.utils import paths
 
 
 def main() -> int:
@@ -39,15 +40,17 @@ def main() -> int:
         )
         return 1
 
-    # PIN festlegen oder anmelden
-    if security.pin_gesetzt(verbindung):
-        dialog = LoginDialog(verbindung)
-    else:
-        dialog = PinFestlegenDialog(verbindung)
-
-    if dialog.exec() != QDialog.Accepted:
-        verbindung.close()
-        return 0
+    # PIN-Schutz einrichten (erster Start) bzw. anmelden.
+    pin_modus = einstellung_lesen(verbindung, SCHLUESSEL_PIN_MODUS)
+    if pin_modus is None:
+        if PinEinrichtenDialog(verbindung).exec() != QDialog.Accepted:
+            verbindung.close()
+            return 0
+    elif pin_modus == PIN_AKTIV:
+        if LoginDialog(verbindung).exec() != QDialog.Accepted:
+            verbindung.close()
+            return 0
+    # pin_modus == PIN_AUS: keine Anmeldung erforderlich
 
     # Hauptfenster anzeigen
     fenster = MainWindow(verbindung)

@@ -61,8 +61,9 @@ ManuApp/
 ├── requirements.txt         Abhängigkeiten
 ├── README.md
 ├── controlling.db           SQLite-Datenbank (wird beim ersten Start erzeugt)
-├── controlling_backup.db    automatische Datensicherung
+├── sicherungen/             datierte Datenbank-Sicherungen (Auto-Backup)
 ├── belege/                  archivierte Belege
+├── belege_backup/           gespiegelte Belege (Auto-Backup)
 ├── exports/                 Excel-Exporte
 └── src/
     ├── db/                   Datenbank-Layer

@@ -51,6 +51,15 @@ def pin_festlegen(verbindung: sqlite3.Connection, pin: str) -> None:
     verbindung.commit()
 
 
+def pin_entfernen(verbindung: sqlite3.Connection) -> None:
+    """Löscht den gespeicherten PIN-Hash und das Salt."""
+    verbindung.execute(
+        "DELETE FROM app_settings WHERE schluessel IN (?, ?)",
+        (_SCHLUESSEL_HASH, _SCHLUESSEL_SALT),
+    )
+    verbindung.commit()
+
+
 def pin_pruefen(verbindung: sqlite3.Connection, pin: str) -> bool:
     """Prüft, ob der eingegebene PIN zum gespeicherten Hash passt."""
     zeile_hash = verbindung.execute(

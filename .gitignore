@@ -22,4 +22,5 @@ controlling.db-shm
 controlling_backup.db
 belege/
 belege_backup/
+sicherungen/
 exports/

@@ -23,11 +23,15 @@ from PySide6.QtWidgets import (
 )
 
 from src.db.einstellungen import (
+    PIN_AKTIV,
+    PIN_AUS,
     SCHLUESSEL_BACKUP_PFAD,
+    SCHLUESSEL_PIN_MODUS,
     einstellung_lesen,
     einstellung_schreiben,
 )
 from src.logic.backup import backup_ziel, datensicherung_durchfuehren
+from src.ui.login_dialog import PinFestlegenDialog
 from src.utils import paths, security
 
 
@@ -100,13 +104,11 @@ class EinstellungenSeite(QWidget):
 
         layout = QVBoxLayout(self)
 
-        # --- Sicherheit ---
+        # --- Sicherheit (PIN) ---
         sicherheit = QGroupBox("Sicherheit")
-        sicherheit_layout = QVBoxLayout(sicherheit)
-        knopf_pin = QPushButton("PIN ändern …")
-        knopf_pin.clicked.connect(self._pin_aendern)
-        sicherheit_layout.addWidget(knopf_pin)
+        self._sicherheit_layout = QVBoxLayout(sicherheit)
         layout.addWidget(sicherheit)
+        self._sicherheit_neu_aufbauen()
 
         # --- Datensicherung ---
         backup = QGroupBox("Datensicherung")
@@ -143,13 +145,73 @@ class EinstellungenSeite(QWidget):
         self.aktualisieren()
 
     def aktualisieren(self) -> None:
-        """Aktualisiert die Anzeige des Backup-Ordners."""
+        """Aktualisiert Backup-Anzeige und Sicherheitsbereich."""
         self._backup_label.setText(
             f"Aktueller Backup-Ordner:\n{backup_ziel(self._verbindung)}"
         )
+        self._sicherheit_neu_aufbauen()
+
+    def _sicherheit_neu_aufbauen(self) -> None:
+        """Baut den PIN-Bereich passend zum aktuellen PIN-Modus auf."""
+        while self._sicherheit_layout.count():
+            element = self._sicherheit_layout.takeAt(0)
+            widget = element.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        modus = einstellung_lesen(self._verbindung, SCHLUESSEL_PIN_MODUS)
+        if modus == PIN_AKTIV:
+            self._sicherheit_layout.addWidget(
+                QLabel("PIN-Schutz ist aktiv.")
+            )
+            knopf_aendern = QPushButton("PIN ändern …")
+            knopf_aendern.clicked.connect(self._pin_aendern)
+            knopf_entfernen = QPushButton("PIN-Schutz entfernen")
+            knopf_entfernen.clicked.connect(self._pin_entfernen)
+            self._sicherheit_layout.addWidget(knopf_aendern)
+            self._sicherheit_layout.addWidget(knopf_entfernen)
+        else:
+            self._sicherheit_layout.addWidget(QLabel(
+                "Kein PIN-Schutz. Die App startet ohne Anmeldung."
+            ))
+            knopf_einrichten = QPushButton("PIN-Schutz einrichten …")
+            knopf_einrichten.clicked.connect(self._pin_einrichten)
+            self._sicherheit_layout.addWidget(knopf_einrichten)
 
     def _pin_aendern(self) -> None:
         PinAendernDialog(self._verbindung, parent=self).exec()
+
+    def _pin_entfernen(self) -> None:
+        antwort = QMessageBox.question(
+            self, "PIN-Schutz entfernen",
+            "Den PIN-Schutz wirklich entfernen? Die App startet danach "
+            "ohne Anmeldung.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            security.pin_entfernen(self._verbindung)
+            einstellung_schreiben(
+                self._verbindung, SCHLUESSEL_PIN_MODUS, PIN_AUS
+            )
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self._sicherheit_neu_aufbauen()
+
+    def _pin_einrichten(self) -> None:
+        dialog = PinFestlegenDialog(self._verbindung, parent=self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        try:
+            einstellung_schreiben(
+                self._verbindung, SCHLUESSEL_PIN_MODUS, PIN_AKTIV
+            )
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self._sicherheit_neu_aufbauen()
 
     def _ordner_waehlen(self) -> None:
         ordner = QFileDialog.getExistingDirectory(

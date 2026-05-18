@@ -11,6 +11,10 @@ import sqlite3
 
 # Bekannte Einstellungsschlüssel.
 SCHLUESSEL_BACKUP_PFAD = "backup_pfad"
+# PIN-Modus: "aktiv" = Anmeldung erforderlich, "aus" = ohne PIN starten.
+SCHLUESSEL_PIN_MODUS = "pin_modus"
+PIN_AKTIV = "aktiv"
+PIN_AUS = "aus"
 
 
 def einstellung_lesen(

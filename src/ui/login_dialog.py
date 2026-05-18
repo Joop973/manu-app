@@ -13,6 +13,7 @@ import sqlite3
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -23,6 +24,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.db.einstellungen import (
+    PIN_AKTIV,
+    PIN_AUS,
+    SCHLUESSEL_PIN_MODUS,
+    einstellung_schreiben,
+)
 from src.utils import security
 
 # Login-Schutz: Anzahl erlaubter Fehlversuche und Sperrdauer.
@@ -99,6 +106,95 @@ class PinFestlegenDialog(QDialog):
             )
             return
 
+        self.accept()
+
+
+class PinEinrichtenDialog(QDialog):
+    """Beim allerersten Start: PIN-Schutz einrichten — oder bewusst ohne PIN.
+
+    Legt anschließend den PIN-Modus in den Einstellungen fest.
+    """
+
+    def __init__(self, verbindung: sqlite3.Connection, parent=None) -> None:
+        super().__init__(parent)
+        self._verbindung = verbindung
+        self.setWindowTitle("Willkommen bei Manu")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        hinweis = QLabel(
+            "Möchten Sie die App mit einem PIN schützen?\n\n"
+            "Der PIN ist ein einfacher Zugriffsschutz beim Start. Er "
+            "verschlüsselt die Daten nicht — wer Zugriff auf diesen "
+            "Computer hat, kann die Datenbank auch ohne PIN lesen. "
+            "Auf einem nur von Ihnen genutzten Gerät können Sie den "
+            "PIN daher auch weglassen."
+        )
+        hinweis.setWordWrap(True)
+        layout.addWidget(hinweis)
+
+        self._mit_pin = QCheckBox("Diese App mit einem PIN schützen")
+        self._mit_pin.setChecked(True)
+        self._mit_pin.toggled.connect(self._felder_umschalten)
+        layout.addWidget(self._mit_pin)
+
+        formular = QFormLayout()
+        self._feld_pin = QLineEdit()
+        self._feld_pin.setEchoMode(QLineEdit.Password)
+        self._feld_pin_wdh = QLineEdit()
+        self._feld_pin_wdh.setEchoMode(QLineEdit.Password)
+        formular.addRow("PIN:", self._feld_pin)
+        formular.addRow("PIN wiederholen:", self._feld_pin_wdh)
+        layout.addLayout(formular)
+
+        knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        knoepfe.button(QDialogButtonBox.Ok).setText("Weiter")
+        knoepfe.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        knoepfe.accepted.connect(self._bestaetigen)
+        knoepfe.rejected.connect(self.reject)
+        layout.addWidget(knoepfe)
+
+    def _felder_umschalten(self, mit_pin: bool) -> None:
+        """Aktiviert die PIN-Felder nur, wenn ein PIN gewünscht ist."""
+        self._feld_pin.setEnabled(mit_pin)
+        self._feld_pin_wdh.setEnabled(mit_pin)
+
+    def _bestaetigen(self) -> None:
+        """Speichert PIN bzw. PIN-Modus entsprechend der Auswahl."""
+        if not self._mit_pin.isChecked():
+            try:
+                einstellung_schreiben(
+                    self._verbindung, SCHLUESSEL_PIN_MODUS, PIN_AUS
+                )
+            except sqlite3.Error as fehler:
+                QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+                return
+            self.accept()
+            return
+
+        pin = self._feld_pin.text()
+        if len(pin) < security.MIN_PIN_LAENGE:
+            QMessageBox.warning(
+                self, "PIN zu kurz",
+                f"Der PIN muss mindestens {security.MIN_PIN_LAENGE} "
+                "Zeichen lang sein."
+            )
+            return
+        if pin != self._feld_pin_wdh.text():
+            QMessageBox.warning(self, "Eingaben verschieden",
+                                "Die beiden PIN-Eingaben stimmen nicht "
+                                "überein.")
+            return
+        try:
+            security.pin_festlegen(self._verbindung, pin)
+            einstellung_schreiben(
+                self._verbindung, SCHLUESSEL_PIN_MODUS, PIN_AKTIV
+            )
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
         self.accept()
 
 
