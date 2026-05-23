@@ -3,3 +3,24 @@ Thumbs.db
 .vscode/
 .idea/
 *.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PyInstaller-Build
+build/
+dist/
+*.spec
+
+# Laufzeitdaten der App (gehören nicht ins Repository)
+controlling.db
+controlling.db-wal
+controlling.db-shm
+controlling_backup.db
+belege/
+belege_backup/
+sicherungen/
+exports/
