@@ -13,7 +13,16 @@ from __future__ import annotations
 
 # Versionsnummer des Schemas. Wird in app_settings hinterlegt, damit
 # spätere Phasen kontrollierte Migrationen durchführen können.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Spalten, die in späteren Versionen ergänzt wurden. Werden beim Start
+# per ALTER TABLE nachgerüstet, falls sie in einer Alt-Datenbank fehlen.
+NACHRUEST_SPALTEN: list[tuple[str, str, str]] = [
+    ("objekte", "umlageschluessel", "TEXT NOT NULL DEFAULT 'flaeche'"),
+    ("mieter", "wohnflaeche", "TEXT NOT NULL DEFAULT '0'"),
+    ("mieter", "personenzahl", "INTEGER NOT NULL DEFAULT 1"),
+    ("kategorien", "umlagefaehig", "INTEGER NOT NULL DEFAULT 0"),
+]
 
 # --- Tabellendefinitionen -------------------------------------------------
 
@@ -21,9 +30,10 @@ TABELLEN: list[str] = [
     # Häuser / Objekte
     """
     CREATE TABLE IF NOT EXISTS objekte (
-        id      INTEGER PRIMARY KEY AUTOINCREMENT,
-        name    TEXT    NOT NULL UNIQUE,
-        aktiv   INTEGER NOT NULL DEFAULT 1
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        name            TEXT    NOT NULL UNIQUE,
+        aktiv           INTEGER NOT NULL DEFAULT 1,
+        umlageschluessel TEXT   NOT NULL DEFAULT 'flaeche'
     )
     """,
     # Mieter (gehören zu genau einem Objekt)
@@ -36,16 +46,19 @@ TABELLEN: list[str] = [
         nebenkosten TEXT    NOT NULL DEFAULT '0',
         ruecklage   TEXT    NOT NULL DEFAULT '0',
         aktiv_von   TEXT,
-        aktiv_bis   TEXT
+        aktiv_bis   TEXT,
+        wohnflaeche TEXT    NOT NULL DEFAULT '0',
+        personenzahl INTEGER NOT NULL DEFAULT 1
     )
     """,
     # Buchungskategorien, getrennt nach Ausgabe und Einnahme
     """
     CREATE TABLE IF NOT EXISTS kategorien (
-        id      INTEGER PRIMARY KEY AUTOINCREMENT,
-        name    TEXT    NOT NULL,
-        typ     TEXT    NOT NULL CHECK (typ IN ('ausgabe', 'einnahme')),
-        aktiv   INTEGER NOT NULL DEFAULT 1,
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        name         TEXT    NOT NULL,
+        typ          TEXT    NOT NULL CHECK (typ IN ('ausgabe', 'einnahme')),
+        aktiv        INTEGER NOT NULL DEFAULT 1,
+        umlagefaehig INTEGER NOT NULL DEFAULT 0,
         UNIQUE (name, typ)
     )
     """,

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -74,8 +75,10 @@ class HaeuserTab(QWidget):
         self._nur_aktive.toggled.connect(self.aktualisieren)
         layout.addWidget(self._nur_aktive)
 
-        self._tabelle = QTableWidget(0, 2)
-        self._tabelle.setHorizontalHeaderLabels(["Haus", "Status"])
+        self._tabelle = QTableWidget(0, 3)
+        self._tabelle.setHorizontalHeaderLabels(
+            ["Haus", "Umlageschlüssel", "Status"]
+        )
         tabelle_vorbereiten(self._tabelle)
         layout.addWidget(self._tabelle)
 
@@ -83,6 +86,7 @@ class HaeuserTab(QWidget):
         for beschriftung, methode in (
             ("Neues Haus", self._neues_haus),
             ("Umbenennen", self._umbenennen),
+            ("Umlageschlüssel …", self._umlageschluessel_aendern),
             ("Status ändern", self._status_aendern),
         ):
             knopf = QPushButton(beschriftung)
@@ -103,20 +107,27 @@ class HaeuserTab(QWidget):
         for zeile, haus in enumerate(haeuser):
             name_item = QTableWidgetItem(haus["name"])
             name_item.setData(Qt.UserRole, haus["id"])
+            name_item.setData(Qt.UserRole + 1, haus["umlageschluessel"])
+            schluessel_text = stammdaten.UMLAGESCHLUESSEL.get(
+                haus["umlageschluessel"], haus["umlageschluessel"]
+            )
             status = "aktiv" if haus["aktiv"] else "inaktiv"
             self._tabelle.setItem(zeile, 0, name_item)
-            self._tabelle.setItem(zeile, 1, QTableWidgetItem(status))
+            self._tabelle.setItem(zeile, 1, QTableWidgetItem(schluessel_text))
+            self._tabelle.setItem(zeile, 2, QTableWidgetItem(status))
         self._tabelle.setSortingEnabled(True)
 
-    def _ausgewaehltes_haus(self) -> tuple[int, str, bool] | None:
-        """Liefert (id, name, aktiv) der markierten Zeile oder None."""
+    def _ausgewaehltes_haus(self) -> tuple[int, str, bool, str] | None:
+        """Liefert (id, name, aktiv, umlageschluessel) der Zeile oder None."""
         zeile = self._tabelle.currentRow()
         if zeile < 0:
             return None
-        objekt_id = self._tabelle.item(zeile, 0).data(Qt.UserRole)
-        name = self._tabelle.item(zeile, 0).text()
-        aktiv = self._tabelle.item(zeile, 1).text() == "aktiv"
-        return objekt_id, name, aktiv
+        item = self._tabelle.item(zeile, 0)
+        objekt_id = item.data(Qt.UserRole)
+        schluessel = item.data(Qt.UserRole + 1)
+        name = item.text()
+        aktiv = self._tabelle.item(zeile, 2).text() == "aktiv"
+        return objekt_id, name, aktiv, schluessel
 
     def _neues_haus(self) -> None:
         name, ok = QInputDialog.getText(self, "Neues Haus", "Name des Hauses:")
@@ -138,7 +149,7 @@ class HaeuserTab(QWidget):
             QMessageBox.information(self, "Kein Haus gewählt",
                                     "Bitte zuerst ein Haus auswählen.")
             return
-        objekt_id, alter_name, _ = auswahl
+        objekt_id, alter_name, _, _ = auswahl
         neuer_name, ok = QInputDialog.getText(
             self, "Haus umbenennen", "Neuer Name:", text=alter_name
         )
@@ -160,13 +171,41 @@ class HaeuserTab(QWidget):
             QMessageBox.information(self, "Kein Haus gewählt",
                                     "Bitte zuerst ein Haus auswählen.")
             return
-        objekt_id, name, aktiv = auswahl
+        objekt_id, name, aktiv, _ = auswahl
         if aktiv and not _deaktivieren_bestaetigt(self, name):
             return
         try:
             stammdaten.objekt_aktiv_setzen(self._verbindung, objekt_id, not aktiv)
         except sqlite3.Error as fehler:
             QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.aktualisieren()
+
+    def _umlageschluessel_aendern(self) -> None:
+        """Legt den Umlageschlüssel des markierten Hauses fest."""
+        auswahl = self._ausgewaehltes_haus()
+        if auswahl is None:
+            QMessageBox.information(self, "Kein Haus gewählt",
+                                    "Bitte zuerst ein Haus auswählen.")
+            return
+        objekt_id, name, _, aktueller = auswahl
+        schluessel_keys = list(stammdaten.UMLAGESCHLUESSEL.keys())
+        beschriftungen = list(stammdaten.UMLAGESCHLUESSEL.values())
+        vorauswahl = schluessel_keys.index(aktueller) \
+            if aktueller in schluessel_keys else 0
+        wahl, ok = QInputDialog.getItem(
+            self, "Umlageschlüssel", f"Umlageschlüssel für „{name}“:",
+            beschriftungen, vorauswahl, editable=False,
+        )
+        if not ok:
+            return
+        schluessel = schluessel_keys[beschriftungen.index(wahl)]
+        try:
+            stammdaten.objekt_umlageschluessel_setzen(
+                self._verbindung, objekt_id, schluessel
+            )
+        except (ValidierungsFehler, sqlite3.Error) as fehler:
+            QMessageBox.warning(self, "Fehler", str(fehler))
             return
         self.aktualisieren()
 
@@ -349,6 +388,13 @@ class MieterDialog(QDialog):
         formular.addRow("Nebenkosten (€):", self._feld_nebenkosten)
         formular.addRow("Rücklage (€):", self._feld_ruecklage)
 
+        # Felder für die Nebenkostenabrechnung
+        self._feld_wohnflaeche = QLineEdit("0,00")
+        formular.addRow("Wohnfläche (m²):", self._feld_wohnflaeche)
+        self._feld_personen = QSpinBox()
+        self._feld_personen.setRange(1, 99)
+        formular.addRow("Personenzahl:", self._feld_personen)
+
         self._feld_von = QDateEdit()
         self._feld_von.setCalendarPopup(True)
         self._feld_von.setDisplayFormat("dd.MM.yyyy")
@@ -388,7 +434,7 @@ class MieterDialog(QDialog):
         """Füllt das Formular mit den Werten eines bestehenden Mieters."""
         zeile = self._verbindung.execute(
             "SELECT name, kaltmiete, nebenkosten, ruecklage, aktiv_von, "
-            "aktiv_bis FROM mieter WHERE id = ?",
+            "aktiv_bis, wohnflaeche, personenzahl FROM mieter WHERE id = ?",
             (self._mieter_id,),
         ).fetchone()
         if zeile is None:
@@ -397,6 +443,8 @@ class MieterDialog(QDialog):
         self._feld_kaltmiete.setText(betrag_formatieren(zeile["kaltmiete"]))
         self._feld_nebenkosten.setText(betrag_formatieren(zeile["nebenkosten"]))
         self._feld_ruecklage.setText(betrag_formatieren(zeile["ruecklage"]))
+        self._feld_wohnflaeche.setText(betrag_formatieren(zeile["wohnflaeche"]))
+        self._feld_personen.setValue(int(zeile["personenzahl"] or 1))
         if zeile["aktiv_von"]:
             self._feld_von.setDate(
                 QDate.fromString(zeile["aktiv_von"], "yyyy-MM-dd")
@@ -414,9 +462,11 @@ class MieterDialog(QDialog):
             kaltmiete = betrag_parsen(self._feld_kaltmiete.text())
             nebenkosten = betrag_parsen(self._feld_nebenkosten.text())
             ruecklage = betrag_parsen(self._feld_ruecklage.text())
+            wohnflaeche = betrag_parsen(self._feld_wohnflaeche.text())
         except ValidierungsFehler as fehler:
             QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
             return
+        personenzahl = self._feld_personen.value()
 
         aktiv_von = self._feld_von.date().toString("yyyy-MM-dd")
         aktiv_bis: str | None = None
@@ -435,12 +485,14 @@ class MieterDialog(QDialog):
                     self._verbindung, self._objekt_id,
                     self._feld_name.text(), kaltmiete, nebenkosten,
                     ruecklage, aktiv_von, aktiv_bis,
+                    wohnflaeche, personenzahl,
                 )
             else:
                 stammdaten.mieter_aktualisieren(
                     self._verbindung, self._mieter_id,
                     self._feld_name.text(), kaltmiete, nebenkosten,
                     ruecklage, aktiv_von, aktiv_bis,
+                    wohnflaeche, personenzahl,
                 )
         except ValidierungsFehler as fehler:
             QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
@@ -476,8 +528,10 @@ class _KategorieListe(QWidget):
         self._nur_aktive.toggled.connect(self.aktualisieren)
         gruppen_layout.addWidget(self._nur_aktive)
 
-        self._tabelle = QTableWidget(0, 2)
-        self._tabelle.setHorizontalHeaderLabels(["Kategorie", "Status"])
+        self._tabelle = QTableWidget(0, 3)
+        self._tabelle.setHorizontalHeaderLabels(
+            ["Kategorie", "Status", "Umlagefähig"]
+        )
         tabelle_vorbereiten(self._tabelle)
         gruppen_layout.addWidget(self._tabelle)
 
@@ -486,8 +540,11 @@ class _KategorieListe(QWidget):
         knopf_neu.clicked.connect(self._neue_kategorie)
         knopf_status = QPushButton("Status ändern")
         knopf_status.clicked.connect(self._status_aendern)
+        knopf_umlage = QPushButton("Umlagefähig ändern")
+        knopf_umlage.clicked.connect(self._umlagefaehig_aendern)
         knopfleiste.addWidget(knopf_neu)
         knopfleiste.addWidget(knopf_status)
+        knopfleiste.addWidget(knopf_umlage)
         knopfleiste.addStretch()
         gruppen_layout.addLayout(knopfleiste)
 
@@ -505,20 +562,25 @@ class _KategorieListe(QWidget):
         for zeile, kategorie in enumerate(kategorien):
             name_item = QTableWidgetItem(kategorie["name"])
             name_item.setData(Qt.UserRole, kategorie["id"])
+            name_item.setData(Qt.UserRole + 1, bool(kategorie["umlagefaehig"]))
             status = "aktiv" if kategorie["aktiv"] else "inaktiv"
+            umlage = "ja" if kategorie["umlagefaehig"] else "nein"
             self._tabelle.setItem(zeile, 0, name_item)
             self._tabelle.setItem(zeile, 1, QTableWidgetItem(status))
+            self._tabelle.setItem(zeile, 2, QTableWidgetItem(umlage))
         self._tabelle.setSortingEnabled(True)
 
-    def _ausgewaehlt(self) -> tuple[int, str, bool] | None:
-        """Liefert (id, name, aktiv) der markierten Kategorie oder None."""
+    def _ausgewaehlt(self) -> tuple[int, str, bool, bool] | None:
+        """Liefert (id, name, aktiv, umlagefähig) der Kategorie oder None."""
         zeile = self._tabelle.currentRow()
         if zeile < 0:
             return None
-        kategorie_id = self._tabelle.item(zeile, 0).data(Qt.UserRole)
-        name = self._tabelle.item(zeile, 0).text()
+        item = self._tabelle.item(zeile, 0)
+        kategorie_id = item.data(Qt.UserRole)
+        umlagefaehig = bool(item.data(Qt.UserRole + 1))
+        name = item.text()
         aktiv = self._tabelle.item(zeile, 1).text() == "aktiv"
-        return kategorie_id, name, aktiv
+        return kategorie_id, name, aktiv, umlagefaehig
 
     def _neue_kategorie(self) -> None:
         name, ok = QInputDialog.getText(
@@ -542,12 +604,29 @@ class _KategorieListe(QWidget):
             QMessageBox.information(self, "Keine Kategorie gewählt",
                                     "Bitte zuerst eine Kategorie auswählen.")
             return
-        kategorie_id, name, aktiv = auswahl
+        kategorie_id, name, aktiv, _ = auswahl
         if aktiv and not _deaktivieren_bestaetigt(self, name):
             return
         try:
             stammdaten.kategorie_aktiv_setzen(
                 self._verbindung, kategorie_id, not aktiv
+            )
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.aktualisieren()
+
+    def _umlagefaehig_aendern(self) -> None:
+        """Schaltet das Merkmal „umlagefähig" der markierten Kategorie um."""
+        auswahl = self._ausgewaehlt()
+        if auswahl is None:
+            QMessageBox.information(self, "Keine Kategorie gewählt",
+                                    "Bitte zuerst eine Kategorie auswählen.")
+            return
+        kategorie_id, _, _, umlagefaehig = auswahl
+        try:
+            stammdaten.kategorie_umlagefaehig_setzen(
+                self._verbindung, kategorie_id, not umlagefaehig
             )
         except sqlite3.Error as fehler:
             QMessageBox.critical(self, "Datenbankfehler", str(fehler))

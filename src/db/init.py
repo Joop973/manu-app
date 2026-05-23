@@ -58,14 +58,33 @@ def _schema_version_setzen(verbindung: sqlite3.Connection) -> None:
     )
 
 
+def _spalten_nachruesten(verbindung: sqlite3.Connection) -> None:
+    """Ergänzt in einer Alt-Datenbank fehlende Spalten (ALTER TABLE).
+
+    Tabellen- und Spaltennamen stammen ausschließlich aus dem Code
+    (``schema.NACHRUEST_SPALTEN``), nicht aus Benutzereingaben.
+    """
+    for tabelle, spalte, definition in schema.NACHRUEST_SPALTEN:
+        vorhanden = {
+            zeile["name"]
+            for zeile in verbindung.execute(f"PRAGMA table_info({tabelle})")
+        }
+        if spalte not in vorhanden:
+            verbindung.execute(
+                f"ALTER TABLE {tabelle} ADD COLUMN {spalte} {definition}"
+            )
+
+
 def datenbank_initialisieren(datenbank_pfad: Path) -> sqlite3.Connection:
     """Stellt die Datenbank bereit und liefert eine offene Verbindung.
 
-    Legt Datei, Tabellen und (beim ersten Start) Stammdaten an.
+    Legt Datei, Tabellen und (beim ersten Start) Stammdaten an und
+    rüstet in älteren Datenbanken fehlende Spalten nach.
     """
     verbindung = database.verbindung_aufbauen(datenbank_pfad)
     try:
         _tabellen_anlegen(verbindung)
+        _spalten_nachruesten(verbindung)
         _stammdaten_einfuegen(verbindung)
         _schema_version_setzen(verbindung)
         verbindung.execute(

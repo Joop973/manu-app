@@ -28,6 +28,7 @@ from src.ui.einstellungen_seite import EinstellungenSeite
 from src.ui.export_seite import ExportSeite
 from src.ui.import_seite import ImportSeite
 from src.ui.mieter_seite import MieterZahlungenSeite
+from src.ui.nebenkosten_seite import NebenkostenSeite
 from src.ui.stammdaten_seite import StammdatenSeite
 
 # Reihenfolge der Bereiche in der Navigationsleiste.
@@ -38,6 +39,7 @@ NAVIGATIONSBEREICHE: list[str] = [
     "Import",
     "Stammdaten",
     "Export",
+    "Nebenkosten",
     "Einstellungen",
 ]
 
@@ -93,6 +95,7 @@ class MainWindow(QMainWindow):
             "Import": lambda: ImportSeite(self._verbindung),
             "Stammdaten": lambda: StammdatenSeite(self._verbindung),
             "Export": lambda: ExportSeite(self._verbindung),
+            "Nebenkosten": lambda: NebenkostenSeite(self._verbindung),
             "Einstellungen": lambda: EinstellungenSeite(self._verbindung),
         }
         for bereich in NAVIGATIONSBEREICHE:
