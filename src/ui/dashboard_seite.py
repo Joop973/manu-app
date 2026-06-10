@@ -69,9 +69,7 @@ class DashboardSeite(QWidget):
         bisher = self._jahr.currentData()
         self._jahr.blockSignals(True)
         self._jahr.clear()
-        jahre = set(buchungen.jahre_laden(self._verbindung))
-        jahre.add(date.today().year)
-        for jahr in sorted(jahre, reverse=True):
+        for jahr in buchungen.auswaehlbare_jahre(self._verbindung):
             self._jahr.addItem(str(jahr), jahr)
         self._jahr.setCurrentIndex(max(self._jahr.findData(bisher), 0))
         self._jahr.blockSignals(False)

@@ -141,6 +141,25 @@ def jahre_laden(verbindung: sqlite3.Connection) -> list[int]:
     return [int(z["jahr"]) for z in zeilen if z["jahr"]]
 
 
+# Frühestes Jahr, das in Auswahlfeldern angeboten wird.
+ERSTES_AUSWAHLJAHR = 2024
+
+
+def auswaehlbare_jahre(verbindung: sqlite3.Connection) -> list[int]:
+    """Liefert alle in der Oberfläche auswählbaren Jahre (absteigend).
+
+    Beginnt stets bei ``ERSTES_AUSWAHLJAHR`` und reicht mindestens bis
+    zum kommenden Kalenderjahr; vorhandene DB-Jahre werden zusätzlich
+    aufgenommen, falls sie außerhalb dieses Bereichs liegen.
+    """
+    from datetime import date
+
+    db_jahre = jahre_laden(verbindung)
+    max_jahr = max([date.today().year + 1] + db_jahre)
+    min_jahr = min([ERSTES_AUSWAHLJAHR] + db_jahre)
+    return list(range(max_jahr, min_jahr - 1, -1))
+
+
 def jahres_auswertung(
     verbindung: sqlite3.Connection, jahr: int
 ) -> dict[int, dict]:

@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.db import mietzahlungen, stammdaten
+from src.db import buchungen, mietzahlungen, stammdaten
 from src.utils.eingaben import MONATSNAMEN_KURZ, ValidierungsFehler
 
 # Hintergrundfarbe für Monate außerhalb des Mietzeitraums.
@@ -75,7 +75,7 @@ class MieterZahlungenSeite(QWidget):
         steuerzeile.addWidget(self._haus)
         steuerzeile.addWidget(QLabel("Jahr:"))
         self._jahr = QSpinBox()
-        self._jahr.setRange(2000, 2100)
+        self._jahr.setRange(buchungen.ERSTES_AUSWAHLJAHR, 2100)
         self._jahr.setValue(date.today().year)
         self._jahr.valueChanged.connect(self._tabelle_laden)
         steuerzeile.addWidget(self._jahr)
