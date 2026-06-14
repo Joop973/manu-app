@@ -30,7 +30,9 @@ from PySide6.QtWidgets import (
 from src.db import buchungen, muster, stammdaten
 from src.logic import lernsystem
 from src.logic.belege import beleg_archivieren
-from src.logic.pdf_import import kontoauszug_einlesen, rohtext_lesen
+from src.logic.pdf_import import (
+    buchungszeilen_aus_text, rohtext_lesen, saldo_pruefen,
+)
 from src.ui.tabelle import tabelle_vorbereiten
 from src.utils.eingaben import betrag_formatieren, datum_anzeigen
 
@@ -86,6 +88,7 @@ class ImportVorschauDialog(QDialog):
         self,
         verbindung: sqlite3.Connection,
         kandidaten: list[dict],
+        pruefung: dict | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -100,6 +103,8 @@ class ImportVorschauDialog(QDialog):
             f"{len(kandidaten)} Buchung(en) erkannt. Grüne Zeilen sind "
             "automatisch zugeordnet, gelbe brauchen Haus und Kategorie."
         ))
+        if pruefung is not None:
+            layout.addWidget(self._saldo_label(pruefung))
 
         self._tabelle = QTableWidget(len(kandidaten), 6)
         self._tabelle.setHorizontalHeaderLabels(
@@ -119,6 +124,35 @@ class ImportVorschauDialog(QDialog):
         self._knopf_uebernehmen.clicked.connect(self._uebernehmen)
         knoepfe.rejected.connect(self.reject)
         layout.addWidget(knoepfe)
+
+    def _saldo_label(self, pruefung: dict) -> QLabel:
+        """Liefert eine grüne/rote Plausibilitätsmeldung zum Endsaldo."""
+        if (pruefung["alter_saldo"] is None
+                or pruefung["neuer_saldo"] is None):
+            text = ("Plausibilitätsprüfung nicht möglich (Anfangs-/"
+                    "Endsaldo nicht erkannt).")
+            farbe = "#fbf2c4"
+        elif pruefung["stimmt"]:
+            text = (
+                f"Saldo stimmt: {betrag_formatieren(pruefung['alter_saldo'])}"
+                f" + {betrag_formatieren(pruefung['summe_buchungen'])}"
+                f" = {betrag_formatieren(pruefung['neuer_saldo'])} €"
+            )
+            farbe = "#d7f0d7"
+        else:
+            differenz = (pruefung["neuer_saldo"]
+                         - (pruefung["berechneter_endsaldo"] or Decimal("0")))
+            text = (
+                "Saldo stimmt NICHT — Differenz "
+                f"{betrag_formatieren(differenz)} €. "
+                "Bitte vor dem Übernehmen prüfen."
+            )
+            farbe = "#f3cba6"
+        label = QLabel(text)
+        label.setStyleSheet(
+            f"background-color: {farbe}; padding: 6px; border-radius: 4px;"
+        )
+        return label
 
     def _tabelle_fuellen(self) -> None:
         """Baut die Vorschautabelle mit Auswahlfeldern je Zeile auf."""
@@ -327,7 +361,8 @@ class ImportSeite(QWidget):
         if not pfad:
             return
         try:
-            zeilen = kontoauszug_einlesen(pfad)
+            rohtext = rohtext_lesen(pfad)
+            zeilen = buchungszeilen_aus_text(rohtext)
         except Exception as fehler:  # noqa: BLE001 - Anzeige statt Absturz
             QMessageBox.critical(
                 self, "PDF konnte nicht gelesen werden", str(fehler)
@@ -335,10 +370,6 @@ class ImportSeite(QWidget):
             return
 
         if not zeilen:
-            try:
-                rohtext = rohtext_lesen(pfad)
-            except Exception:  # noqa: BLE001 - Diagnoseanzeige
-                rohtext = ""
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Information)
             box.setWindowTitle("Keine Buchungen erkannt")
@@ -353,6 +384,7 @@ class ImportSeite(QWidget):
             box.exec()
             return
 
+        pruefung = saldo_pruefen(rohtext, zeilen)
         kandidaten = [
             lernsystem.klassifizieren(
                 self._verbindung, zeile["datum"], zeile["betrag"],
@@ -360,7 +392,9 @@ class ImportSeite(QWidget):
             )
             for zeile in zeilen
         ]
-        ImportVorschauDialog(self._verbindung, kandidaten, parent=self).exec()
+        ImportVorschauDialog(
+            self._verbindung, kandidaten, pruefung=pruefung, parent=self,
+        ).exec()
 
     def _beleg_archivieren(self) -> None:
         pfad, _ = QFileDialog.getOpenFileName(self, "Beleg auswählen")
