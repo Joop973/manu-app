@@ -1,107 +1,95 @@
-# Manu-App — Hausverwaltung & Controlling
+# Dice Mice 🧀🐭
 
-Lokale Windows-Desktop-Anwendung für die private Hausverwaltung einer
-Einzelperson. Ersetzt eine bisher manuell gepflegte Excel-Tabelle und
-automatisiert das Erfassen von Kontoauszügen.
+Ein eigenständiges Würfelspiel mit Mäuse-Thema (React + Vite, später PWA und
+Capacitor/iOS). Eigener Name, eigene Grafiken und Regeltexte.
 
-* **Zielplattform:** Windows 10/11, lokal, vollständig offline
-* **Oberfläche:** Deutsch, PIN-geschützt
-* **Tech-Stack:** Python 3.11+, PySide6, SQLite, pdfplumber, openpyxl, PyInstaller
-* Keine Cloud, keine Online-Dienste, keine externen APIs
-
-## Installation (Entwicklung)
+## Schnellstart
 
 ```bash
-pip install -r requirements.txt
-python manu.py
+npm install
+npm run dev       # Entwicklungsserver (http://localhost:5173)
+npm test          # Engine-Unit-Tests (Vitest)
+npm run build     # Produktions-Build inkl. PWA-Service-Worker
+npm run preview   # Build lokal ansehen
 ```
 
-Beim allerersten Start wird die Datenbank `controlling.db` angelegt,
-die vordefinierten Stammdaten eingefügt und ein PIN abgefragt.
+## Architektur
 
-## .exe erstellen (Build)
-
-Die App lässt sich mit PyInstaller zu einer eigenständigen Windows-.exe
-packen. Der Build muss **auf einem Windows-Rechner** ausgeführt werden:
-
-```bash
-pip install -r requirements.txt
-pyinstaller --onefile --windowed --name ManuApp manu.py
-```
-
-Die fertige Datei liegt anschließend unter `dist/ManuApp.exe`. Sie kann
-in einen beliebigen Ordner kopiert werden; Datenbank, Belege und
-Exporte werden beim Start daneben angelegt.
-
-Hinweise:
-
-* `--onefile` erzeugt eine einzelne Datei, `--windowed` unterdrückt das
-  Konsolenfenster.
-* Beim ersten Start kann eine Antiviren-Prüfung den Start verzögern.
-* Datenbank und Belege sollten regelmäßig gesichert werden — die App
-  erstellt dazu beim Schließen automatisch ein Backup.
-
-## Bedienung (Kurzanleitung)
-
-* **Anmeldung:** Beim ersten Start PIN festlegen, danach PIN eingeben.
-* **Dashboard:** Jahres- und Monatsübersicht je Haus.
-* **Buchungen:** Buchungen erfassen, filtern, Belege anhängen/öffnen.
-* **Mieter:** Monats-Checkliste — Häkchen erfasst die Mietzahlung.
-* **Import:** Kontoauszug-PDF einlesen, Buchungen in der Vorschau prüfen
-  und übernehmen; Belege archivieren.
-* **Stammdaten:** Häuser, Mieter, Kategorien und gelernte Muster pflegen.
-* **Export:** Excel-Jahresübersicht erstellen.
-* **Einstellungen:** PIN ändern, Backup-Ordner wählen, manuell sichern.
-
-## Projektstruktur
+Engine und Transport/UI sind **strikt getrennt**, damit dieselbe Engine lokal
+(Pass-and-Play, Solo) und später online läuft.
 
 ```
-ManuApp/
-├── manu.py                  Einstiegspunkt
-├── requirements.txt         Abhängigkeiten
-├── README.md
-├── controlling.db           SQLite-Datenbank (wird beim ersten Start erzeugt)
-├── sicherungen/             datierte Datenbank-Sicherungen (Auto-Backup)
-├── belege/                  archivierte Belege
-├── belege_backup/           gespiegelte Belege (Auto-Backup)
-├── exports/                 Excel-Exporte
+.
+├── index.html
+├── vite.config.ts            Vite + PWA (manifest, Service Worker)
+├── public/
+│   ├── icons/                Platzhalter-Icons (echte separat beschaffen)
+│   ├── audio/                Sound-Slots (Platzhalter, siehe README dort)
+│   └── characters/           Maus-Grafik-Slots (Platzhalter)
 └── src/
-    ├── db/                   Datenbank-Layer
-    │   ├── schema.py         Tabellendefinitionen und Seed-Daten
-    │   ├── database.py       Verbindungsaufbau (WAL-Modus)
-    │   ├── init.py           Initialisierung und Stammdaten-Seed
-    │   ├── stammdaten.py     Datenzugriff für Häuser/Mieter/Kategorien
-    │   ├── buchungen.py      Datenzugriff für Buchungen + Jahres-Auswertung
-    │   ├── mietzahlungen.py  Mietzahlungen erfassen/zurücknehmen
-    │   ├── muster.py         Datenzugriff für das Lernsystem
-    │   └── einstellungen.py  Zugriff auf die Einstellungstabelle
-    ├── ui/                   PySide6-Fenster und -Dialoge
-    │   ├── login_dialog.py       PIN festlegen / Anmeldung (mit Sperre)
-    │   ├── main_window.py        Hauptfenster mit Navigation
-    │   ├── tabelle.py            gemeinsame Tabellen-Helfer (Sortierung)
-    │   ├── dashboard_seite.py    Jahresübersicht je Haus
-    │   ├── buchungen_seite.py    Buchungserfassung mit Filtern
-    │   ├── mieter_seite.py       Monats-Checkliste der Mietzahlungen
-    │   ├── import_seite.py       PDF-Import und Beleg-Archivierung
-    │   ├── stammdaten_seite.py   Stammdatenverwaltung (vier Reiter)
-    │   ├── export_seite.py       Excel-Export
-    │   └── einstellungen_seite.py  PIN, Backup, Speicherort
-    ├── logic/                Geschäftslogik
-    │   ├── belege.py         Archivierung von Belegdateien
-    │   ├── pdf_import.py     Auslesen von Kontoauszug-PDFs
-    │   ├── lernsystem.py     Normalisierung + automatische Zuordnung
-    │   ├── export.py         Excel-Jahresübersicht (openpyxl)
-    │   └── backup.py         Datensicherung von Datenbank und Belegen
-    └── utils/                Hilfsfunktionen
-        ├── paths.py          zentrale Pfadverwaltung
-        ├── security.py       PIN-Hashing (SHA-256 + Salt)
-        └── eingaben.py       Betrag parsen/formatieren, Validierung
+    ├── game/                 reine Spiel-Engine (kein UI/Netzwerk)
+    │   ├── types.ts          zentrale Typen
+    │   ├── rng.ts            seedbarer Zufallsgenerator (deterministisch)
+    │   ├── dice.ts           Würfelkatalog, Faces, Würfeln
+    │   ├── scoring.ts        Rundenwertung + Tie-Breaks
+    │   ├── engine.ts         Zustandsmaschine (10 Runden × 4 Phasen)
+    │   ├── assets.ts         Slots für Sounds/Charaktere (Phase 5)
+    │   └── __tests__/        Unit-Tests je Wertungsregel
+    └── ui/                   Pass-and-Play-Oberfläche (CSS-Würfel)
 ```
 
-## Entwicklungsstand
+## Spielregeln (umgesetzt)
 
-* **Phase 1 — abgeschlossen:** Grundgerüst, Datenbank, PIN-Login
-* **Phase 2 — abgeschlossen:** Stammdatenverwaltung (Häuser, Mieter, Kategorien)
-* **Phase 3 — abgeschlossen:** Buchungserfassung, Mietzahlungen, Dashboard
-* **Phase 4 — abgeschlossen:** PDF-Import mit Lernsystem, Beleg-Archivierung
-* **Phase 5 — abgeschlossen:** Excel-Export, Auto-Backup, .exe-Build
+- **10 Runden.** Jede Maus startet mit 1 gelben W6.
+- **Vier Phasen pro Runde:** 1) Würfeln 2) Mitleidswürfel 3) Klar-Würfel
+  tauschen 4) Drafting.
+- **Käse-Krone:** höchste Gelb-Summe.
+- Der Würfelbeutel ist eine **Liste** von Würfel-Definitionen (Farbe + Seiten);
+  mehrere Würfel pro Farbe sind möglich.
+
+### Würfelkatalog
+
+| Farbe    | Würfel          | Wertung |
+|----------|-----------------|---------|
+| Gelb     | W6, W8          | höchste Gelb-Summe → Käse-Krone |
+| Grün     | W20             | Standard-Summe |
+| Blau     | W6, W8, W12 (+Glitzer) | Blau & Blau-Glitzer = eine Farbe für Orange |
+| Lila     | W8, W12         | Standard-Summe |
+| Rot      | W6, W8          | Faces positiv **und** negativ |
+| Klar     | W6              | in der Tausch-Phase neu werfbar |
+| Pink     | W12             | Standard-Summe |
+| Orange   | W3              | Wert × Anzahl verschiedener Farben der Runde |
+| Sabotage | W8, W12         | Summe wird dem Kronenhalter abgezogen |
+| Braun    | Faces {2,3} konfigurierbar | Summe × größte passende Gruppe |
+
+Rote und braune Face-Werte sind in `src/game/dice.ts` zentral konfigurierbar
+(`RED_FACES`, `BROWN_PRESETS`: `standard` {2,3}, `low` {1,2}, `wide` {1,2,3}).
+
+## Aufgelöste offene Entscheidungen
+
+- **Orange + Sabotage – Timing:** Die gesamte Wertung erfolgt **am Rundenende**
+  aus einem Würfel-Schnappschuss in fester Reihenfolge
+  (Basis → Käse-Krone → Sabotage). Sabotage liest nur die Basiswerte, nie die
+  bereits sabotierten Werte → keine Reihenfolge-Mehrdeutigkeit, keine
+  Zirkelbezüge. Details als Kommentar in `src/game/scoring.ts`.
+- **Braun – Balance:** Face-Werte über `BROWN_PRESETS` konfigurierbar.
+- **Sabotage – Balance:** rein mechanisch umgesetzt; Feinjustierung im
+  Playtesting.
+
+## Entwicklungsstand (Phasen aus dem Bauplan)
+
+- ✅ **Phase 0** – React-+-Vite-Setup, PWA-Gerüst (manifest, Service Worker,
+  Platzhalter-Icons).
+- ✅ **Phase 1** – Engine als `src/game/*` herausgelöst: alle 10 Farben inkl.
+  Orange/Sabotage/Braun, vier Phasen, Wertung, Tie-Breaks, Käse-Krone,
+  Mitleidswürfel, Tausch, Draft. **41 Unit-Tests** (Engine, Wertung, KI).
+- ✅ **Phase 2** – UI an die Engine angebunden: Setup-Screen, alle vier Phasen
+  sichtbar, Pass-and-Play. (3D-Würfel/Politur folgen in Phase 4/5.)
+- ✅ **Phase 3** – KI-Gegner (Solo): reine Entscheidungsfunktionen in
+  `src/game/ai.ts`, drei Schwierigkeitsgrade (easy/normal/hard), automatischer
+  Tausch- und Draft-Zug. Bewusst gekapselt, damit dieselbe KI später
+  serverseitig bei Spielerausfällen (Timeout) einspringen kann. 9 Unit-Tests.
+- ◻️ **Phase 4** – 3D-Würfel (react-three-fiber).
+- ◻️ **Phase 5** – Sound + Animationen (Slots vorbereitet in `assets.ts`).
+- ◻️ **Phase 6** – Online-Multiplayer (Engine ist bereits transport-unabhängig).
+- ◻️ **Phase 7** – PWA-Feinschliff, Deployment (Netlify), Capacitor-Vorbereitung.

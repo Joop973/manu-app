@@ -1,1 +1,0 @@
-"""Hilfsfunktionen: Pfade, Hashing, Backup."""
