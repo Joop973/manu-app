@@ -90,6 +90,29 @@ body {
   margin-top: 0.5rem;
 }
 
+.setup {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  margin-top: 1rem;
+}
+.setup h2 { margin-top: 0.2rem; }
+.setup__field { display: block; margin: 0.8rem 0; }
+.setup__field > span { display: block; margin-bottom: 0.4rem; font-weight: 600; }
+.setup__choices { display: flex; gap: 0.5rem; }
+.chip {
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  border: 2px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+.chip--on { background: var(--accent); color: #fff; }
+
+.finished .btn { margin: 0.4rem 0.3rem 0; }
 .finished { text-align: center; margin-top: 1.5rem; }
 .finished__ranking { display: inline-block; text-align: left; }
 

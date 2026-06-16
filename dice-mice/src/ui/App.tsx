@@ -1,9 +1,10 @@
 // =====================================================================
-// Pass-and-Play-UI (Phase 2, schlank). Bindet die Engine aus Phase 1 an
-// und stellt alle vier Phasen pro Runde dar. Würfel sind CSS-Platzhalter.
-// Die UI hält KEINE Spiellogik – sie ruft nur Engine-Aktionen auf.
+// UI (Phase 2 + Solo-Modus aus Phase 3). Bindet die Engine an und stellt
+// alle vier Phasen pro Runde dar. KI-Gegner (src/game/ai.ts) machen ihre
+// Tausch- und Draft-Züge automatisch. Würfel sind CSS-Platzhalter.
+// Die UI hält KEINE Spiellogik – sie ruft nur Engine-/KI-Aktionen auf.
 // =====================================================================
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createGame,
   rollPhase,
@@ -17,14 +18,11 @@ import {
   currentDrafter,
   describeDie,
 } from '../game/engine';
+import { aiTakeSwapTurn, aiTakeDraftTurn } from '../game/ai';
 import { COLOR_LABELS } from '../game/dice';
-import type { GameState } from '../game/types';
+import type { Difficulty, GameState } from '../game/types';
 import { Die } from './Die';
-
-const PLAYERS = [
-  { id: 'p1', name: 'Maus 1' },
-  { id: 'p2', name: 'Maus 2' },
-];
+import { Setup, type SetupConfig } from './Setup';
 
 const PHASE_LABEL: Record<string, string> = {
   roll: '1 · Würfeln',
@@ -34,19 +32,102 @@ const PHASE_LABEL: Record<string, string> = {
   finished: 'Spiel beendet',
 };
 
+function buildGame(config: SetupConfig): GameState {
+  const seeds = [
+    { id: 'p1', name: 'Du' },
+    ...Array.from({ length: config.aiCount }, (_, i) => ({
+      id: `ai${i + 1}`,
+      name: `KI ${i + 1} (${difficultyLabel(config.difficulty)})`,
+      ai: config.difficulty,
+    })),
+  ];
+  return createGame(seeds, { seed: Math.floor(Math.random() * 1e9) });
+}
+
+function difficultyLabel(d: Difficulty): string {
+  return d === 'easy' ? 'leicht' : d === 'normal' ? 'normal' : 'schwer';
+}
+
 export function App() {
-  const [state, setState] = useState<GameState>(() =>
-    createGame(PLAYERS, { seed: Math.floor(Math.random() * 1e9) }),
+  const [config, setConfig] = useState<SetupConfig | null>(null);
+  const [state, setState] = useState<GameState | null>(null);
+
+  if (!config || !state) {
+    return (
+      <div className="app">
+        <header className="app__header">
+          <h1>🧀 Dice Mice</h1>
+        </header>
+        <Setup
+          onStart={(c) => {
+            setConfig(c);
+            setState(buildGame(c));
+          }}
+        />
+        <footer className="app__footer">
+          <small>Farben: {Object.values(COLOR_LABELS).join(' · ')}</small>
+        </footer>
+      </div>
+    );
+  }
+
+  return (
+    <Game
+      state={state}
+      setState={setState}
+      onRestart={() => setState(buildGame(config))}
+      onNewGame={() => {
+        setConfig(null);
+        setState(null);
+      }}
+    />
   );
+}
+
+function Game({
+  state,
+  setState,
+  onRestart,
+  onNewGame,
+}: {
+  state: GameState;
+  setState: (s: GameState) => void;
+  onRestart: () => void;
+  onNewGame: () => void;
+}) {
+  const aiOf = (id: string) => state.players.find((p) => p.id === id)?.ai;
+  const swapsDoneForRound = useRef(-1);
+
+  // KI-Automatik: in der swap-Phase tauschen die KIs einmal pro Runde,
+  // in der draft-Phase ziehen sie, sobald sie an der Reihe sind.
+  useEffect(() => {
+    if (state.phase === 'swap' && swapsDoneForRound.current !== state.round) {
+      swapsDoneForRound.current = state.round;
+      let next = state;
+      for (const p of state.players) {
+        if (p.ai) next = aiTakeSwapTurn(next, p.id, p.ai);
+      }
+      if (next !== state) setState(next);
+      return;
+    }
+    if (state.phase === 'draft') {
+      const drafter = currentDrafter(state);
+      const ai = drafter ? aiOf(drafter) : undefined;
+      if (drafter && ai) {
+        const t = setTimeout(() => setState(aiTakeDraftTurn(state, ai)), 450);
+        return () => clearTimeout(t);
+      }
+    }
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const drafter = currentDrafter(state);
+  const drafterIsHuman = drafter ? !aiOf(drafter) : false;
   const result = state.phase === 'finished' ? gameResult(state) : null;
   const playerName = (id: string) =>
     state.players.find((p) => p.id === id)?.name ?? id;
 
   const totals = useMemo(
-    () =>
-      [...state.players].sort((a, b) => b.totalScore - a.totalScore),
+    () => [...state.players].sort((a, b) => b.totalScore - a.totalScore),
     [state],
   );
 
@@ -73,26 +154,50 @@ export function App() {
       </section>
 
       {state.phase === 'finished' && result ? (
-        <FinishedView state={state} result={result} onRestart={() => setState(createGame(PLAYERS, { seed: Math.floor(Math.random() * 1e9) }))} />
+        <section className="finished">
+          <h2>🏆 {playerName(result.winnerId)} gewinnt!</h2>
+          <ol className="finished__ranking">
+            {result.ranking.map((r) => (
+              <li key={r.playerId}>
+                {playerName(r.playerId)} — {r.totalScore} Punkte
+              </li>
+            ))}
+          </ol>
+          <button className="btn" onClick={onRestart}>
+            Nochmal (gleiche Aufstellung)
+          </button>
+          <button className="btn btn--ghost" onClick={onNewGame}>
+            Neues Spiel einrichten
+          </button>
+        </section>
       ) : (
         <>
           {state.rolls.length > 0 && (
             <section className="rolls">
               {state.rolls.map((roll) => (
                 <div key={roll.playerId} className="rolls__player">
-                  <h3>{playerName(roll.playerId)}</h3>
+                  <h3>
+                    {playerName(roll.playerId)}
+                    {!aiOf(roll.playerId) && ' 🐭'}
+                  </h3>
                   <div className="rolls__dice">
-                    {roll.dice.map((d) => (
-                      <Die
-                        key={d.def.id}
-                        color={d.def.color}
-                        value={d.value}
-                        swappable={state.phase === 'swap' && d.def.color === 'clear'}
-                        onSwap={() =>
-                          setState(swapClearDie(state, roll.playerId, d.def.id))
-                        }
-                      />
-                    ))}
+                    {roll.dice.map((d) => {
+                      const swappable =
+                        state.phase === 'swap' &&
+                        d.def.color === 'clear' &&
+                        !aiOf(roll.playerId);
+                      return (
+                        <Die
+                          key={d.def.id}
+                          color={d.def.color}
+                          value={d.value}
+                          swappable={swappable}
+                          onSwap={() =>
+                            setState(swapClearDie(state, roll.playerId, d.def.id))
+                          }
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -102,23 +207,29 @@ export function App() {
           {state.phase === 'draft' && state.draft && (
             <section className="draft">
               <h3>
-                Draft – {drafter ? `${playerName(drafter)} wählt` : 'fertig'}
+                Draft –{' '}
+                {drafter
+                  ? `${playerName(drafter)}${drafterIsHuman ? ' wählt' : ' überlegt …'}`
+                  : 'fertig'}
               </h3>
               <div className="draft__options">
                 {state.draft.options.map((opt, i) => (
                   <button
                     key={opt.id}
                     className="draft__option"
-                    disabled={!drafter}
+                    disabled={!drafterIsHuman}
                     onClick={() => setState(draftPick(state, drafter!, i))}
                   >
                     {describeDie(opt)}
                   </button>
                 ))}
               </div>
-              {drafter && (
-                <button className="btn btn--ghost" onClick={() => setState(draftSkip(state, drafter))}>
-                  {playerName(drafter)} überspringt
+              {drafterIsHuman && (
+                <button
+                  className="btn btn--ghost"
+                  onClick={() => setState(draftSkip(state, drafter!))}
+                >
+                  Überspringen
                 </button>
               )}
             </section>
@@ -131,9 +242,9 @@ export function App() {
       )}
 
       <footer className="app__footer">
-        <small>
-          Farben: {Object.values(COLOR_LABELS).join(' · ')}
-        </small>
+        <button className="btn btn--ghost" onClick={onNewGame}>
+          Spiel abbrechen
+        </button>
       </footer>
     </div>
   );
@@ -174,31 +285,4 @@ function PhaseButton({
     default:
       return null;
   }
-}
-
-function FinishedView({
-  state,
-  result,
-  onRestart,
-}: {
-  state: GameState;
-  result: ReturnType<typeof gameResult>;
-  onRestart: () => void;
-}) {
-  const name = (id: string) => state.players.find((p) => p.id === id)?.name ?? id;
-  return (
-    <section className="finished">
-      <h2>🏆 {name(result.winnerId)} gewinnt!</h2>
-      <ol className="finished__ranking">
-        {result.ranking.map((r) => (
-          <li key={r.playerId}>
-            {name(r.playerId)} — {r.totalScore} Punkte
-          </li>
-        ))}
-      </ol>
-      <button className="btn" onClick={onRestart}>
-        Neues Spiel
-      </button>
-    </section>
-  );
 }

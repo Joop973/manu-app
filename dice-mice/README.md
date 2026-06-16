@@ -86,10 +86,13 @@ Rote und braune Face-Werte sind in `src/game/dice.ts` zentral konfigurierbar
   Platzhalter-Icons).
 - ✅ **Phase 1** – Engine als `src/game/*` herausgelöst: alle 10 Farben inkl.
   Orange/Sabotage/Braun, vier Phasen, Wertung, Tie-Breaks, Käse-Krone,
-  Mitleidswürfel, Tausch, Draft. **32 Unit-Tests** decken jede Wertungsregel ab.
-- ◻️ **Phase 2** – UI an die Engine angebunden (Pass-and-Play, alle vier Phasen
-  sichtbar). Grundgerüst steht; Feinschliff folgt.
-- ◻️ **Phase 3** – KI-Gegner (Solo, kapselbar für serverseitige Ausfälle).
+  Mitleidswürfel, Tausch, Draft. **41 Unit-Tests** (Engine, Wertung, KI).
+- ✅ **Phase 2** – UI an die Engine angebunden: Setup-Screen, alle vier Phasen
+  sichtbar, Pass-and-Play. (3D-Würfel/Politur folgen in Phase 4/5.)
+- ✅ **Phase 3** – KI-Gegner (Solo): reine Entscheidungsfunktionen in
+  `src/game/ai.ts`, drei Schwierigkeitsgrade (easy/normal/hard), automatischer
+  Tausch- und Draft-Zug. Bewusst gekapselt, damit dieselbe KI später
+  serverseitig bei Spielerausfällen (Timeout) einspringen kann. 9 Unit-Tests.
 - ◻️ **Phase 4** – 3D-Würfel (react-three-fiber).
 - ◻️ **Phase 5** – Sound + Animationen (Slots vorbereitet in `assets.ts`).
 - ◻️ **Phase 6** – Online-Multiplayer (Engine ist bereits transport-unabhängig).
