@@ -27,11 +27,13 @@ def buchungen_laden(
     """
     sql = (
         "SELECT b.id, b.datum, b.betrag, b.objekt_id, b.kategorie_id, "
-        "b.beschreibung, b.beleg_pfad, b.quelle, "
-        "o.name AS objekt_name, k.name AS kategorie_name, k.typ AS kategorie_typ "
+        "b.mieter_id, b.beschreibung, b.beleg_pfad, b.quelle, "
+        "o.name AS objekt_name, k.name AS kategorie_name, k.typ AS kategorie_typ, "
+        "m.name AS mieter_name "
         "FROM buchungen b "
         "LEFT JOIN objekte o ON o.id = b.objekt_id "
         "LEFT JOIN kategorien k ON k.id = b.kategorie_id "
+        "LEFT JOIN mieter m ON m.id = b.mieter_id "
         "WHERE 1 = 1"
     )
     parameter: list = []
@@ -78,15 +80,17 @@ def buchung_anlegen(
     beschreibung: str,
     beleg_pfad: str | None,
     quelle: str,
+    mieter_id: int | None = None,
 ) -> int:
     """Legt eine neue Buchung an und liefert deren ID."""
     if not datum:
         raise ValidierungsFehler("Bitte ein Datum angeben.")
     cursor = verbindung.execute(
         "INSERT INTO buchungen "
-        "(datum, betrag, objekt_id, kategorie_id, beschreibung, beleg_pfad, quelle) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (datum, str(betrag), objekt_id, kategorie_id,
+        "(datum, betrag, objekt_id, kategorie_id, mieter_id, beschreibung, "
+        "beleg_pfad, quelle) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (datum, str(betrag), objekt_id, kategorie_id, mieter_id,
          beschreibung, beleg_pfad, quelle),
     )
     verbindung.commit()
@@ -102,14 +106,16 @@ def buchung_aktualisieren(
     kategorie_id: int,
     beschreibung: str,
     beleg_pfad: str | None,
+    mieter_id: int | None = None,
 ) -> None:
     """Aktualisiert eine bestehende Buchung."""
     if not datum:
         raise ValidierungsFehler("Bitte ein Datum angeben.")
     verbindung.execute(
         "UPDATE buchungen SET datum = ?, betrag = ?, objekt_id = ?, "
-        "kategorie_id = ?, beschreibung = ?, beleg_pfad = ? WHERE id = ?",
-        (datum, str(betrag), objekt_id, kategorie_id,
+        "kategorie_id = ?, mieter_id = ?, beschreibung = ?, beleg_pfad = ? "
+        "WHERE id = ?",
+        (datum, str(betrag), objekt_id, kategorie_id, mieter_id,
          beschreibung, beleg_pfad, buchung_id),
     )
     verbindung.commit()

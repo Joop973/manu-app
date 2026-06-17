@@ -88,14 +88,16 @@ def mietzahlung_erfassen(
             continue
         verbindung.execute(
             "INSERT INTO buchungen "
-            "(datum, betrag, objekt_id, kategorie_id, beschreibung, "
-            "beleg_pfad, quelle) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(datum, betrag, objekt_id, kategorie_id, mieter_id, "
+            "beschreibung, beleg_pfad, quelle) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 datum,
                 str(betrag),
                 mieter["objekt_id"],
                 kategorie_ids[name],
-                f"{name} {mieter['name']} {monat:02d}/{jahr}",
+                mieter_id,
+                f"{name} von {mieter['name']} ({monat:02d}/{jahr})",
                 None,
                 quelle,
             ),

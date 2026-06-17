@@ -78,6 +78,7 @@ class BuchungDialog(QDialog):
             if not haus["aktiv"]:
                 text += "  (inaktiv)"
             self._feld_haus.addItem(text, haus["id"])
+        self._feld_haus.currentIndexChanged.connect(self._mieter_combo_fuellen)
         formular.addRow("Haus:", self._feld_haus)
 
         self._feld_kategorie = QComboBox()
@@ -89,7 +90,16 @@ class BuchungDialog(QDialog):
                 self._feld_kategorie.addItem(text, kategorie["id"])
         formular.addRow("Kategorie:", self._feld_kategorie)
 
+        # Mieter-Bezug (optional). Steuert auch die Anzeige
+        # „Mieteinnahme von <Name>" in der Buchungsliste.
+        self._feld_mieter = QComboBox()
+        self._mieter_combo_fuellen()
+        formular.addRow("Mieter (optional):", self._feld_mieter)
+
         self._feld_beschreibung = QLineEdit()
+        self._feld_beschreibung.setPlaceholderText(
+            "frei eintragen — z. B. Mieteinnahme von …, oder etwas Neues"
+        )
         formular.addRow("Beschreibung:", self._feld_beschreibung)
 
         self._beleg_label = QLabel("kein Beleg")
@@ -117,11 +127,32 @@ class BuchungDialog(QDialog):
         knoepfe.rejected.connect(self.reject)
         layout.addWidget(knoepfe)
 
+    def _mieter_combo_fuellen(self) -> None:
+        """Baut das Mieter-Auswahlfeld passend zum gewählten Haus auf.
+
+        Der erste Eintrag „— kein Mieter —" ist der leere Standard-Slot;
+        er bleibt aktiv, wenn die Buchung niemandem zugeordnet ist (etwa
+        Versicherung, Steuer). Für Mieteinnahmen wählt man den Mieter.
+        """
+        bisher = self._feld_mieter.currentData() if self._feld_mieter.count() else None
+        self._feld_mieter.blockSignals(True)
+        self._feld_mieter.clear()
+        self._feld_mieter.addItem("— kein Mieter —", None)
+        objekt_id = self._feld_haus.currentData()
+        if objekt_id is not None:
+            for mieter in stammdaten.mieter_laden(self._verbindung, objekt_id):
+                self._feld_mieter.addItem(mieter["name"], mieter["id"])
+        if bisher is not None:
+            index = self._feld_mieter.findData(bisher)
+            if index >= 0:
+                self._feld_mieter.setCurrentIndex(index)
+        self._feld_mieter.blockSignals(False)
+
     def _daten_laden(self) -> None:
         """Füllt das Formular mit den Werten einer bestehenden Buchung."""
         zeile = self._verbindung.execute(
-            "SELECT datum, betrag, objekt_id, kategorie_id, beschreibung, "
-            "beleg_pfad FROM buchungen WHERE id = ?",
+            "SELECT datum, betrag, objekt_id, kategorie_id, mieter_id, "
+            "beschreibung, beleg_pfad FROM buchungen WHERE id = ?",
             (self._buchung_id,),
         ).fetchone()
         if zeile is None:
@@ -137,6 +168,11 @@ class BuchungDialog(QDialog):
         index_kat = self._feld_kategorie.findData(zeile["kategorie_id"])
         if index_kat >= 0:
             self._feld_kategorie.setCurrentIndex(index_kat)
+        # Haus-Wechsel hat das Mieter-Combo aktualisiert — jetzt Auswahl setzen.
+        self._mieter_combo_fuellen()
+        index_mieter = self._feld_mieter.findData(zeile["mieter_id"])
+        if index_mieter >= 0:
+            self._feld_mieter.setCurrentIndex(index_mieter)
         self._feld_beschreibung.setText(zeile["beschreibung"] or "")
         self._beleg_bestehend = zeile["beleg_pfad"]
         self._beleg_label_aktualisieren()
@@ -191,18 +227,20 @@ class BuchungDialog(QDialog):
                 )
                 return
 
+        mieter_id = self._feld_mieter.currentData()
         try:
             if self._buchung_id is None:
                 buchungen.buchung_anlegen(
                     self._verbindung, datum, betrag, objekt_id, kategorie_id,
                     self._feld_beschreibung.text().strip(), beleg_pfad,
-                    "manuell",
+                    "manuell", mieter_id=mieter_id,
                 )
             else:
                 buchungen.buchung_aktualisieren(
                     self._verbindung, self._buchung_id, datum, betrag,
                     objekt_id, kategorie_id,
                     self._feld_beschreibung.text().strip(), beleg_pfad,
+                    mieter_id=mieter_id,
                 )
         except ValidierungsFehler as fehler:
             QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
@@ -247,10 +285,10 @@ class BuchungenSeite(QWidget):
         layout.addLayout(filterzeile)
 
         # Tabelle
-        self._tabelle = QTableWidget(0, 7)
+        self._tabelle = QTableWidget(0, 8)
         self._tabelle.setHorizontalHeaderLabels(
-            ["Datum", "Betrag", "Haus", "Kategorie", "Beschreibung",
-             "Beleg", "Quelle"]
+            ["Datum", "Betrag", "Haus", "Kategorie", "Mieter",
+             "Beschreibung", "Beleg", "Quelle"]
         )
         tabelle_vorbereiten(self._tabelle)
         self._tabelle.itemDoubleClicked.connect(
@@ -363,6 +401,7 @@ class BuchungenSeite(QWidget):
                 betrag_item,
                 QTableWidgetItem(zeile["objekt_name"] or "—"),
                 QTableWidgetItem(zeile["kategorie_name"] or "—"),
+                QTableWidgetItem(zeile["mieter_name"] or "—"),
                 QTableWidgetItem(zeile["beschreibung"] or ""),
                 QTableWidgetItem(beleg_text),
                 QTableWidgetItem(quelle_text),

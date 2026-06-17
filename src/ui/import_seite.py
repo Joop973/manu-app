@@ -78,11 +78,39 @@ def _kategorie_combo(
     return combo
 
 
+def _mieter_combo_fuellen(
+    combo: QComboBox,
+    verbindung: sqlite3.Connection,
+    objekt_id: int | None,
+    auswahl_mieter_id: int | None = None,
+) -> None:
+    """Befüllt ein Mieter-Auswahlfeld passend zum gewählten Haus.
+
+    Der erste Eintrag „— kein Mieter —" ist der leere Standard-Slot, der
+    bleibt, wenn die Buchung niemandem zugeordnet ist (z. B. Versicherung).
+    """
+    bisher = auswahl_mieter_id if auswahl_mieter_id is not None \
+        else combo.currentData()
+    combo.blockSignals(True)
+    combo.clear()
+    combo.addItem("— kein Mieter —", None)
+    if objekt_id is not None:
+        for mieter in stammdaten.mieter_laden(verbindung, objekt_id):
+            combo.addItem(mieter["name"], mieter["id"])
+    if bisher is not None:
+        index = combo.findData(bisher)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+    combo.blockSignals(False)
+
+
 class ImportVorschauDialog(QDialog):
     """Zeigt die erkannten Buchungen vor dem Übernehmen zur Kontrolle."""
 
     SPALTE_HAUS = 3
     SPALTE_KATEGORIE = 4
+    SPALTE_MIETER = 5
+    SPALTE_STATUS = 6
 
     def __init__(
         self,
@@ -106,10 +134,10 @@ class ImportVorschauDialog(QDialog):
         if pruefung is not None:
             layout.addWidget(self._saldo_label(pruefung))
 
-        self._tabelle = QTableWidget(len(kandidaten), 6)
+        self._tabelle = QTableWidget(len(kandidaten), 7)
         self._tabelle.setHorizontalHeaderLabels(
             ["Datum", "Betrag", "Empfänger / Zweck", "Haus", "Kategorie",
-             "Status"]
+             "Mieter", "Status"]
         )
         tabelle_vorbereiten(self._tabelle, sortierbar=False)
         layout.addWidget(self._tabelle)
@@ -182,20 +210,31 @@ class ImportVorschauDialog(QDialog):
                 item.setBackground(farbe)
                 self._tabelle.setItem(zeile, spalte, item)
             status_item.setBackground(farbe)
-            self._tabelle.setItem(zeile, 5, status_item)
+            self._tabelle.setItem(zeile, self.SPALTE_STATUS, status_item)
 
-            self._tabelle.setCellWidget(
-                zeile, self.SPALTE_HAUS,
-                _haus_combo(self._verbindung, kandidat["objekt_id"]),
-            )
+            haus_combo = _haus_combo(self._verbindung, kandidat["objekt_id"])
+            self._tabelle.setCellWidget(zeile, self.SPALTE_HAUS, haus_combo)
             self._tabelle.setCellWidget(
                 zeile, self.SPALTE_KATEGORIE,
                 _kategorie_combo(self._verbindung, kandidat["kategorie_id"]),
             )
 
+            mieter_combo = QComboBox()
+            _mieter_combo_fuellen(
+                mieter_combo, self._verbindung,
+                kandidat["objekt_id"], None,
+            )
+            self._tabelle.setCellWidget(zeile, self.SPALTE_MIETER, mieter_combo)
+            # Bei Hauswechsel das Mieter-Combo derselben Zeile mit
+            # passenden Mietern neu befüllen.
+            haus_combo.currentIndexChanged.connect(
+                lambda _, hk=haus_combo, mk=mieter_combo:
+                _mieter_combo_fuellen(mk, self._verbindung, hk.currentData())
+            )
+
     def _uebernehmen(self) -> None:
         """Prüft die Zuordnung und schreibt alle Buchungen in die Datenbank."""
-        zuordnung: list[tuple[int, int]] = []
+        zuordnung: list[tuple[int, int, int | None]] = []
         for zeile in range(len(self._kandidaten)):
             objekt_id = self._tabelle.cellWidget(
                 zeile, self.SPALTE_HAUS
@@ -203,16 +242,19 @@ class ImportVorschauDialog(QDialog):
             kategorie_id = self._tabelle.cellWidget(
                 zeile, self.SPALTE_KATEGORIE
             ).currentData()
+            mieter_id = self._tabelle.cellWidget(
+                zeile, self.SPALTE_MIETER
+            ).currentData()
             if objekt_id is None or kategorie_id is None:
                 QMessageBox.warning(
                     self, "Zuordnung unvollständig",
                     f"Zeile {zeile + 1}: Bitte Haus und Kategorie wählen."
                 )
                 return
-            zuordnung.append((objekt_id, kategorie_id))
+            zuordnung.append((objekt_id, kategorie_id, mieter_id))
 
         try:
-            for kandidat, (objekt_id, kategorie_id) in zip(
+            for kandidat, (objekt_id, kategorie_id, mieter_id) in zip(
                 self._kandidaten, zuordnung
             ):
                 buchungen.buchung_anlegen(
@@ -224,6 +266,7 @@ class ImportVorschauDialog(QDialog):
                     kandidat["text"],
                     None,
                     "import",
+                    mieter_id=mieter_id,
                 )
                 erkennung = lernsystem.erkennungstext_bilden(kandidat["norm"])
                 muster.muster_speichern(
