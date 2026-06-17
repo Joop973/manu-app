@@ -10,6 +10,7 @@ import sqlite3
 from datetime import date
 from decimal import Decimal
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QGridLayout,
@@ -122,7 +123,27 @@ class DashboardSeite(QWidget):
         self._raster.addWidget(
             self._gesamt_karte(gesamt_saldo), naechste_zeile, 0, 1, _SPALTEN
         )
-        self._raster.setRowStretch(naechste_zeile + 1, 1)
+        self._raster.addWidget(
+            self._import_uebersicht(jahr),
+            naechste_zeile + 1, 0, 1, _SPALTEN,
+        )
+        self._raster.setRowStretch(naechste_zeile + 2, 1)
+
+    def _import_uebersicht(self, jahr: int) -> QGroupBox:
+        """Zeigt je Monat, wie viele Auszugs-Buchungen importiert sind."""
+        box = QGroupBox(f"Importierte Auszüge {jahr}")
+        inhalt = QHBoxLayout(box)
+        uebersicht = buchungen.import_monate_uebersicht(self._verbindung, jahr)
+        for nummer, name in enumerate(MONATSNAMEN, start=1):
+            anzahl = uebersicht.get(nummer, 0)
+            zelle = QLabel(f"{name[:3]}\n{('✓ ' + str(anzahl)) if anzahl else '—'}")
+            zelle.setAlignment(Qt.AlignCenter)
+            farbe = "#1f7a4d" if anzahl else "#999999"
+            zelle.setStyleSheet(
+                f"color: {farbe}; padding: 4px; font-weight: bold;"
+            )
+            inhalt.addWidget(zelle)
+        return box
 
     def _haus_karte(
         self,

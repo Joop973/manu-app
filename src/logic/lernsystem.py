@@ -10,7 +10,7 @@ import re
 import sqlite3
 from decimal import Decimal
 
-from src.db import buchungen, muster
+from src.db import buchungen, muster, regeln
 
 # Maximale Länge des gespeicherten Erkennungstextes.
 _ERKENNUNG_LAENGE = 40
@@ -116,22 +116,38 @@ def klassifizieren(
         "norm": normalisiert,
         "objekt_id": None,
         "kategorie_id": None,
+        "mieter_id": None,
         "status": "neu",
         "dublette": buchungen.buchung_existiert(verbindung, datum, betrag),
     }
 
+    # 1) Benutzerdefinierte Regel hat Vorrang.
+    regel = regeln.regel_finden(verbindung, normalisiert)
+    if regel is not None:
+        kandidat["objekt_id"] = regel["objekt_id"]
+        kandidat["kategorie_id"] = regel["kategorie_id"]
+        kandidat["mieter_id"] = regel["mieter_id"]
+        if regel["objekt_id"] and regel["kategorie_id"]:
+            kandidat["status"] = "auto"
+
+    # 2) Gelerntes Muster ergänzt, was die Regel offen lässt.
     treffer = muster.muster_finden(verbindung, normalisiert)
-    if treffer is None:
-        return kandidat
+    if treffer is not None:
+        if kandidat["objekt_id"] is None:
+            kandidat["objekt_id"] = treffer["objekt_id"]
+        if kandidat["kategorie_id"] is None:
+            kandidat["kategorie_id"] = treffer["kategorie_id"]
+        if kandidat["mieter_id"] is None:
+            kandidat["mieter_id"] = treffer["mieter_id"]
+        if kandidat["objekt_id"] and kandidat["kategorie_id"]:
+            kandidat["status"] = "auto"
 
-    kandidat["objekt_id"] = treffer["objekt_id"]
-    kandidat["kategorie_id"] = treffer["kategorie_id"]
-    kandidat["status"] = "auto"
-
-    # Betragsabweichung gegenüber dem Durchschnitt ähnlicher Buchungen.
-    schnitt = _durchschnitt_fuer_muster(verbindung, treffer["erkennungstext"])
-    if schnitt and schnitt > 0:
-        abweichung = abs(abs(betrag) - schnitt) / schnitt
-        if abweichung > ABWEICHUNG_GRENZE:
-            kandidat["status"] = "unsicher"
+        # Betragsabweichung gegenüber dem Durchschnitt ähnlicher Buchungen.
+        schnitt = _durchschnitt_fuer_muster(
+            verbindung, treffer["erkennungstext"]
+        )
+        if schnitt and schnitt > 0:
+            abweichung = abs(abs(betrag) - schnitt) / schnitt
+            if abweichung > ABWEICHUNG_GRENZE:
+                kandidat["status"] = "unsicher"
     return kandidat

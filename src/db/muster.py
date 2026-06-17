@@ -1,9 +1,9 @@
 """Datenzugriff für das Lernsystem (Tabelle ``buchungsmuster``).
 
 Ein Buchungsmuster verknüpft einen normalisierten Erkennungstext
-(typischerweise der Empfängername) mit einem Haus und einer Kategorie.
-Beim Import werden neue Buchungen über einen Substring-Vergleich des
-normalisierten Textes automatisch zugeordnet.
+(typischerweise der Empfängername) mit Haus, Kategorie und — optional —
+dem Mieter. Beim Import werden neue Buchungen über einen Substring-
+Vergleich des normalisierten Textes automatisch zugeordnet.
 """
 
 from __future__ import annotations
@@ -15,19 +15,22 @@ from datetime import date
 def muster_laden(verbindung: sqlite3.Connection) -> list[sqlite3.Row]:
     """Lädt alle gespeicherten Buchungsmuster."""
     return verbindung.execute(
-        "SELECT id, erkennungstext, objekt_id, kategorie_id, bestaetigt_am "
-        "FROM buchungsmuster ORDER BY erkennungstext"
+        "SELECT id, erkennungstext, objekt_id, kategorie_id, mieter_id, "
+        "bestaetigt_am FROM buchungsmuster ORDER BY erkennungstext"
     ).fetchall()
 
 
 def muster_uebersicht(verbindung: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Lädt alle Muster inklusive Haus- und Kategoriename (für die Anzeige)."""
+    """Lädt alle Muster inkl. Haus-, Kategorie- und Mieternamen."""
     return verbindung.execute(
         "SELECT m.id, m.erkennungstext, m.objekt_id, m.kategorie_id, "
-        "m.bestaetigt_am, o.name AS objekt_name, k.name AS kategorie_name "
+        "m.mieter_id, m.bestaetigt_am, "
+        "o.name AS objekt_name, k.name AS kategorie_name, "
+        "mt.name AS mieter_name "
         "FROM buchungsmuster m "
         "LEFT JOIN objekte o ON o.id = m.objekt_id "
         "LEFT JOIN kategorien k ON k.id = m.kategorie_id "
+        "LEFT JOIN mieter mt ON mt.id = m.mieter_id "
         "ORDER BY m.erkennungstext"
     ).fetchall()
 
@@ -37,11 +40,13 @@ def muster_aktualisieren(
     muster_id: int,
     objekt_id: int,
     kategorie_id: int,
+    mieter_id: int | None = None,
 ) -> None:
     """Ändert die Zuordnung eines bestehenden Musters."""
     verbindung.execute(
-        "UPDATE buchungsmuster SET objekt_id = ?, kategorie_id = ? WHERE id = ?",
-        (objekt_id, kategorie_id, muster_id),
+        "UPDATE buchungsmuster SET objekt_id = ?, kategorie_id = ?, "
+        "mieter_id = ? WHERE id = ?",
+        (objekt_id, kategorie_id, mieter_id, muster_id),
     )
     verbindung.commit()
 
@@ -64,11 +69,11 @@ def muster_finden(
     if not normalisierter_text:
         return None
     bester: sqlite3.Row | None = None
-    for muster in muster_laden(verbindung):
-        erkennung = muster["erkennungstext"]
+    for eintrag in muster_laden(verbindung):
+        erkennung = eintrag["erkennungstext"]
         if erkennung and erkennung in normalisierter_text:
             if bester is None or len(erkennung) > len(bester["erkennungstext"]):
-                bester = muster
+                bester = eintrag
     return bester
 
 
@@ -77,6 +82,7 @@ def muster_speichern(
     erkennungstext: str,
     objekt_id: int,
     kategorie_id: int,
+    mieter_id: int | None = None,
 ) -> None:
     """Speichert ein Muster bzw. aktualisiert ein bereits vorhandenes."""
     erkennungstext = erkennungstext.strip()
@@ -90,14 +96,14 @@ def muster_speichern(
     if vorhanden is None:
         verbindung.execute(
             "INSERT INTO buchungsmuster "
-            "(erkennungstext, objekt_id, kategorie_id, bestaetigt_am) "
-            "VALUES (?, ?, ?, ?)",
-            (erkennungstext, objekt_id, kategorie_id, heute),
+            "(erkennungstext, objekt_id, kategorie_id, mieter_id, "
+            "bestaetigt_am) VALUES (?, ?, ?, ?, ?)",
+            (erkennungstext, objekt_id, kategorie_id, mieter_id, heute),
         )
     else:
         verbindung.execute(
             "UPDATE buchungsmuster SET objekt_id = ?, kategorie_id = ?, "
-            "bestaetigt_am = ? WHERE id = ?",
-            (objekt_id, kategorie_id, heute, vorhanden["id"]),
+            "mieter_id = ?, bestaetigt_am = ? WHERE id = ?",
+            (objekt_id, kategorie_id, mieter_id, heute, vorhanden["id"]),
         )
     verbindung.commit()

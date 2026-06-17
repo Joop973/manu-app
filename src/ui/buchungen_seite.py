@@ -261,6 +261,17 @@ class BuchungenSeite(QWidget):
 
         layout = QVBoxLayout(self)
 
+        # Suchzeile
+        suchzeile = QHBoxLayout()
+        suchzeile.addWidget(QLabel("Suche:"))
+        self._suche = QLineEdit()
+        self._suche.setPlaceholderText(
+            "Beschreibung, Haus, Kategorie oder Mietername — frei tippen"
+        )
+        self._suche.textChanged.connect(self._tabelle_laden)
+        suchzeile.addWidget(self._suche, stretch=1)
+        layout.addLayout(suchzeile)
+
         # Filterzeile
         filterzeile = QHBoxLayout()
         self._filter_haus = QComboBox()
@@ -284,6 +295,39 @@ class BuchungenSeite(QWidget):
         filterzeile.addStretch()
         layout.addLayout(filterzeile)
 
+        # Schnell-Eingabe (über der Tabelle, ohne Dialog)
+        schnellzeile = QHBoxLayout()
+        schnellzeile.addWidget(QLabel("Schnell-Eingabe:"))
+        self._schnell_datum = QDateEdit()
+        self._schnell_datum.setCalendarPopup(True)
+        self._schnell_datum.setDisplayFormat("dd.MM.yyyy")
+        self._schnell_datum.setDate(QDate.currentDate())
+        schnellzeile.addWidget(self._schnell_datum)
+        self._schnell_betrag = QLineEdit()
+        self._schnell_betrag.setPlaceholderText("Betrag, z. B. 85,40")
+        self._schnell_betrag.setFixedWidth(120)
+        schnellzeile.addWidget(self._schnell_betrag)
+        self._schnell_haus = QComboBox()
+        for haus in stammdaten.objekte_laden(self._verbindung):
+            self._schnell_haus.addItem(haus["name"], haus["id"])
+        schnellzeile.addWidget(self._schnell_haus)
+        self._schnell_kategorie = QComboBox()
+        for typ, label in (("einnahme", "Einnahme"), ("ausgabe", "Ausgabe")):
+            for kat in stammdaten.kategorien_laden(self._verbindung, typ):
+                self._schnell_kategorie.addItem(
+                    f"{kat['name']} ({label})", kat["id"]
+                )
+        schnellzeile.addWidget(self._schnell_kategorie)
+        self._schnell_text = QLineEdit()
+        self._schnell_text.setPlaceholderText("Beschreibung")
+        schnellzeile.addWidget(self._schnell_text, stretch=1)
+        knopf_schnell = QPushButton("Hinzufügen")
+        knopf_schnell.clicked.connect(self._schnell_anlegen)
+        self._schnell_text.returnPressed.connect(self._schnell_anlegen)
+        self._schnell_betrag.returnPressed.connect(self._schnell_anlegen)
+        schnellzeile.addWidget(knopf_schnell)
+        layout.addLayout(schnellzeile)
+
         # Tabelle
         self._tabelle = QTableWidget(0, 8)
         self._tabelle.setHorizontalHeaderLabels(
@@ -291,9 +335,6 @@ class BuchungenSeite(QWidget):
              "Beschreibung", "Beleg", "Quelle"]
         )
         tabelle_vorbereiten(self._tabelle)
-        self._tabelle.itemDoubleClicked.connect(
-            lambda *_: self._buchung_bearbeiten()
-        )
         layout.addWidget(self._tabelle)
 
         # Knöpfe
@@ -310,11 +351,51 @@ class BuchungenSeite(QWidget):
         knopfleiste.addStretch()
         layout.addLayout(knopfleiste)
 
+        # Tastaturkürzel
+        from PySide6.QtGui import QShortcut, QKeySequence
+        QShortcut(QKeySequence("Ctrl+N"), self, self._neue_buchung)
+        QShortcut(QKeySequence("Ctrl+F"), self, lambda: self._suche.setFocus())
+        QShortcut(QKeySequence(Qt.Key_Delete), self, self._buchung_loeschen)
+        QShortcut(QKeySequence("Ctrl+Return"), self, self._schnell_anlegen)
+        self._tabelle.itemDoubleClicked.connect(
+            lambda *_: self._buchung_bearbeiten()
+        )
+
         self.aktualisieren()
 
     def aktualisieren(self) -> None:
         """Lädt Filter-Auswahllisten und Tabelle neu."""
         self._filter_neu_aufbauen()
+        self._tabelle_laden()
+
+    def _schnell_anlegen(self) -> None:
+        """Legt eine Buchung aus der Inline-Eingabezeile an."""
+        if not self._schnell_betrag.text().strip():
+            return
+        try:
+            betrag = betrag_parsen(self._schnell_betrag.text())
+        except ValidierungsFehler as fehler:
+            QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
+            return
+        objekt_id = self._schnell_haus.currentData()
+        kategorie_id = self._schnell_kategorie.currentData()
+        if objekt_id is None or kategorie_id is None:
+            QMessageBox.warning(
+                self, "Auswahl fehlt",
+                "Haus und Kategorie sind nötig (unter Stammdaten anlegen)."
+            )
+            return
+        datum = self._schnell_datum.date().toString("yyyy-MM-dd")
+        try:
+            buchungen.buchung_anlegen(
+                self._verbindung, datum, betrag, objekt_id, kategorie_id,
+                self._schnell_text.text().strip(), None, "manuell",
+            )
+        except (ValidierungsFehler, sqlite3.Error) as fehler:
+            QMessageBox.warning(self, "Fehler", str(fehler))
+            return
+        self._schnell_betrag.clear()
+        self._schnell_text.clear()
         self._tabelle_laden()
 
     def _filter_neu_aufbauen(self) -> None:
@@ -373,6 +454,7 @@ class BuchungenSeite(QWidget):
             monat=self._filter_monat.currentData(),
             jahr=self._filter_jahr.currentData(),
             beleg=self._filter_beleg.currentData(),
+            suchtext=self._suche.text() if self._suche.text() else None,
         )
         self._tabelle.setSortingEnabled(False)
         self._tabelle.setRowCount(len(zeilen))

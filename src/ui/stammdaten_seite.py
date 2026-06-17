@@ -835,10 +835,12 @@ class StammdatenSeite(QWidget):
         self._mieter = MieterTab(verbindung)
         self._kategorien = KategorienTab(verbindung)
         self._muster = MusterTab(verbindung)
+        self._regeln = RegelnTab(verbindung)
         self._reiter.addTab(self._haeuser, "Häuser")
         self._reiter.addTab(self._mieter, "Mieter")
         self._reiter.addTab(self._kategorien, "Kategorien")
         self._reiter.addTab(self._muster, "Muster")
+        self._reiter.addTab(self._regeln, "Regeln")
         self._reiter.currentChanged.connect(self._reiter_gewechselt)
         layout.addWidget(self._reiter)
 
@@ -851,3 +853,239 @@ class StammdatenSeite(QWidget):
     def aktualisieren(self) -> None:
         """Lädt den aktuell sichtbaren Reiter neu."""
         self._reiter_gewechselt(self._reiter.currentIndex())
+
+
+# =========================================================================
+# Reiter: Regeln (benutzerdefinierte Auto-Zuordnung)
+# =========================================================================
+
+
+class RegelDialog(QDialog):
+    """Anlegen/Bearbeiten einer Auto-Zuordnungs-Regel."""
+
+    def __init__(
+        self,
+        verbindung: sqlite3.Connection,
+        regel_id: int | None = None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        from src.db import regeln
+        self._verbindung = verbindung
+        self._regel_id = regel_id
+        self._regeln = regeln
+        self.setModal(True)
+        self.setWindowTitle("Regel bearbeiten" if regel_id else "Neue Regel")
+
+        layout = QVBoxLayout(self)
+        formular = QFormLayout()
+        layout.addWidget(QLabel(
+            "Wenn der Empfänger/Verwendungszweck einer Buchung das Muster "
+            "enthält, werden Haus, Kategorie und/oder Mieter laut Regel "
+            "vorbelegt. Bewusst leer gelassene Felder werden nicht gesetzt."
+        ))
+
+        self._feld_muster = QLineEdit()
+        self._feld_muster.setPlaceholderText("z. B. HERMESHOF, FINANZKASSE, PAYPAL")
+        formular.addRow("Such-Muster:", self._feld_muster)
+
+        self._haus = QComboBox()
+        self._haus.addItem("— kein Haus —", None)
+        for haus in stammdaten.objekte_laden(verbindung):
+            self._haus.addItem(haus["name"], haus["id"])
+        self._haus.currentIndexChanged.connect(self._mieter_aktualisieren)
+        formular.addRow("Haus:", self._haus)
+
+        self._kategorie = QComboBox()
+        self._kategorie.addItem("— keine Kategorie —", None)
+        for typ, lbl in (("einnahme", "Einnahme"), ("ausgabe", "Ausgabe")):
+            for kat in stammdaten.kategorien_laden(verbindung, typ):
+                self._kategorie.addItem(f"{kat['name']} ({lbl})", kat["id"])
+        formular.addRow("Kategorie:", self._kategorie)
+
+        self._mieter = QComboBox()
+        self._mieter.addItem("— kein Mieter —", None)
+        formular.addRow("Mieter:", self._mieter)
+
+        layout.addLayout(formular)
+
+        if regel_id is not None:
+            self._daten_laden()
+
+        knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        knoepfe.button(QDialogButtonBox.Ok).setText("Speichern")
+        knoepfe.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        knoepfe.accepted.connect(self._speichern)
+        knoepfe.rejected.connect(self.reject)
+        layout.addWidget(knoepfe)
+
+    def _mieter_aktualisieren(self) -> None:
+        bisher = self._mieter.currentData()
+        self._mieter.clear()
+        self._mieter.addItem("— kein Mieter —", None)
+        objekt_id = self._haus.currentData()
+        if objekt_id is not None:
+            for mieter in stammdaten.mieter_laden(self._verbindung, objekt_id):
+                self._mieter.addItem(mieter["name"], mieter["id"])
+        idx = self._mieter.findData(bisher)
+        if idx >= 0:
+            self._mieter.setCurrentIndex(idx)
+
+    def _daten_laden(self) -> None:
+        zeile = self._verbindung.execute(
+            "SELECT muster, objekt_id, kategorie_id, mieter_id "
+            "FROM regeln WHERE id = ?", (self._regel_id,),
+        ).fetchone()
+        if zeile is None:
+            return
+        self._feld_muster.setText(zeile["muster"])
+        for combo, data in (
+            (self._haus, zeile["objekt_id"]),
+            (self._kategorie, zeile["kategorie_id"]),
+        ):
+            idx = combo.findData(data)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+        self._mieter_aktualisieren()
+        idx = self._mieter.findData(zeile["mieter_id"])
+        if idx >= 0:
+            self._mieter.setCurrentIndex(idx)
+
+    def _speichern(self) -> None:
+        try:
+            if self._regel_id is None:
+                self._regeln.regel_anlegen(
+                    self._verbindung, self._feld_muster.text(),
+                    self._haus.currentData(),
+                    self._kategorie.currentData(),
+                    self._mieter.currentData(),
+                )
+            else:
+                self._regeln.regel_aktualisieren(
+                    self._verbindung, self._regel_id, self._feld_muster.text(),
+                    self._haus.currentData(),
+                    self._kategorie.currentData(),
+                    self._mieter.currentData(),
+                )
+        except ValidierungsFehler as fehler:
+            QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
+            return
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.accept()
+
+
+class RegelnTab(QWidget):
+    """Liste der benutzerdefinierten Regeln mit Anlegen/Bearbeiten/Löschen."""
+
+    def __init__(self, verbindung: sqlite3.Connection, parent=None) -> None:
+        super().__init__(parent)
+        from src.db import regeln
+        self._verbindung = verbindung
+        self._regeln = regeln
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Regeln sorgen für eine zuverlässige Auto-Zuordnung beim Import. "
+            "Sie wirken vor den gelernten Mustern."
+        ))
+
+        self._tabelle = QTableWidget(0, 5)
+        self._tabelle.setHorizontalHeaderLabels(
+            ["Muster", "Haus", "Kategorie", "Mieter", "Status"]
+        )
+        tabelle_vorbereiten(self._tabelle)
+        layout.addWidget(self._tabelle)
+
+        knopfleiste = QHBoxLayout()
+        for beschriftung, methode in (
+            ("Neue Regel", self._neu),
+            ("Bearbeiten", self._bearbeiten),
+            ("Status ändern", self._status_aendern),
+            ("Löschen", self._loeschen),
+        ):
+            knopf = QPushButton(beschriftung)
+            knopf.clicked.connect(methode)
+            knopfleiste.addWidget(knopf)
+        knopfleiste.addStretch()
+        layout.addLayout(knopfleiste)
+
+        self.aktualisieren()
+
+    def aktualisieren(self) -> None:
+        regeln = self._regeln.regeln_laden(self._verbindung)
+        self._tabelle.setSortingEnabled(False)
+        self._tabelle.setRowCount(len(regeln))
+        for zeile, regel in enumerate(regeln):
+            name_item = QTableWidgetItem(regel["muster"])
+            name_item.setData(Qt.UserRole, regel["id"])
+            self._tabelle.setItem(zeile, 0, name_item)
+            self._tabelle.setItem(
+                zeile, 1, QTableWidgetItem(regel["objekt_name"] or "—")
+            )
+            self._tabelle.setItem(
+                zeile, 2, QTableWidgetItem(regel["kategorie_name"] or "—")
+            )
+            self._tabelle.setItem(
+                zeile, 3, QTableWidgetItem(regel["mieter_name"] or "—")
+            )
+            self._tabelle.setItem(
+                zeile, 4, QTableWidgetItem("aktiv" if regel["aktiv"] else "inaktiv")
+            )
+        self._tabelle.setSortingEnabled(True)
+
+    def _ausgewaehlt(self) -> tuple[int, bool] | None:
+        zeile = self._tabelle.currentRow()
+        if zeile < 0:
+            return None
+        return (
+            self._tabelle.item(zeile, 0).data(Qt.UserRole),
+            self._tabelle.item(zeile, 4).text() == "aktiv",
+        )
+
+    def _neu(self) -> None:
+        if RegelDialog(self._verbindung, parent=self).exec() == QDialog.Accepted:
+            self.aktualisieren()
+
+    def _bearbeiten(self) -> None:
+        auswahl = self._ausgewaehlt()
+        if auswahl is None:
+            QMessageBox.information(self, "Keine Regel gewählt",
+                                    "Bitte zuerst eine Regel auswählen.")
+            return
+        if RegelDialog(self._verbindung, regel_id=auswahl[0],
+                       parent=self).exec() == QDialog.Accepted:
+            self.aktualisieren()
+
+    def _status_aendern(self) -> None:
+        auswahl = self._ausgewaehlt()
+        if auswahl is None:
+            return
+        try:
+            self._regeln.regel_aktiv_setzen(
+                self._verbindung, auswahl[0], not auswahl[1]
+            )
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.aktualisieren()
+
+    def _loeschen(self) -> None:
+        auswahl = self._ausgewaehlt()
+        if auswahl is None:
+            return
+        antwort = QMessageBox.question(
+            self, "Regel löschen", "Diese Regel wirklich löschen?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            self._regeln.regel_loeschen(self._verbindung, auswahl[0])
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.aktualisieren()

@@ -16,14 +16,17 @@ def buchungen_laden(
     verbindung: sqlite3.Connection,
     objekt_id: int | None = None,
     kategorie_id: int | None = None,
+    mieter_id: int | None = None,
     monat: int | None = None,
     jahr: int | None = None,
     beleg: bool | None = None,
+    suchtext: str | None = None,
 ) -> list[sqlite3.Row]:
     """Lädt Buchungen, optional gefiltert.
 
     ``beleg=True`` liefert nur Buchungen mit Beleg, ``beleg=False`` nur
-    solche ohne Beleg, ``None`` schaltet den Belegfilter ab.
+    solche ohne Beleg, ``None`` schaltet den Belegfilter ab. ``suchtext``
+    filtert über Beschreibung, Haus-, Kategorie- und Mietername.
     """
     sql = (
         "SELECT b.id, b.datum, b.betrag, b.objekt_id, b.kategorie_id, "
@@ -49,12 +52,41 @@ def buchungen_laden(
     if monat is not None:
         sql += " AND substr(b.datum, 6, 2) = ?"
         parameter.append(f"{monat:02d}")
+    if mieter_id is not None:
+        sql += " AND b.mieter_id = ?"
+        parameter.append(mieter_id)
     if beleg is True:
         sql += " AND b.beleg_pfad IS NOT NULL AND b.beleg_pfad != ''"
     elif beleg is False:
         sql += " AND (b.beleg_pfad IS NULL OR b.beleg_pfad = '')"
+    if suchtext:
+        like = f"%{suchtext.strip().lower()}%"
+        sql += (
+            " AND (LOWER(IFNULL(b.beschreibung, '')) LIKE ?"
+            "  OR LOWER(IFNULL(o.name, ''))         LIKE ?"
+            "  OR LOWER(IFNULL(k.name, ''))         LIKE ?"
+            "  OR LOWER(IFNULL(m.name, ''))         LIKE ?)"
+        )
+        parameter.extend([like, like, like, like])
     sql += " ORDER BY b.datum DESC, b.id DESC"
     return verbindung.execute(sql, parameter).fetchall()
+
+
+def import_monate_uebersicht(
+    verbindung: sqlite3.Connection, jahr: int
+) -> dict[int, int]:
+    """Liefert je Monat des Jahres die Zahl der Import-Buchungen."""
+    zeilen = verbindung.execute(
+        "SELECT CAST(substr(datum, 6, 2) AS INTEGER) AS monat, COUNT(*) AS n "
+        "FROM buchungen "
+        "WHERE substr(datum, 1, 4) = ? AND quelle = 'import' "
+        "GROUP BY monat",
+        (f"{jahr:04d}",),
+    ).fetchall()
+    ergebnis = {m: 0 for m in range(1, 13)}
+    for zeile in zeilen:
+        ergebnis[int(zeile["monat"])] = int(zeile["n"])
+    return ergebnis
 
 
 def buchung_existiert(
