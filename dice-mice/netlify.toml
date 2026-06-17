@@ -1,0 +1,10 @@
+# Netlify-Deploy-Konfiguration für Dice Mice (statische PWA).
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA-Fallback: alle Routen auf index.html (React-Single-Page-App).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
