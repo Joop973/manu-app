@@ -100,9 +100,7 @@ class NebenkostenSeite(QWidget):
         self._haus.setCurrentIndex(max(self._haus.findData(haus_alt), 0))
 
         self._jahr.clear()
-        jahre = set(buchungen.jahre_laden(self._verbindung))
-        jahre.add(date.today().year)
-        for jahr in sorted(jahre, reverse=True):
+        for jahr in buchungen.auswaehlbare_jahre(self._verbindung):
             self._jahr.addItem(str(jahr), jahr)
         self._jahr.setCurrentIndex(max(self._jahr.findData(jahr_alt), 0))
 

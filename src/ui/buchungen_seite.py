@@ -316,9 +316,7 @@ class BuchungenSeite(QWidget):
         jahr_alt = self._filter_jahr.currentData()
         self._filter_jahr.clear()
         self._filter_jahr.addItem("Alle Jahre", None)
-        jahre = set(buchungen.jahre_laden(self._verbindung))
-        jahre.add(date.today().year)
-        for jahr in sorted(jahre, reverse=True):
+        for jahr in buchungen.auswaehlbare_jahre(self._verbindung):
             self._filter_jahr.addItem(str(jahr), jahr)
         self._filter_jahr.setCurrentIndex(
             max(self._filter_jahr.findData(jahr_alt), 0)
