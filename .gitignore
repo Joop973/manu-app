@@ -4,6 +4,9 @@ Thumbs.db
 .idea/
 *.log
 
+# Node (Dice-Mice-Unterprojekt; eigene .gitignore zusätzlich vorhanden)
+node_modules/
+
 # Python
 __pycache__/
 *.pyc
