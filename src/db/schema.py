@@ -13,7 +13,7 @@ from __future__ import annotations
 
 # Versionsnummer des Schemas. Wird in app_settings hinterlegt, damit
 # spätere Phasen kontrollierte Migrationen durchführen können.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Spalten, die in späteren Versionen ergänzt wurden. Werden beim Start
 # per ALTER TABLE nachgerüstet, falls sie in einer Alt-Datenbank fehlen.
@@ -118,6 +118,42 @@ TABELLEN: list[str] = [
         kategorie_id INTEGER REFERENCES kategorien(id),
         mieter_id    INTEGER REFERENCES mieter(id),
         aktiv        INTEGER NOT NULL DEFAULT 1
+    )
+    """,
+    # Investitionen je Haus: Erhaltungsaufwand (sofort absetzbar) oder
+    # Herstellungsaufwand (über Nutzungsdauer abgeschrieben, AfA).
+    """
+    CREATE TABLE IF NOT EXISTS investitionen (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        objekt_id       INTEGER NOT NULL REFERENCES objekte(id),
+        datum           TEXT    NOT NULL,
+        betrag          TEXT    NOT NULL,
+        beschreibung    TEXT,
+        typ             TEXT    NOT NULL CHECK (typ IN ('erhaltung','herstellung')),
+        nutzungsdauer   INTEGER NOT NULL DEFAULT 50,
+        beleg_pfad      TEXT
+    )
+    """,
+    # Aktions-Log für die Rückgängig-Funktion. Bewahrt den Zustand
+    # *vor* einer rückgängig-machbaren Aktion als JSON auf.
+    """
+    CREATE TABLE IF NOT EXISTS aktionen (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        zeit          TEXT    NOT NULL,
+        art           TEXT    NOT NULL,
+        tabelle       TEXT    NOT NULL,
+        datensatz_id  INTEGER,
+        zustand_alt   TEXT,
+        zustand_neu   TEXT,
+        zurueckgesetzt INTEGER NOT NULL DEFAULT 0
+    )
+    """,
+    # Volltexte zu archivierten Belegen (digital + ggf. OCR).
+    """
+    CREATE TABLE IF NOT EXISTS beleg_texte (
+        beleg_pfad  TEXT PRIMARY KEY,
+        text        TEXT,
+        erstellt_am TEXT
     )
     """,
 ]

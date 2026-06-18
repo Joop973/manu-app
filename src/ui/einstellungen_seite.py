@@ -128,6 +128,18 @@ class EinstellungenSeite(QWidget):
         backup_layout.addLayout(backup_knoepfe)
         layout.addWidget(backup)
 
+        # --- Rückgängig (Aktions-Log) ---
+        rueckgang = QGroupBox("Letzte Änderungen rückgängig machen")
+        rueck_layout = QVBoxLayout(rueckgang)
+        rueck_layout.addWidget(QLabel(
+            "Versehentlich gelöscht oder geändert? Hier kannst du die "
+            "letzten Aktionen einzeln zurücknehmen."
+        ))
+        knopf_aktionen = QPushButton("Aktions-Log öffnen …")
+        knopf_aktionen.clicked.connect(self._aktions_log_oeffnen)
+        rueck_layout.addWidget(knopf_aktionen)
+        layout.addWidget(rueckgang)
+
         # --- Information ---
         info = QGroupBox("Speicherort")
         info_layout = QVBoxLayout(info)
@@ -238,3 +250,77 @@ class EinstellungenSeite(QWidget):
             self, "Sicherung erstellt",
             f"Datenbank und Belege wurden gesichert nach:\n{ziel}"
         )
+
+    def _aktions_log_oeffnen(self) -> None:
+        AktionsLogDialog(self._verbindung, parent=self).exec()
+
+
+class AktionsLogDialog(QDialog):
+    """Liste der letzten Aktionen mit Knopf zum Rückgängig-Machen."""
+
+    def __init__(self, verbindung: sqlite3.Connection, parent=None) -> None:
+        super().__init__(parent)
+        from src.db import aktionen
+        from src.ui.tabelle import tabelle_vorbereiten
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
+        self._verbindung = verbindung
+        self._aktionen = aktionen
+        self._Qt = Qt
+        self._tw_item = QTableWidgetItem
+        self.setModal(True)
+        self.setWindowTitle("Aktions-Log")
+        self.resize(720, 420)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Die letzten 50 Aktionen. Markiere eine Zeile und drücke "
+            "den Rückgängig-Knopf, um sie zurückzunehmen."
+        ))
+
+        self._tabelle = QTableWidget(0, 4)
+        self._tabelle.setHorizontalHeaderLabels(
+            ["Zeit", "Aktion", "Tabelle", "Status"]
+        )
+        tabelle_vorbereiten(self._tabelle, sortierbar=False)
+        layout.addWidget(self._tabelle)
+        self._tabelle_fuellen()
+
+        knoepfe = QDialogButtonBox()
+        knopf_undo = knoepfe.addButton(
+            "Rückgängig", QDialogButtonBox.ActionRole
+        )
+        knopf_undo.clicked.connect(self._rueckgaengig)
+        knoepfe.addButton("Schließen", QDialogButtonBox.RejectRole)
+        knoepfe.rejected.connect(self.reject)
+        layout.addWidget(knoepfe)
+
+    def _tabelle_fuellen(self) -> None:
+        zeilen = self._aktionen.aktionen_laden(self._verbindung, anzahl=50)
+        self._tabelle.setRowCount(len(zeilen))
+        for index, zeile in enumerate(zeilen):
+            zeit_item = self._tw_item(zeile["zeit"])
+            zeit_item.setData(self._Qt.UserRole, zeile["id"])
+            self._tabelle.setItem(index, 0, zeit_item)
+            self._tabelle.setItem(index, 1, self._tw_item(zeile["art"]))
+            self._tabelle.setItem(index, 2, self._tw_item(zeile["tabelle"]))
+            status = "zurückgesetzt" if zeile["zurueckgesetzt"] else "aktiv"
+            self._tabelle.setItem(index, 3, self._tw_item(status))
+
+    def _rueckgaengig(self) -> None:
+        zeile = self._tabelle.currentRow()
+        if zeile < 0:
+            QMessageBox.information(self, "Keine Aktion",
+                                    "Bitte zuerst eine Zeile auswählen.")
+            return
+        aktion_id = self._tabelle.item(zeile, 0).data(self._Qt.UserRole)
+        try:
+            meldung = self._aktionen.aktion_zuruecknehmen(
+                self._verbindung, aktion_id
+            )
+        except (ValueError, sqlite3.Error) as fehler:
+            QMessageBox.critical(self, "Konnte nicht zurückgenommen werden",
+                                 str(fehler))
+            return
+        QMessageBox.information(self, "Erledigt", meldung)
+        self._tabelle_fuellen()

@@ -9,7 +9,30 @@ from __future__ import annotations
 import sqlite3
 from decimal import Decimal
 
+from src.db import aktionen
 from src.utils.eingaben import ValidierungsFehler
+
+
+def _buchung_als_dict(zeile: sqlite3.Row | None) -> dict | None:
+    """Wandelt eine Buchungs-Zeile in ein JSON-fähiges Dictionary."""
+    if zeile is None:
+        return None
+    return {
+        "id": zeile["id"], "datum": zeile["datum"], "betrag": zeile["betrag"],
+        "objekt_id": zeile["objekt_id"], "kategorie_id": zeile["kategorie_id"],
+        "mieter_id": zeile["mieter_id"], "beschreibung": zeile["beschreibung"],
+        "beleg_pfad": zeile["beleg_pfad"], "quelle": zeile["quelle"],
+    }
+
+
+def _buchung_lesen(
+    verbindung: sqlite3.Connection, buchung_id: int
+) -> sqlite3.Row | None:
+    return verbindung.execute(
+        "SELECT id, datum, betrag, objekt_id, kategorie_id, mieter_id, "
+        "beschreibung, beleg_pfad, quelle FROM buchungen WHERE id = ?",
+        (buchung_id,),
+    ).fetchone()
 
 
 def buchungen_laden(
@@ -65,9 +88,11 @@ def buchungen_laden(
             " AND (LOWER(IFNULL(b.beschreibung, '')) LIKE ?"
             "  OR LOWER(IFNULL(o.name, ''))         LIKE ?"
             "  OR LOWER(IFNULL(k.name, ''))         LIKE ?"
-            "  OR LOWER(IFNULL(m.name, ''))         LIKE ?)"
+            "  OR LOWER(IFNULL(m.name, ''))         LIKE ?"
+            "  OR b.beleg_pfad IN (SELECT beleg_pfad FROM beleg_texte"
+            "      WHERE LOWER(IFNULL(text, '')) LIKE ?))"
         )
-        parameter.extend([like, like, like, like])
+        parameter.extend([like, like, like, like, like])
     sql += " ORDER BY b.datum DESC, b.id DESC"
     return verbindung.execute(sql, parameter).fetchall()
 
@@ -125,8 +150,13 @@ def buchung_anlegen(
         (datum, str(betrag), objekt_id, kategorie_id, mieter_id,
          beschreibung, beleg_pfad, quelle),
     )
+    neue_id = cursor.lastrowid
+    aktionen.aktion_protokollieren(
+        verbindung, aktionen.ART_ANLEGEN, "buchungen", neue_id,
+        zustand_neu=_buchung_als_dict(_buchung_lesen(verbindung, neue_id)),
+    )
     verbindung.commit()
-    return cursor.lastrowid
+    return neue_id
 
 
 def buchung_aktualisieren(
@@ -143,6 +173,7 @@ def buchung_aktualisieren(
     """Aktualisiert eine bestehende Buchung."""
     if not datum:
         raise ValidierungsFehler("Bitte ein Datum angeben.")
+    vorher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))
     verbindung.execute(
         "UPDATE buchungen SET datum = ?, betrag = ?, objekt_id = ?, "
         "kategorie_id = ?, mieter_id = ?, beschreibung = ?, beleg_pfad = ? "
@@ -150,12 +181,23 @@ def buchung_aktualisieren(
         (datum, str(betrag), objekt_id, kategorie_id, mieter_id,
          beschreibung, beleg_pfad, buchung_id),
     )
+    nachher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))
+    aktionen.aktion_protokollieren(
+        verbindung, aktionen.ART_AENDERN, "buchungen", buchung_id,
+        zustand_alt=vorher, zustand_neu=nachher,
+    )
     verbindung.commit()
 
 
 def buchung_loeschen(verbindung: sqlite3.Connection, buchung_id: int) -> None:
     """Löscht eine Buchung."""
+    vorher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))
     verbindung.execute("DELETE FROM buchungen WHERE id = ?", (buchung_id,))
+    if vorher is not None:
+        aktionen.aktion_protokollieren(
+            verbindung, aktionen.ART_LOESCHEN, "buchungen", buchung_id,
+            zustand_alt=vorher,
+        )
     verbindung.commit()
 
 

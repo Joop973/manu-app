@@ -836,11 +836,13 @@ class StammdatenSeite(QWidget):
         self._kategorien = KategorienTab(verbindung)
         self._muster = MusterTab(verbindung)
         self._regeln = RegelnTab(verbindung)
+        self._investitionen = InvestitionenTab(verbindung)
         self._reiter.addTab(self._haeuser, "Häuser")
         self._reiter.addTab(self._mieter, "Mieter")
         self._reiter.addTab(self._kategorien, "Kategorien")
         self._reiter.addTab(self._muster, "Muster")
         self._reiter.addTab(self._regeln, "Regeln")
+        self._reiter.addTab(self._investitionen, "Investitionen")
         self._reiter.currentChanged.connect(self._reiter_gewechselt)
         layout.addWidget(self._reiter)
 
@@ -1085,6 +1087,241 @@ class RegelnTab(QWidget):
             return
         try:
             self._regeln.regel_loeschen(self._verbindung, auswahl[0])
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.aktualisieren()
+
+
+# =========================================================================
+# Reiter: Investitionen je Haus
+# =========================================================================
+
+
+class InvestitionDialog(QDialog):
+    """Formular zum Anlegen oder Bearbeiten einer Investition."""
+
+    def __init__(
+        self,
+        verbindung: sqlite3.Connection,
+        investition_id: int | None = None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        from src.db import investitionen
+        self._verbindung = verbindung
+        self._inv = investitionen
+        self._investition_id = investition_id
+        self.setModal(True)
+        self.setWindowTitle(
+            "Investition bearbeiten" if investition_id else "Neue Investition"
+        )
+        self.resize(560, 360)
+
+        layout = QVBoxLayout(self)
+        formular = QFormLayout()
+
+        self._haus = QComboBox()
+        for haus in stammdaten.objekte_laden(verbindung):
+            self._haus.addItem(haus["name"], haus["id"])
+        formular.addRow("Haus:", self._haus)
+
+        self._datum = QDateEdit()
+        self._datum.setCalendarPopup(True)
+        self._datum.setDisplayFormat("dd.MM.yyyy")
+        self._datum.setDate(QDate.currentDate())
+        formular.addRow("Datum:", self._datum)
+
+        self._betrag = QLineEdit("0,00")
+        formular.addRow("Betrag (€):", self._betrag)
+
+        self._beschreibung = QLineEdit()
+        self._beschreibung.setPlaceholderText(
+            "z. B. neue Heizung, Fenstertausch, Dachreparatur"
+        )
+        formular.addRow("Beschreibung:", self._beschreibung)
+
+        self._typ = QComboBox()
+        for schluessel, beschriftung in self._inv.TYPEN.items():
+            self._typ.addItem(beschriftung, schluessel)
+        formular.addRow("Typ:", self._typ)
+
+        self._nutzungsdauer = QSpinBox()
+        self._nutzungsdauer.setRange(1, 100)
+        self._nutzungsdauer.setValue(50)
+        self._nutzungsdauer.setSuffix(" Jahre")
+        formular.addRow("Nutzungsdauer (AfA):", self._nutzungsdauer)
+
+        layout.addLayout(formular)
+
+        if investition_id is not None:
+            self._daten_laden()
+
+        knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        knoepfe.button(QDialogButtonBox.Ok).setText("Speichern")
+        knoepfe.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        knoepfe.accepted.connect(self._speichern)
+        knoepfe.rejected.connect(self.reject)
+        layout.addWidget(knoepfe)
+
+    def _daten_laden(self) -> None:
+        zeile = self._verbindung.execute(
+            "SELECT objekt_id, datum, betrag, beschreibung, typ, nutzungsdauer "
+            "FROM investitionen WHERE id = ?",
+            (self._investition_id,),
+        ).fetchone()
+        if zeile is None:
+            return
+        idx = self._haus.findData(zeile["objekt_id"])
+        if idx >= 0:
+            self._haus.setCurrentIndex(idx)
+        if zeile["datum"]:
+            self._datum.setDate(
+                QDate.fromString(zeile["datum"], "yyyy-MM-dd")
+            )
+        self._betrag.setText(betrag_formatieren(zeile["betrag"]))
+        self._beschreibung.setText(zeile["beschreibung"] or "")
+        idx = self._typ.findData(zeile["typ"])
+        if idx >= 0:
+            self._typ.setCurrentIndex(idx)
+        self._nutzungsdauer.setValue(zeile["nutzungsdauer"] or 50)
+
+    def _speichern(self) -> None:
+        try:
+            betrag = betrag_parsen(self._betrag.text())
+        except ValidierungsFehler as fehler:
+            QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
+            return
+        try:
+            if self._investition_id is None:
+                self._inv.investition_anlegen(
+                    self._verbindung, self._haus.currentData(),
+                    self._datum.date().toString("yyyy-MM-dd"),
+                    betrag, self._beschreibung.text(),
+                    self._typ.currentData(), self._nutzungsdauer.value(),
+                )
+            else:
+                self._inv.investition_aktualisieren(
+                    self._verbindung, self._investition_id,
+                    self._haus.currentData(),
+                    self._datum.date().toString("yyyy-MM-dd"),
+                    betrag, self._beschreibung.text(),
+                    self._typ.currentData(), self._nutzungsdauer.value(),
+                )
+        except ValidierungsFehler as fehler:
+            QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
+            return
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.accept()
+
+
+class InvestitionenTab(QWidget):
+    """Liste der Investitionen pro Haus mit Anlegen/Bearbeiten/Löschen."""
+
+    def __init__(self, verbindung: sqlite3.Connection, parent=None) -> None:
+        super().__init__(parent)
+        from src.db import investitionen
+        self._verbindung = verbindung
+        self._inv = investitionen
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Investitionen werden für die Anlage V herangezogen: "
+            "Erhaltungsaufwand ist sofort absetzbar, Herstellungsaufwand "
+            "wird über die Nutzungsdauer abgeschrieben (AfA)."
+        ))
+
+        self._tabelle = QTableWidget(0, 6)
+        self._tabelle.setHorizontalHeaderLabels(
+            ["Datum", "Haus", "Betrag", "Typ", "Nutzungsdauer", "Beschreibung"]
+        )
+        tabelle_vorbereiten(self._tabelle)
+        layout.addWidget(self._tabelle)
+
+        knopfleiste = QHBoxLayout()
+        for beschriftung, methode in (
+            ("Neu", self._neu),
+            ("Bearbeiten", self._bearbeiten),
+            ("Löschen", self._loeschen),
+        ):
+            knopf = QPushButton(beschriftung)
+            knopf.clicked.connect(methode)
+            knopfleiste.addWidget(knopf)
+        knopfleiste.addStretch()
+        layout.addLayout(knopfleiste)
+
+        self.aktualisieren()
+
+    def aktualisieren(self) -> None:
+        zeilen = self._inv.investitionen_laden(self._verbindung)
+        self._tabelle.setSortingEnabled(False)
+        self._tabelle.setRowCount(len(zeilen))
+        for index, zeile in enumerate(zeilen):
+            datum_item = QTableWidgetItem(zeile["datum"])
+            datum_item.setData(Qt.UserRole, zeile["id"])
+            self._tabelle.setItem(index, 0, datum_item)
+            self._tabelle.setItem(
+                index, 1, QTableWidgetItem(zeile["objekt_name"] or "—")
+            )
+            self._tabelle.setItem(
+                index, 2, QTableWidgetItem(
+                    f"{betrag_formatieren(zeile['betrag'])} €"
+                )
+            )
+            typ_text = "Erhaltung" if zeile["typ"] == "erhaltung" \
+                else "Herstellung"
+            self._tabelle.setItem(index, 3, QTableWidgetItem(typ_text))
+            self._tabelle.setItem(
+                index, 4,
+                QTableWidgetItem(
+                    "—" if zeile["typ"] == "erhaltung"
+                    else f"{zeile['nutzungsdauer']} J."
+                )
+            )
+            self._tabelle.setItem(
+                index, 5, QTableWidgetItem(zeile["beschreibung"] or "")
+            )
+        self._tabelle.setSortingEnabled(True)
+
+    def _ausgewaehlt(self) -> int | None:
+        zeile = self._tabelle.currentRow()
+        if zeile < 0:
+            return None
+        return self._tabelle.item(zeile, 0).data(Qt.UserRole)
+
+    def _neu(self) -> None:
+        if InvestitionDialog(self._verbindung,
+                              parent=self).exec() == QDialog.Accepted:
+            self.aktualisieren()
+
+    def _bearbeiten(self) -> None:
+        inv_id = self._ausgewaehlt()
+        if inv_id is None:
+            QMessageBox.information(self, "Keine Investition gewählt",
+                                    "Bitte zuerst eine Investition auswählen.")
+            return
+        if InvestitionDialog(
+            self._verbindung, investition_id=inv_id, parent=self,
+        ).exec() == QDialog.Accepted:
+            self.aktualisieren()
+
+    def _loeschen(self) -> None:
+        inv_id = self._ausgewaehlt()
+        if inv_id is None:
+            return
+        antwort = QMessageBox.question(
+            self, "Investition löschen",
+            "Diese Investition wirklich löschen?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            self._inv.investition_loeschen(self._verbindung, inv_id)
         except sqlite3.Error as fehler:
             QMessageBox.critical(self, "Datenbankfehler", str(fehler))
             return

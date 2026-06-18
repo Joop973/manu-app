@@ -756,11 +756,14 @@ class ImportSeite(QWidget):
         knopf_excel.clicked.connect(self._excel_importieren)
         knopf_beleg = QPushButton("Einzelnen Beleg archivieren")
         knopf_beleg.clicked.connect(self._beleg_archivieren)
+        knopf_match = QPushButton("Belege-Ordner auto-matchen …")
+        knopf_match.clicked.connect(self._belege_matchen)
 
         knopfzeile = QHBoxLayout()
         knopfzeile.addWidget(knopf_pdf)
         knopfzeile.addWidget(knopf_excel)
         knopfzeile.addWidget(knopf_beleg)
+        knopfzeile.addWidget(knopf_match)
         knopfzeile.addStretch()
         layout.addLayout(knopfzeile)
 
@@ -861,6 +864,117 @@ class ImportSeite(QWidget):
         if not pfad:
             return
         BelegZuordnenDialog(self._verbindung, pfad, parent=self).exec()
+
+    def _belege_matchen(self) -> None:
+        """Wählt einen Ordner mit Rechnungen aus und schlägt Zuordnungen vor."""
+        ordner = QFileDialog.getExistingDirectory(
+            self, "Belege-Ordner auswählen (z. B. Rechnungen Sammelordner)"
+        )
+        if not ordner:
+            return
+        BelegeMatchDialog(self._verbindung, Path(ordner), parent=self).exec()
+
+
+class BelegeMatchDialog(QDialog):
+    """Zeigt Auto-Match-Vorschläge zwischen Belegdateien und Buchungen."""
+
+    def __init__(
+        self,
+        verbindung: sqlite3.Connection,
+        belege_ordner: Path,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        from src.logic import beleg_text
+        self._verbindung = verbindung
+        self._beleg_text = beleg_text
+        self._belege_ordner = belege_ordner
+        self.setModal(True)
+        self.setWindowTitle("Belege auto-matchen")
+        self.resize(900, 480)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            f"Belege-Ordner: {belege_ordner}\n\n"
+            "Markiere die Zeilen, denen du zustimmst, dann unten auf "
+            "Markierte übernehmen klicken. "
+            "Die Belege werden archiviert und an die Buchung angehängt."
+        ))
+
+        self._paare = beleg_text.match_kandidaten(verbindung, belege_ordner)
+        self._tabelle = QTableWidget(len(self._paare), 4)
+        self._tabelle.setHorizontalHeaderLabels(
+            ["Datei", "Betrag", "Buchung", "Treffsicherheit"]
+        )
+        tabelle_vorbereiten(self._tabelle, sortierbar=False)
+        self._tabelle.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._tabelle.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        for index, paar in enumerate(self._paare):
+            self._tabelle.setItem(
+                index, 0, QTableWidgetItem(Path(paar["datei_pfad"]).name)
+            )
+            self._tabelle.setItem(
+                index, 1, QTableWidgetItem(
+                    f"{betrag_formatieren(paar['betrag'])} €"
+                )
+            )
+            self._tabelle.setItem(
+                index, 2, QTableWidgetItem(
+                    f"#{paar['buchung_id']} — {paar['buchungstext'][:60]}"
+                )
+            )
+            self._tabelle.setItem(
+                index, 3, QTableWidgetItem(f"{paar['score']}%")
+            )
+        layout.addWidget(self._tabelle)
+
+        if not self._paare:
+            layout.addWidget(QLabel(
+                "Keine eindeutigen Zuordnungen gefunden."
+            ))
+
+        knoepfe = QDialogButtonBox()
+        self._knopf_ok = knoepfe.addButton(
+            "Markierte übernehmen", QDialogButtonBox.AcceptRole
+        )
+        self._knopf_ok.clicked.connect(self._uebernehmen)
+        knoepfe.addButton("Schließen", QDialogButtonBox.RejectRole)
+        knoepfe.rejected.connect(self.reject)
+        layout.addWidget(knoepfe)
+
+    def _uebernehmen(self) -> None:
+        zeilen = sorted({idx.row() for idx in self._tabelle.selectedIndexes()})
+        if not zeilen:
+            QMessageBox.information(self, "Nichts markiert",
+                                    "Bitte Zeilen markieren.")
+            return
+        erfolg = 0
+        for zeile in zeilen:
+            paar = self._paare[zeile]
+            try:
+                buchung_zeile = self._verbindung.execute(
+                    "SELECT datum FROM buchungen WHERE id = ?",
+                    (paar["buchung_id"],),
+                ).fetchone()
+                if buchung_zeile is None:
+                    continue
+                jahr = int(buchung_zeile["datum"][:4])
+                relativ = beleg_archivieren(paar["datei_pfad"], jahr)
+                buchungen.buchung_beleg_setzen(
+                    self._verbindung, paar["buchung_id"], relativ
+                )
+                self._beleg_text.beleg_text_aktualisieren(
+                    self._verbindung, relativ
+                )
+                erfolg += 1
+            except (OSError, sqlite3.Error) as fehler:
+                QMessageBox.warning(self, "Übernehmen unvollständig", str(fehler))
+                continue
+        QMessageBox.information(
+            self, "Belege zugeordnet",
+            f"{erfolg} Beleg(e) erfolgreich verknüpft."
+        )
+        self.accept()
 
 
 # =========================================================================
