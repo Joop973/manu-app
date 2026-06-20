@@ -93,7 +93,12 @@ class BuchungDialog(QDialog):
         # Mieter-Bezug (optional). Steuert auch die Anzeige
         # „Mieteinnahme von <Name>" in der Buchungsliste.
         self._feld_mieter = QComboBox()
+        self._feld_mieter.setProperty("haus_combo", self._feld_haus)
         self._mieter_combo_fuellen()
+        from src.ui.import_seite import _mieter_combo_aktivieren
+        _mieter_combo_aktivieren(
+            self._feld_mieter, self._verbindung, self
+        )
         formular.addRow("Mieter (optional):", self._feld_mieter)
 
         self._feld_beschreibung = QLineEdit()
@@ -128,25 +133,17 @@ class BuchungDialog(QDialog):
         layout.addWidget(knoepfe)
 
     def _mieter_combo_fuellen(self) -> None:
-        """Baut das Mieter-Auswahlfeld passend zum gewählten Haus auf.
+        """Befüllt die Mieter-Auswahl passend zum gewählten Haus.
 
-        Der erste Eintrag „— kein Mieter —" ist der leere Standard-Slot;
-        er bleibt aktiv, wenn die Buchung niemandem zugeordnet ist (etwa
-        Versicherung, Steuer). Für Mieteinnahmen wählt man den Mieter.
+        Enthält am Ende einen Sondereintrag „+ Neuen Mieter anlegen …",
+        sodass aus der Buchungs-Eingabe heraus direkt ein neuer Mieter
+        erfasst werden kann — ohne Umweg über die Stammdaten.
         """
-        bisher = self._feld_mieter.currentData() if self._feld_mieter.count() else None
-        self._feld_mieter.blockSignals(True)
-        self._feld_mieter.clear()
-        self._feld_mieter.addItem("— kein Mieter —", None)
-        objekt_id = self._feld_haus.currentData()
-        if objekt_id is not None:
-            for mieter in stammdaten.mieter_laden(self._verbindung, objekt_id):
-                self._feld_mieter.addItem(mieter["name"], mieter["id"])
-        if bisher is not None:
-            index = self._feld_mieter.findData(bisher)
-            if index >= 0:
-                self._feld_mieter.setCurrentIndex(index)
-        self._feld_mieter.blockSignals(False)
+        from src.ui.import_seite import _mieter_combo_fuellen
+        _mieter_combo_fuellen(
+            self._feld_mieter, self._verbindung,
+            self._feld_haus.currentData(),
+        )
 
     def _daten_laden(self) -> None:
         """Füllt das Formular mit den Werten einer bestehenden Buchung."""

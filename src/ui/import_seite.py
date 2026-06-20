@@ -97,26 +97,79 @@ def _kategorie_combo(
     return combo
 
 
+# Spezial-Wert: vom Nutzer im Combo gewählter „Neuen Mieter anlegen"-Eintrag.
+_NEUER_MIETER_MARKER = "__neu__"
+
+
 def _mieter_combo_fuellen(
     combo: QComboBox,
     verbindung: sqlite3.Connection,
     objekt_id: int | None,
     auswahl_mieter_id: int | None = None,
 ) -> None:
-    """Befüllt ein Mieter-Auswahlfeld passend zum gewählten Haus."""
+    """Befüllt ein Mieter-Auswahlfeld passend zum gewählten Haus.
+
+    Enthält am Ende einen Sondereintrag „+ Neuen Mieter anlegen …", der
+    direkt aus der Auswahl heraus einen neuen Mieter zum aktuellen Haus
+    erfasst — ohne Umweg über die Stammdaten.
+    """
     bisher = auswahl_mieter_id if auswahl_mieter_id is not None \
         else combo.currentData()
+    if bisher == _NEUER_MIETER_MARKER:
+        bisher = None
     combo.blockSignals(True)
     combo.clear()
     combo.addItem("— kein Mieter —", None)
     if objekt_id is not None:
         for mieter in stammdaten.mieter_laden(verbindung, objekt_id):
             combo.addItem(mieter["name"], mieter["id"])
+        combo.insertSeparator(combo.count())
+        combo.addItem("+ Neuen Mieter anlegen …", _NEUER_MIETER_MARKER)
     if bisher is not None:
         index = combo.findData(bisher)
         if index >= 0:
             combo.setCurrentIndex(index)
     combo.blockSignals(False)
+
+
+def _mieter_combo_aktivieren(
+    combo: QComboBox, verbindung: sqlite3.Connection, parent: QWidget
+) -> None:
+    """Verbindet das Combo mit dem Quick-Add-Dialog für neue Mieter.
+
+    Wird aufgerufen, nachdem das Combo gefüllt wurde. Sobald der Nutzer
+    den Eintrag „+ Neuen Mieter anlegen …" wählt, wird ein Mieter-Dialog
+    geöffnet, der ihm das Anlegen direkt aus dem Kontext heraus erlaubt.
+    """
+    def _gewaehlt(index: int) -> None:
+        if combo.itemData(index) != _NEUER_MIETER_MARKER:
+            return
+        # In der Combo den Eintrag zurücksetzen, bis der Dialog geliefert hat.
+        combo.blockSignals(True)
+        combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+        from src.ui.stammdaten_seite import MieterDialog
+        # objekt_id aus dem zugeordneten Haus-Combo des Aufrufers ermitteln:
+        # Wir suchen über die Eigenschaft das Haus-Combo. Wenn keines
+        # gesetzt ist, brechen wir mit Hinweis ab.
+        haus_combo: QComboBox | None = combo.property("haus_combo")
+        objekt_id = haus_combo.currentData() if haus_combo else None
+        if objekt_id is None:
+            QMessageBox.information(
+                parent, "Kein Haus gewählt",
+                "Bitte zuerst ein Haus auswählen, dann den Mieter anlegen."
+            )
+            return
+        dialog = MieterDialog(verbindung, objekt_id, parent=parent)
+        if dialog.exec() == QDialog.Accepted:
+            _mieter_combo_fuellen(combo, verbindung, objekt_id)
+            # Neuer Mieter ist der letzte (vor dem Separator + Marker).
+            for i in range(combo.count() - 1, -1, -1):
+                data = combo.itemData(i)
+                if isinstance(data, int):
+                    combo.setCurrentIndex(i)
+                    break
+    combo.currentIndexChanged.connect(_gewaehlt)
 
 
 # =========================================================================
@@ -264,11 +317,13 @@ class SplitDialog(QDialog):
         )
         self._tabelle.setCellWidget(zeile, 2, kat)
         mieter = QComboBox()
+        mieter.setProperty("haus_combo", haus)
         _mieter_combo_fuellen(
             mieter, self._verbindung,
             self._original.get("objekt_id"),
             self._original.get("mieter_id"),
         )
+        _mieter_combo_aktivieren(mieter, self._verbindung, self)
         self._tabelle.setCellWidget(zeile, 3, mieter)
         haus.currentIndexChanged.connect(
             lambda _, h=haus, m=mieter:
@@ -483,10 +538,12 @@ class ImportVorschauDialog(QDialog):
         )
 
         mieter_combo = QComboBox()
+        mieter_combo.setProperty("haus_combo", haus_combo)
         _mieter_combo_fuellen(
             mieter_combo, self._verbindung,
             kandidat["objekt_id"], kandidat.get("mieter_id"),
         )
+        _mieter_combo_aktivieren(mieter_combo, self._verbindung, self)
         self._tabelle.setCellWidget(zeile, self.SPALTE_MIETER, mieter_combo)
         haus_combo.currentIndexChanged.connect(
             lambda _, hk=haus_combo, mk=mieter_combo:

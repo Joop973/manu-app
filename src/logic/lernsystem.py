@@ -98,15 +98,78 @@ def _durchschnitt_fuer_muster(
     return sum(betraege, Decimal("0")) / Decimal(len(betraege))
 
 
+# Stichwort-Heuristik: ordnet einer normalisierten Empfänger-Zeile eine
+# Kategorie zu, *bevor* irgendetwas gelernt wurde. Wirkt nur, wenn keine
+# Regel und kein Muster getroffen haben.
+#
+# Reihenfolge wichtig: spezifischere Stichwörter zuerst, damit z. B.
+# „STADTWERKE" nicht ungewollt vor „WERKE" trifft.
+_KATEGORIE_HEURISTIK: list[tuple[tuple[str, ...], str]] = [
+    # Kontoabschluss / Bankgebühren
+    (("ABSCHLUSS", "KONTOFUEHRUNG", "KONTOFÜHRUNG", "ENTGELT", "AUSLAGEN"),
+     "Kontoabschluss"),
+    # Steuern
+    (("FINANZAMT", "LANDESHAUPTKASSE", "EINK ST", "STEUER", "FINANZKASSE"),
+     "Finanzamt"),
+    # Versicherungen
+    (("HUK", "ALLIANZ", "BRANDKASSE", "VERSICHERUNG", "AXA", "PROVINZIAL",
+      "DEVK", "GOTHAER", "ERGO", "DEBEKA", "GENERALI", "VHV", "ZURICH"),
+     "Versicherung"),
+    # Gemeinde / Grundsteuer
+    (("GRUNDBESITZ", "GRUNDSTEUER", "GEMEINDE", "STADTKASSE"),
+     "Gemeinde/Grundbesitz"),
+    # Abfall / Müll
+    (("ABFALLWIRTSCHAFT", "ABFALL", "MUELL", "MÜLL", "AWB"),
+     "Müll"),
+    # Schornstein
+    (("SCHORNSTEINFEGER", "KAMINKEHRER"),
+     "Schornsteinfeger"),
+    # Wasser
+    (("WASSERWERK", "WASSERVERBAND", "STADTENTWAESSERUNG", "ABWASSER"),
+     "Wasser"),
+    # Energie
+    (("STADTWERKE",),
+     "Gas"),  # Default Gas; nutzer kann auf Strom umstellen
+    (("STROM", "ENERGIE", "ELEKTRIZITAET"),
+     "Strom"),
+    (("GAS", "ERDGAS"),
+     "Gas"),
+    # Medien / Telefon
+    (("VODAFONE", "TELEKOM", "1UND1", "1&1", "O2", "TELEFONICA"),
+     "Vodafone"),
+    (("GEZ", "RUNDFUNK", "ARD ZDF", "ARDZDF", "BEITRAGSSERVICE"),
+     "GEZ"),
+    # Erbpacht
+    (("ERBPACHT", "ERBBAUZINS"),
+     "Erbpacht"),
+]
+
+
+def _heuristik_kategorie_id(
+    verbindung: sqlite3.Connection, normalisiert: str
+) -> int | None:
+    """Sucht eine Kategorie über Stichwörter im normalisierten Text."""
+    for stichworte, kategorie_name in _KATEGORIE_HEURISTIK:
+        if any(s in normalisiert for s in stichworte):
+            zeile = verbindung.execute(
+                "SELECT id FROM kategorien WHERE name = ? AND typ = 'ausgabe' "
+                "AND aktiv = 1",
+                (kategorie_name,),
+            ).fetchone()
+            if zeile is not None:
+                return zeile["id"]
+    return None
+
+
 def klassifizieren(
     verbindung: sqlite3.Connection, datum: str, betrag: Decimal, text: str
 ) -> dict:
     """Klassifiziert eine importierte Buchungszeile.
 
     Liefert einen Kandidaten mit Status:
-    * ``auto``     — sicher per Muster zugeordnet
-    * ``unsicher`` — per Muster zugeordnet, aber auffällige Betragsabweichung
-    * ``neu``      — kein Muster gefunden, Zuordnung erforderlich
+    * ``auto``     — sicher per Regel oder Muster zugeordnet
+    * ``unsicher`` — Treffer mit auffälliger Betragsabweichung
+    * ``neu``      — keine Vor-Zuordnung möglich (Haus fehlt)
     """
     normalisiert = normalisieren(text)
     kandidat = {
@@ -150,4 +213,12 @@ def klassifizieren(
             abweichung = abs(abs(betrag) - schnitt) / schnitt
             if abweichung > ABWEICHUNG_GRENZE:
                 kandidat["status"] = "unsicher"
+
+    # 3) Stichwort-Heuristik schlägt eine Kategorie auch ohne Lernkurve vor.
+    if kandidat["kategorie_id"] is None and betrag < 0:
+        vorschlag = _heuristik_kategorie_id(verbindung, normalisiert)
+        if vorschlag is not None:
+            kandidat["kategorie_id"] = vorschlag
+            # Markiere als Vorschlag — Haus fehlt noch, bleibt also "neu",
+            # aber die Kategorie ist bereits vorausgewählt.
     return kandidat
