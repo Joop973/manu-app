@@ -87,6 +87,7 @@ class HaeuserTab(QWidget):
             ("Neues Haus", self._neues_haus),
             ("Umbenennen", self._umbenennen),
             ("Umlageschlüssel …", self._umlageschluessel_aendern),
+            ("Erkennungstext …", self._erkennungstext_aendern),
             ("Status ändern", self._status_aendern),
         ):
             knopf = QPushButton(beschriftung)
@@ -95,6 +96,38 @@ class HaeuserTab(QWidget):
         knopfleiste.addStretch()
         layout.addLayout(knopfleiste)
 
+        self.aktualisieren()
+
+    def _erkennungstext_aendern(self) -> None:
+        """Setzt Stichwörter (Straßenname o. ä.) für die Haus-Auto-Erkennung."""
+        auswahl = self._ausgewaehltes_haus()
+        if auswahl is None:
+            QMessageBox.information(self, "Kein Haus gewählt",
+                                    "Bitte zuerst ein Haus auswählen.")
+            return
+        objekt_id, name, _, _ = auswahl
+        aktuell = ""
+        zeile = self._verbindung.execute(
+            "SELECT erkennungstext FROM objekte WHERE id = ?", (objekt_id,)
+        ).fetchone()
+        if zeile is not None and zeile["erkennungstext"]:
+            aktuell = zeile["erkennungstext"]
+        text, ok = QInputDialog.getText(
+            self, "Erkennungstext",
+            f"Stichwörter im Verwendungszweck, die zu „{name}“ gehören\n"
+            "(z. B. Straßenname wie „Südstraße Sudstrase“, mehrere durch "
+            "Leerzeichen):",
+            text=aktuell,
+        )
+        if not ok:
+            return
+        try:
+            stammdaten.objekt_erkennungstext_setzen(
+                self._verbindung, objekt_id, text
+            )
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
         self.aktualisieren()
 
     def aktualisieren(self) -> None:

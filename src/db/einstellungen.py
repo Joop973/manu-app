@@ -15,6 +15,12 @@ SCHLUESSEL_BACKUP_PFAD = "backup_pfad"
 SCHLUESSEL_PIN_MODUS = "pin_modus"
 PIN_AKTIV = "aktiv"
 PIN_AUS = "aus"
+# Standard-Haus für den Import: Buchungen ohne erkennbares Haus werden
+# diesem Haus zugeordnet (ID als Text). Leer = keine Vorbelegung.
+SCHLUESSEL_STANDARD_HAUS = "standard_haus_id"
+# Vollautomatik beim Import: "1" = sicher zugeordnete Buchungen sofort
+# übernehmen (Vorschau nur für unklare Fälle), "0" = immer Vorschau.
+SCHLUESSEL_AUTO_IMPORT = "auto_import"
 
 
 def einstellung_lesen(

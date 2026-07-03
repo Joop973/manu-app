@@ -10,7 +10,17 @@ import re
 import sqlite3
 from decimal import Decimal
 
-from src.db import buchungen, muster, regeln
+from src.db import buchungen, einstellungen, muster, regeln, stammdaten
+
+# Wörter, die bei der Mieter-/Haus-Erkennung ignoriert werden (zu unspezifisch).
+_STOPWORTE = {
+    "DER", "DIE", "DAS", "UND", "VON", "FUR", "FÜR", "MIT", "GMBH", "MBH",
+    "MIETE", "MIETER", "HAUS", "WOHNUNG", "DAUERAUFTRAGSGUTSCHR",
+    "GUTSCHRIFT", "UBERWEISUNG", "ÜBERWEISUNG", "SEPA", "EUR",
+    "BASISLASTSCHRIFT", "LASTSCHRIFT", "HERR", "FRAU",
+}
+# Mindest-Wortlänge, damit ein Token für die Erkennung zählt.
+_MIN_TOKEN = 3
 
 # Maximale Länge des gespeicherten Erkennungstextes.
 _ERKENNUNG_LAENGE = 40
@@ -161,15 +171,102 @@ def _heuristik_kategorie_id(
     return None
 
 
+def _tokens(normalisiert: str) -> set[str]:
+    """Zerlegt einen normalisierten Text in aussagekräftige Wörter."""
+    return {
+        wort for wort in normalisiert.split()
+        if len(wort) >= _MIN_TOKEN and wort not in _STOPWORTE
+    }
+
+
+def mieter_erkennen(
+    verbindung: sqlite3.Connection, normalisiert: str
+) -> sqlite3.Row | None:
+    """Erkennt einen bekannten Mieter am Absender-/Verwendungszwecktext.
+
+    Vergleicht die Wörter des Mieternamens mit den Wörtern der Buchung.
+    Es gewinnt der Mieter mit der höchsten Wortüberdeckung; verlangt wird
+    mindestens ein gemeinsames aussagekräftiges Wort und, bei mehrteiligen
+    Namen, mindestens die Hälfte der Namensbestandteile.
+    """
+    text_tokens = _tokens(normalisiert)
+    if not text_tokens:
+        return None
+    bester: sqlite3.Row | None = None
+    beste_treffer = 0
+    for mieter in stammdaten.mieter_alle_laden(verbindung):
+        name_tokens = _tokens(normalisieren(mieter["name"]))
+        if not name_tokens:
+            continue
+        gemeinsam = name_tokens & text_tokens
+        if not gemeinsam:
+            continue
+        # Bei mehrteiligen Namen mindestens die Hälfte der Wörter treffen.
+        if len(gemeinsam) < (len(name_tokens) + 1) // 2:
+            continue
+        if len(gemeinsam) > beste_treffer:
+            beste_treffer = len(gemeinsam)
+            bester = mieter
+    return bester
+
+
+def haus_aus_text(
+    verbindung: sqlite3.Connection, normalisiert: str
+) -> int | None:
+    """Erkennt ein Haus am Namen oder Erkennungstext im Verwendungszweck."""
+    text_tokens = _tokens(normalisiert)
+    if not text_tokens:
+        return None
+    bester_id: int | None = None
+    beste_treffer = 0
+    for haus in stammdaten.objekte_laden(verbindung):
+        quellen = [haus["name"]]
+        try:
+            if haus["erkennungstext"]:
+                quellen.append(haus["erkennungstext"])
+        except (KeyError, IndexError):
+            pass
+        haus_tokens: set[str] = set()
+        for quelle in quellen:
+            haus_tokens |= _tokens(normalisieren(quelle))
+        gemeinsam = haus_tokens & text_tokens
+        if gemeinsam and len(gemeinsam) > beste_treffer:
+            beste_treffer = len(gemeinsam)
+            bester_id = haus["id"]
+    return bester_id
+
+
+def _standard_haus_id(verbindung: sqlite3.Connection) -> int | None:
+    """Liefert das eingestellte Standard-Haus für den Import (oder None)."""
+    wert = einstellungen.einstellung_lesen(
+        verbindung, einstellungen.SCHLUESSEL_STANDARD_HAUS
+    )
+    if not wert:
+        return None
+    try:
+        return int(wert)
+    except (ValueError, TypeError):
+        return None
+
+
 def klassifizieren(
     verbindung: sqlite3.Connection, datum: str, betrag: Decimal, text: str
 ) -> dict:
-    """Klassifiziert eine importierte Buchungszeile.
+    """Klassifiziert eine importierte Buchungszeile möglichst vollständig.
 
-    Liefert einen Kandidaten mit Status:
-    * ``auto``     — sicher per Regel oder Muster zugeordnet
+    Reihenfolge der Zuordnung:
+      1. benutzerdefinierte Regel
+      2. gelerntes Muster
+      3. Mieter-Erkennung am Text (ergänzt Mieter + dessen Haus)
+      4. Haus-Erkennung am Text, sonst Standard-Haus
+      5. Kategorie: Stichwort-Heuristik; Einnahme eines erkannten
+         Mieters → Kaltmiete; sonst „Rahmen"-Kategorie aus dem
+         Empfängernamen bzw. „Sonstiges"
+
+    ``status``:
+    * ``auto``     — Haus **und** Kategorie stehen fest
     * ``unsicher`` — Treffer mit auffälliger Betragsabweichung
-    * ``neu``      — keine Vor-Zuordnung möglich (Haus fehlt)
+    * ``neu``      — Haus oder Kategorie fehlt noch
     """
     normalisiert = normalisieren(text)
     kandidat = {
@@ -180,6 +277,9 @@ def klassifizieren(
         "objekt_id": None,
         "kategorie_id": None,
         "mieter_id": None,
+        # Freitext-Kategorie, die beim Übernehmen angelegt wird (Rahmen).
+        "kategorie_name": None,
+        "kategorie_typ": "einnahme" if betrag > 0 else "ausgabe",
         "status": "neu",
         "dublette": buchungen.buchung_existiert(verbindung, datum, betrag),
     }
@@ -190,8 +290,6 @@ def klassifizieren(
         kandidat["objekt_id"] = regel["objekt_id"]
         kandidat["kategorie_id"] = regel["kategorie_id"]
         kandidat["mieter_id"] = regel["mieter_id"]
-        if regel["objekt_id"] and regel["kategorie_id"]:
-            kandidat["status"] = "auto"
 
     # 2) Gelerntes Muster ergänzt, was die Regel offen lässt.
     treffer = muster.muster_finden(verbindung, normalisiert)
@@ -202,10 +300,6 @@ def klassifizieren(
             kandidat["kategorie_id"] = treffer["kategorie_id"]
         if kandidat["mieter_id"] is None:
             kandidat["mieter_id"] = treffer["mieter_id"]
-        if kandidat["objekt_id"] and kandidat["kategorie_id"]:
-            kandidat["status"] = "auto"
-
-        # Betragsabweichung gegenüber dem Durchschnitt ähnlicher Buchungen.
         schnitt = _durchschnitt_fuer_muster(
             verbindung, treffer["erkennungstext"]
         )
@@ -214,11 +308,61 @@ def klassifizieren(
             if abweichung > ABWEICHUNG_GRENZE:
                 kandidat["status"] = "unsicher"
 
-    # 3) Stichwort-Heuristik schlägt eine Kategorie auch ohne Lernkurve vor.
-    if kandidat["kategorie_id"] is None and betrag < 0:
-        vorschlag = _heuristik_kategorie_id(verbindung, normalisiert)
-        if vorschlag is not None:
-            kandidat["kategorie_id"] = vorschlag
-            # Markiere als Vorschlag — Haus fehlt noch, bleibt also "neu",
-            # aber die Kategorie ist bereits vorausgewählt.
+    # 3) Mieter am Text erkennen (auch als Quelle für das Haus).
+    if kandidat["mieter_id"] is None:
+        mieter = mieter_erkennen(verbindung, normalisiert)
+        if mieter is not None:
+            kandidat["mieter_id"] = mieter["id"]
+            if kandidat["objekt_id"] is None:
+                kandidat["objekt_id"] = mieter["objekt_id"]
+
+    # 4) Haus bestimmen: Text-Erkennung, sonst Standard-Haus.
+    if kandidat["objekt_id"] is None:
+        kandidat["objekt_id"] = haus_aus_text(verbindung, normalisiert)
+    if kandidat["objekt_id"] is None:
+        kandidat["objekt_id"] = _standard_haus_id(verbindung)
+
+    # 5) Kategorie bestimmen.
+    if kandidat["kategorie_id"] is None:
+        if betrag > 0 and kandidat["mieter_id"] is not None:
+            # Eingang eines erkannten Mieters → Kaltmiete
+            kandidat["kategorie_name"] = "Kaltmiete"
+            kandidat["kategorie_typ"] = "einnahme"
+        elif betrag < 0:
+            vorschlag = _heuristik_kategorie_id(verbindung, normalisiert)
+            if vorschlag is not None:
+                kandidat["kategorie_id"] = vorschlag
+            else:
+                # Rahmen: neue Kategorie aus dem Empfängernamen
+                kandidat["kategorie_name"] = _rahmen_kategorie_name(
+                    normalisiert
+                )
+                kandidat["kategorie_typ"] = "ausgabe"
+        else:
+            kandidat["kategorie_name"] = "Sonstiges"
+            kandidat["kategorie_typ"] = "einnahme" if betrag > 0 else "ausgabe"
+
+    # Status: auto, wenn Haus feststeht und Kategorie feststeht bzw. als
+    # Rahmen-Kategorie automatisch angelegt wird.
+    hat_kategorie = (
+        kandidat["kategorie_id"] is not None
+        or kandidat["kategorie_name"] is not None
+    )
+    if (kandidat["status"] != "unsicher"
+            and kandidat["objekt_id"] is not None and hat_kategorie):
+        kandidat["status"] = "auto"
     return kandidat
+
+
+def _rahmen_kategorie_name(normalisiert: str) -> str:
+    """Bildet aus dem Empfängertext einen kurzen Kategorienamen (Rahmen).
+
+    Nimmt die ersten aussagekräftigen Wörter des Empfängers und macht
+    daraus einen lesbaren Titel (z. B. „Handwerker Meyer").
+    """
+    worte = [w for w in normalisiert.split()
+             if len(w) >= _MIN_TOKEN and w not in _STOPWORTE]
+    if not worte:
+        return "Sonstiges"
+    titel = " ".join(worte[:3]).title()
+    return titel

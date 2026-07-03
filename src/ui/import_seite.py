@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.db import buchungen, muster, stammdaten
+from src.db import buchungen, einstellungen, muster, stammdaten
 from src.logic import lernsystem
 from src.logic.belege import beleg_archivieren
 from src.logic.pdf_import import (
@@ -82,19 +82,104 @@ def _haus_combo(
 
 
 def _kategorie_combo(
-    verbindung: sqlite3.Connection, kategorie_id: int | None
+    verbindung: sqlite3.Connection,
+    kategorie_id: int | None,
+    vorschlag_name: str | None = None,
+    vorschlag_typ: str = "ausgabe",
 ) -> QComboBox:
-    """Erzeugt ein Auswahlfeld für Kategorien mit Vorauswahl."""
+    """Erzeugt ein frei beschreibbares Kategorie-Auswahlfeld (Rahmen).
+
+    Bestehende Kategorien lassen sich auswählen; man kann aber auch einen
+    neuen Namen eintippen — beim Übernehmen wird die Kategorie dann
+    automatisch angelegt. ``kategorie_id`` wählt eine bestehende Kategorie
+    vor; ``vorschlag_name`` füllt den Text als Vorschlag (Rahmen).
+    """
     combo = QComboBox()
+    combo.setEditable(True)
+    combo.setInsertPolicy(QComboBox.NoInsert)
     combo.addItem("— bitte wählen —", None)
     for typ, bezeichnung in (("einnahme", "Einnahme"), ("ausgabe", "Ausgabe")):
         for kategorie in stammdaten.kategorien_laden(verbindung, typ):
             combo.addItem(f"{kategorie['name']} ({bezeichnung})", kategorie["id"])
+    # Typ als Eigenschaft merken (für die Neu-Anlage beim Übernehmen).
+    combo.setProperty("kategorie_typ", vorschlag_typ)
     if kategorie_id is not None:
         index = combo.findData(kategorie_id)
         if index >= 0:
             combo.setCurrentIndex(index)
+            return combo
+    if vorschlag_name:
+        combo.setEditText(vorschlag_name)
     return combo
+
+
+def _kategorie_aus_combo(
+    verbindung: sqlite3.Connection, combo: QComboBox
+) -> int | None:
+    """Ermittelt die Kategorie-ID aus einem frei beschreibbaren Combo.
+
+    Reihenfolge: gewählte bestehende Kategorie → eingetippter Name, der
+    einer bestehenden Kategorie entspricht → neue Kategorie anlegen.
+    Liefert ``None``, wenn nichts Sinnvolles eingegeben wurde.
+    """
+    # 1) Ausgewählter Eintrag mit hinterlegter ID.
+    if combo.currentIndex() >= 0:
+        data = combo.itemData(combo.currentIndex())
+        if isinstance(data, int):
+            return data
+    # 2) Freitext auswerten.
+    text = combo.currentText().strip()
+    if not text or text.startswith("—"):
+        return None
+    # "Name (Einnahme)" → nur den Namen nehmen, Typ ableiten.
+    typ = combo.property("kategorie_typ") or "ausgabe"
+    name = text
+    if text.endswith("(Einnahme)"):
+        name = text[: -len("(Einnahme)")].strip()
+        typ = "einnahme"
+    elif text.endswith("(Ausgabe)"):
+        name = text[: -len("(Ausgabe)")].strip()
+        typ = "ausgabe"
+    return stammdaten.kategorie_holen_oder_anlegen(verbindung, name, typ)
+
+
+def kandidat_direkt_schreiben(
+    verbindung: sqlite3.Connection, kandidat: dict
+) -> None:
+    """Schreibt einen vollständig zugeordneten Kandidaten in die Datenbank.
+
+    Legt bei Bedarf die Rahmen-Kategorie an, speichert die Buchung und
+    merkt sich Haus/Kategorie/Mieter als Muster für den nächsten Import.
+    Erwartet ``objekt_id`` gesetzt und entweder ``kategorie_id`` oder
+    ``kategorie_name``.
+    """
+    objekt_id = kandidat["objekt_id"]
+    kategorie_id = kandidat.get("kategorie_id")
+    if kategorie_id is None and kandidat.get("kategorie_name"):
+        kategorie_id = stammdaten.kategorie_holen_oder_anlegen(
+            verbindung, kandidat["kategorie_name"],
+            kandidat.get("kategorie_typ", "ausgabe"),
+        )
+    if objekt_id is None or kategorie_id is None:
+        raise sqlite3.Error("Kandidat unvollständig für Direkt-Übernahme.")
+
+    buchungen.buchung_anlegen(
+        verbindung,
+        kandidat["datum"],
+        abs(kandidat["betrag"]),
+        objekt_id,
+        kategorie_id,
+        kandidat["text"],
+        None,
+        "import",
+        mieter_id=kandidat.get("mieter_id"),
+    )
+    erkennung = lernsystem.erkennungstext_bilden(kandidat.get("norm", ""))
+    if erkennung:
+        muster.muster_speichern(
+            verbindung, erkennung, objekt_id, kategorie_id,
+            mieter_id=kandidat.get("mieter_id"),
+        )
 
 
 # Spezial-Wert: vom Nutzer im Combo gewählter „Neuen Mieter anlegen"-Eintrag.
@@ -534,7 +619,11 @@ class ImportVorschauDialog(QDialog):
         self._tabelle.setCellWidget(zeile, self.SPALTE_HAUS, haus_combo)
         self._tabelle.setCellWidget(
             zeile, self.SPALTE_KATEGORIE,
-            _kategorie_combo(self._verbindung, kandidat["kategorie_id"]),
+            _kategorie_combo(
+                self._verbindung, kandidat["kategorie_id"],
+                vorschlag_name=kandidat.get("kategorie_name"),
+                vorschlag_typ=kandidat.get("kategorie_typ", "ausgabe"),
+            ),
         )
 
         mieter_combo = QComboBox()
@@ -643,16 +732,18 @@ class ImportVorschauDialog(QDialog):
             objekt_id = self._tabelle.cellWidget(
                 zeile, self.SPALTE_HAUS
             ).currentData()
-            kategorie_id = self._tabelle.cellWidget(
-                zeile, self.SPALTE_KATEGORIE
-            ).currentData()
+            kategorie_id = _kategorie_aus_combo(
+                self._verbindung,
+                self._tabelle.cellWidget(zeile, self.SPALTE_KATEGORIE),
+            )
             mieter_id = self._tabelle.cellWidget(
                 zeile, self.SPALTE_MIETER
             ).currentData()
             if objekt_id is None or kategorie_id is None:
                 QMessageBox.warning(
                     self, "Zuordnung unvollständig",
-                    f"Zeile {zeile + 1}: Bitte Haus und Kategorie wählen."
+                    f"Zeile {zeile + 1}: Bitte Haus und Kategorie wählen "
+                    "(Kategorie darf auch neu eingetippt werden)."
                 )
                 return
             zuordnung.append((objekt_id, kategorie_id, mieter_id))
@@ -865,7 +956,12 @@ class ImportSeite(QWidget):
             self._mehrere_kontoauszuege_oeffnen(pfade)
 
     def _mehrere_kontoauszuege_oeffnen(self, pfade: list[str]) -> None:
-        """Liest alle übergebenen Auszüge und zeigt sie gemeinsam in der Vorschau."""
+        """Liest alle übergebenen Auszüge und verarbeitet sie.
+
+        Ist die Vollautomatik aktiv, werden sicher zugeordnete Buchungen
+        (Status „auto", ohne Dublettenverdacht) sofort übernommen; die
+        Vorschau zeigt dann nur noch die unklaren Fälle.
+        """
         alle_kandidaten: list[dict] = []
         pruefungen: list[tuple[str, dict]] = []
         fehler: list[str] = []
@@ -892,13 +988,44 @@ class ImportSeite(QWidget):
 
         if fehler:
             QMessageBox.warning(
-                self, "Hinweise zum PDF-Import",
-                "\n".join(fehler)
+                self, "Hinweise zum PDF-Import", "\n".join(fehler)
             )
         if not alle_kandidaten:
             return
+
+        auto_aktiv = einstellungen.einstellung_lesen(
+            self._verbindung, einstellungen.SCHLUESSEL_AUTO_IMPORT, "0"
+        ) == "1"
+
+        auto_zahl = 0
+        rest = alle_kandidaten
+        if auto_aktiv:
+            sicher = [k for k in alle_kandidaten
+                      if k["status"] == "auto" and not k.get("dublette")]
+            rest = [k for k in alle_kandidaten if k not in sicher]
+            for kandidat in sicher:
+                try:
+                    kandidat_direkt_schreiben(self._verbindung, kandidat)
+                    auto_zahl += 1
+                except (sqlite3.Error, OSError):
+                    rest.append(kandidat)
+
+        if not rest:
+            QMessageBox.information(
+                self, "Import abgeschlossen",
+                f"{auto_zahl} Buchung(en) automatisch übernommen. "
+                "Es blieben keine unklaren Fälle."
+            )
+            return
+
+        if auto_zahl:
+            QMessageBox.information(
+                self, "Automatik",
+                f"{auto_zahl} Buchung(en) wurden automatisch übernommen. "
+                f"{len(rest)} Buchung(en) brauchen noch deine Kontrolle."
+            )
         ImportVorschauDialog(
-            self._verbindung, alle_kandidaten,
+            self._verbindung, rest,
             pruefungen=pruefungen, parent=self,
         ).exec()
 

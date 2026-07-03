@@ -8,6 +8,8 @@ from __future__ import annotations
 import sqlite3
 
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -22,11 +24,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.db import stammdaten
 from src.db.einstellungen import (
     PIN_AKTIV,
     PIN_AUS,
+    SCHLUESSEL_AUTO_IMPORT,
     SCHLUESSEL_BACKUP_PFAD,
     SCHLUESSEL_PIN_MODUS,
+    SCHLUESSEL_STANDARD_HAUS,
     einstellung_lesen,
     einstellung_schreiben,
 )
@@ -110,6 +115,33 @@ class EinstellungenSeite(QWidget):
         layout.addWidget(sicherheit)
         self._sicherheit_neu_aufbauen()
 
+        # --- Automatischer Import ---
+        automatik = QGroupBox("Automatische Buchungserfassung")
+        auto_layout = QVBoxLayout(automatik)
+        self._auto_import = QCheckBox(
+            "Sicher zugeordnete Buchungen beim Import sofort übernehmen "
+            "(Vorschau nur für unklare Fälle)"
+        )
+        self._auto_import.toggled.connect(self._auto_import_speichern)
+        auto_layout.addWidget(self._auto_import)
+
+        haus_zeile = QHBoxLayout()
+        haus_zeile.addWidget(QLabel("Standard-Haus (für nicht erkannte Buchungen):"))
+        self._standard_haus = QComboBox()
+        self._standard_haus.currentIndexChanged.connect(
+            self._standard_haus_speichern
+        )
+        haus_zeile.addWidget(self._standard_haus)
+        haus_zeile.addStretch()
+        auto_layout.addLayout(haus_zeile)
+        auto_layout.addWidget(QLabel(
+            "Tipp: Damit Häuser automatisch erkannt werden, unter "
+            "Stammdaten → Häuser → „Erkennungstext …“ den Straßennamen "
+            "hinterlegen. Mieter werden automatisch am Namen im "
+            "Verwendungszweck erkannt."
+        ))
+        layout.addWidget(automatik)
+
         # --- Datensicherung ---
         backup = QGroupBox("Datensicherung")
         backup_layout = QVBoxLayout(backup)
@@ -157,11 +189,52 @@ class EinstellungenSeite(QWidget):
         self.aktualisieren()
 
     def aktualisieren(self) -> None:
-        """Aktualisiert Backup-Anzeige und Sicherheitsbereich."""
+        """Aktualisiert Backup-Anzeige, Sicherheit und Automatik-Felder."""
         self._backup_label.setText(
             f"Aktueller Backup-Ordner:\n{backup_ziel(self._verbindung)}"
         )
         self._sicherheit_neu_aufbauen()
+        self._automatik_laden()
+
+    def _automatik_laden(self) -> None:
+        """Füllt die Automatik-Felder aus den gespeicherten Einstellungen."""
+        self._auto_import.blockSignals(True)
+        self._standard_haus.blockSignals(True)
+
+        aktiv = einstellung_lesen(
+            self._verbindung, SCHLUESSEL_AUTO_IMPORT, "0"
+        ) == "1"
+        self._auto_import.setChecked(aktiv)
+
+        self._standard_haus.clear()
+        self._standard_haus.addItem("— keins —", None)
+        for haus in stammdaten.objekte_laden(self._verbindung):
+            self._standard_haus.addItem(haus["name"], haus["id"])
+        gespeichert = einstellung_lesen(
+            self._verbindung, SCHLUESSEL_STANDARD_HAUS
+        )
+        if gespeichert:
+            try:
+                index = self._standard_haus.findData(int(gespeichert))
+                if index >= 0:
+                    self._standard_haus.setCurrentIndex(index)
+            except (ValueError, TypeError):
+                pass
+
+        self._auto_import.blockSignals(False)
+        self._standard_haus.blockSignals(False)
+
+    def _auto_import_speichern(self, aktiv: bool) -> None:
+        einstellung_schreiben(
+            self._verbindung, SCHLUESSEL_AUTO_IMPORT, "1" if aktiv else "0"
+        )
+
+    def _standard_haus_speichern(self) -> None:
+        haus_id = self._standard_haus.currentData()
+        einstellung_schreiben(
+            self._verbindung, SCHLUESSEL_STANDARD_HAUS,
+            str(haus_id) if haus_id is not None else "",
+        )
 
     def _sicherheit_neu_aufbauen(self) -> None:
         """Baut den PIN-Bereich passend zum aktuellen PIN-Modus auf."""

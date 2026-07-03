@@ -13,7 +13,7 @@ from __future__ import annotations
 
 # Versionsnummer des Schemas. Wird in app_settings hinterlegt, damit
 # spätere Phasen kontrollierte Migrationen durchführen können.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Spalten, die in späteren Versionen ergänzt wurden. Werden beim Start
 # per ALTER TABLE nachgerüstet, falls sie in einer Alt-Datenbank fehlen.
@@ -24,6 +24,9 @@ NACHRUEST_SPALTEN: list[tuple[str, str, str]] = [
     ("kategorien", "umlagefaehig", "INTEGER NOT NULL DEFAULT 0"),
     ("buchungen", "mieter_id", "INTEGER REFERENCES mieter(id)"),
     ("buchungsmuster", "mieter_id", "INTEGER REFERENCES mieter(id)"),
+    # Straßen-/Erkennungstext je Haus für die automatische Haus-Erkennung
+    # aus dem Verwendungszweck (z. B. "Sudstrase" -> Südstraße).
+    ("objekte", "erkennungstext", "TEXT"),
 ]
 
 # --- Tabellendefinitionen -------------------------------------------------

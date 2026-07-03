@@ -21,11 +21,23 @@ def objekte_laden(
     verbindung: sqlite3.Connection, nur_aktive: bool = False
 ) -> list[sqlite3.Row]:
     """Lädt alle Häuser, optional nur die aktiven."""
-    sql = "SELECT id, name, aktiv, umlageschluessel FROM objekte"
+    sql = ("SELECT id, name, aktiv, umlageschluessel, erkennungstext "
+           "FROM objekte")
     if nur_aktive:
         sql += " WHERE aktiv = 1"
     sql += " ORDER BY name COLLATE NOCASE"
     return verbindung.execute(sql).fetchall()
+
+
+def objekt_erkennungstext_setzen(
+    verbindung: sqlite3.Connection, objekt_id: int, text: str
+) -> None:
+    """Setzt den Erkennungstext (Straßenname o. ä.) eines Hauses."""
+    verbindung.execute(
+        "UPDATE objekte SET erkennungstext = ? WHERE id = ?",
+        ((text or "").strip() or None, objekt_id),
+    )
+    verbindung.commit()
 
 
 def _objekt_name_belegt(
@@ -272,6 +284,34 @@ def kategorie_anlegen(
         (name, typ),
     )
     verbindung.commit()
+
+
+def kategorie_holen_oder_anlegen(
+    verbindung: sqlite3.Connection, name: str, typ: str
+) -> int:
+    """Liefert die ID einer Kategorie und legt sie bei Bedarf neu an.
+
+    Grundlage für den „Rahmen"-Modus: passt keine bestehende Kategorie,
+    entsteht automatisch eine neue mit dem übergebenen Namen. Gibt die
+    Kategorie-ID zurück.
+    """
+    name = (name or "").strip()
+    if not name:
+        name = "Sonstiges"
+    if typ not in ("ausgabe", "einnahme"):
+        typ = "ausgabe"
+    zeile = verbindung.execute(
+        "SELECT id FROM kategorien WHERE name = ? COLLATE NOCASE AND typ = ?",
+        (name, typ),
+    ).fetchone()
+    if zeile is not None:
+        return zeile["id"]
+    cursor = verbindung.execute(
+        "INSERT INTO kategorien (name, typ, aktiv) VALUES (?, ?, 1)",
+        (name, typ),
+    )
+    verbindung.commit()
+    return cursor.lastrowid
 
 
 def kategorie_aktiv_setzen(
