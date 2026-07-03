@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from src.db.einstellungen import PIN_AKTIV, SCHLUESSEL_PIN_MODUS, einstellung_lesen
 from src.db.init import datenbank_initialisieren
+from src.ui.einrichtung_dialog import EinrichtungsAssistent, einrichtung_noetig
 from src.ui.login_dialog import LoginDialog, PinEinrichtenDialog
 from src.ui.main_window import MainWindow, manu_symbol
 from src.utils import paths
@@ -51,6 +52,10 @@ def main() -> int:
             verbindung.close()
             return 0
     # pin_modus == PIN_AUS: keine Anmeldung erforderlich
+
+    # Einmalige Einrichtung der Import-Automatik anbieten.
+    if einrichtung_noetig(verbindung):
+        EinrichtungsAssistent(verbindung).exec()
 
     # Hauptfenster anzeigen
     fenster = MainWindow(verbindung)
