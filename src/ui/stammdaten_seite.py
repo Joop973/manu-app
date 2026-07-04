@@ -575,9 +575,12 @@ class _KategorieListe(QWidget):
         knopf_status.clicked.connect(self._status_aendern)
         knopf_umlage = QPushButton("Umlagefähig ändern")
         knopf_umlage.clicked.connect(self._umlagefaehig_aendern)
+        knopf_zusammen = QPushButton("Zusammenlegen …")
+        knopf_zusammen.clicked.connect(self._zusammenlegen)
         knopfleiste.addWidget(knopf_neu)
         knopfleiste.addWidget(knopf_status)
         knopfleiste.addWidget(knopf_umlage)
+        knopfleiste.addWidget(knopf_zusammen)
         knopfleiste.addStretch()
         gruppen_layout.addLayout(knopfleiste)
 
@@ -664,6 +667,59 @@ class _KategorieListe(QWidget):
         except sqlite3.Error as fehler:
             QMessageBox.critical(self, "Datenbankfehler", str(fehler))
             return
+        self.aktualisieren()
+
+    def _zusammenlegen(self) -> None:
+        """Lässt die markierte Kategorie in einer anderen aufgehen."""
+        auswahl = self._ausgewaehlt()
+        if auswahl is None:
+            QMessageBox.information(
+                self, "Keine Kategorie gewählt",
+                "Bitte zuerst die Kategorie auswählen, die aufgelöst "
+                "werden soll."
+            )
+            return
+        quelle_id, quelle_name, _, _ = auswahl
+        ziele = [
+            k for k in stammdaten.kategorien_laden(self._verbindung, self._typ)
+            if k["id"] != quelle_id
+        ]
+        if not ziele:
+            QMessageBox.information(self, "Keine Ziel-Kategorie",
+                                    "Es gibt keine andere Kategorie.")
+            return
+        namen = [z["name"] for z in ziele]
+        wahl, ok = QInputDialog.getItem(
+            self, "Kategorie zusammenlegen",
+            f"„{quelle_name}“ auflösen und alle Buchungen verschieben "
+            "nach:",
+            namen, 0, editable=False,
+        )
+        if not ok:
+            return
+        ziel = ziele[namen.index(wahl)]
+        antwort = QMessageBox.question(
+            self, "Zusammenlegen bestätigen",
+            f"Alle Buchungen, Muster und Regeln von „{quelle_name}“ "
+            f"werden nach „{ziel['name']}“ verschoben; "
+            f"„{quelle_name}“ wird gelöscht.\n\nFortfahren?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            anzahl = stammdaten.kategorien_zusammenlegen(
+                self._verbindung, quelle_id, ziel["id"]
+            )
+        except (ValidierungsFehler, sqlite3.Error) as fehler:
+            QMessageBox.warning(self, "Zusammenlegen fehlgeschlagen",
+                                str(fehler))
+            return
+        QMessageBox.information(
+            self, "Zusammengelegt",
+            f"{anzahl} Buchung(en) wurden nach „{ziel['name']}“ "
+            "verschoben."
+        )
         self.aktualisieren()
 
 

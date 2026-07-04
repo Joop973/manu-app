@@ -37,11 +37,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.db import buchungen, einstellungen, muster, stammdaten
+from src.db import auszuege, buchungen, einstellungen, mietzahlungen, muster, stammdaten
 from src.logic import lernsystem
 from src.logic.belege import beleg_archivieren
 from src.logic.pdf_import import (
-    buchungszeilen_aus_text, rohtext_lesen, saldo_pruefen,
+    auszug_kennung, buchungszeilen_aus_text, rohtext_lesen, saldo_pruefen,
 )
 from src.ui.tabelle import tabelle_vorbereiten
 from src.utils.eingaben import (
@@ -143,6 +143,34 @@ def _kategorie_aus_combo(
     return stammdaten.kategorie_holen_oder_anlegen(verbindung, name, typ)
 
 
+def _mietzahlung_abhaken(
+    verbindung: sqlite3.Connection,
+    datum: str,
+    betrag,
+    mieter_id: int | None,
+    kategorie_id: int,
+) -> None:
+    """Hakt bei einer Mieteinnahme den Monat in der Checkliste ab.
+
+    Greift, wenn die Buchung einem Mieter zugeordnet ist und die
+    Kategorie eine Einnahme ist. Legt keine zusätzlichen Buchungen an
+    (die Kontobewegung ist bereits erfasst).
+    """
+    if mieter_id is None or betrag is None or betrag <= 0:
+        return
+    zeile = verbindung.execute(
+        "SELECT typ FROM kategorien WHERE id = ?", (kategorie_id,)
+    ).fetchone()
+    if zeile is None or zeile["typ"] != "einnahme":
+        return
+    try:
+        jahr = int(datum[:4])
+        monat = int(datum[5:7])
+    except (ValueError, TypeError, IndexError):
+        return
+    mietzahlungen.zahlung_vermerken(verbindung, mieter_id, monat, jahr, betrag)
+
+
 def kandidat_direkt_schreiben(
     verbindung: sqlite3.Connection, kandidat: dict
 ) -> None:
@@ -180,6 +208,10 @@ def kandidat_direkt_schreiben(
             verbindung, erkennung, objekt_id, kategorie_id,
             mieter_id=kandidat.get("mieter_id"),
         )
+    _mietzahlung_abhaken(
+        verbindung, kandidat["datum"], kandidat["betrag"],
+        kandidat.get("mieter_id"), kategorie_id,
+    )
 
 
 # Spezial-Wert: vom Nutzer im Combo gewählter „Neuen Mieter anlegen"-Eintrag.
@@ -489,11 +521,15 @@ class ImportVorschauDialog(QDialog):
         verbindung: sqlite3.Connection,
         kandidaten: list[dict],
         pruefungen: list[tuple[str, dict]] | None = None,
+        kennungen: list[tuple[str, str]] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self._verbindung = verbindung
         self._kandidaten = list(kandidaten)
+        # Auszugs-Kennungen (kennung, dateiname), die nach erfolgreicher
+        # Übernahme als importiert vermerkt werden (Dubletten-Schutz).
+        self._kennungen = kennungen or []
         self.setModal(True)
         self.setWindowTitle("Import-Vorschau")
         self.resize(1100, 560)
@@ -768,6 +804,10 @@ class ImportVorschauDialog(QDialog):
                     "import",
                     mieter_id=mieter_id,
                 )
+                _mietzahlung_abhaken(
+                    self._verbindung, kandidat["datum"], kandidat["betrag"],
+                    mieter_id, kategorie_id,
+                )
                 erkennung = lernsystem.erkennungstext_bilden(
                     kandidat.get("norm", "")
                 )
@@ -779,6 +819,10 @@ class ImportVorschauDialog(QDialog):
         except (sqlite3.Error, OSError) as fehler:
             QMessageBox.critical(self, "Fehler beim Übernehmen", str(fehler))
             return
+
+        # Auszüge als importiert vermerken (Dubletten-Schutz).
+        for kennung, dateiname in self._kennungen:
+            auszuege.vermerken(self._verbindung, kennung, dateiname)
 
         QMessageBox.information(
             self, "Import abgeschlossen",
@@ -964,6 +1008,7 @@ class ImportSeite(QWidget):
         """
         alle_kandidaten: list[dict] = []
         pruefungen: list[tuple[str, dict]] = []
+        kennungen: list[tuple[str, str]] = []
         fehler: list[str] = []
 
         for pfad in pfade:
@@ -978,6 +1023,18 @@ class ImportSeite(QWidget):
                     f"{Path(pfad).name}: keine Buchungen erkannt."
                 )
                 continue
+            # Dubletten-Schutz: bereits importierte Auszüge überspringen.
+            kennung = auszug_kennung(rohtext)
+            if kennung:
+                vermerk = auszuege.ist_importiert(self._verbindung, kennung)
+                if vermerk is not None:
+                    fehler.append(
+                        f"{Path(pfad).name}: Auszug Nr. {kennung} wurde "
+                        f"bereits am {vermerk['importiert_am'][:10]} "
+                        "importiert — übersprungen."
+                    )
+                    continue
+                kennungen.append((kennung, Path(pfad).name))
             pruefung = saldo_pruefen(rohtext, zeilen)
             pruefungen.append((pfad, pruefung))
             for zeile in zeilen:
@@ -1011,6 +1068,9 @@ class ImportSeite(QWidget):
                     rest.append(kandidat)
 
         if not rest:
+            # Vollständig automatisch übernommen → Auszüge vermerken.
+            for kennung, dateiname in kennungen:
+                auszuege.vermerken(self._verbindung, kennung, dateiname)
             QMessageBox.information(
                 self, "Import abgeschlossen",
                 f"{auto_zahl} Buchung(en) automatisch übernommen. "
@@ -1026,7 +1086,7 @@ class ImportSeite(QWidget):
             )
         ImportVorschauDialog(
             self._verbindung, rest,
-            pruefungen=pruefungen, parent=self,
+            pruefungen=pruefungen, kennungen=kennungen, parent=self,
         ).exec()
 
     # --- Excel-Import ----------------------------------------------------

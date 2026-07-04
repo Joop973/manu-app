@@ -507,9 +507,91 @@ class BuchungenSeite(QWidget):
             QMessageBox.information(self, "Keine Buchung gewählt",
                                     "Bitte zuerst eine Buchung auswählen.")
             return
+        vorher = self._verbindung.execute(
+            "SELECT objekt_id, kategorie_id, mieter_id, beschreibung "
+            "FROM buchungen WHERE id = ?", (buchung_id,)
+        ).fetchone()
         dialog = BuchungDialog(self._verbindung, buchung_id, parent=self)
         if dialog.exec() == QDialog.Accepted:
+            if vorher is not None:
+                self._umlernen_anbieten(buchung_id, vorher)
             self.aktualisieren()
+
+    def _umlernen_anbieten(self, buchung_id: int, vorher) -> None:
+        """Überträgt eine korrigierte Zuordnung auf ähnliche Buchungen.
+
+        Wurde Haus, Kategorie oder Mieter geändert, lernt die App die
+        Korrektur (Muster wird aktualisiert) und bietet an, ähnliche
+        ältere Buchungen desselben Empfängers ebenfalls anzupassen.
+        """
+        from src.db import muster
+        from src.logic import lernsystem
+
+        nachher = self._verbindung.execute(
+            "SELECT objekt_id, kategorie_id, mieter_id, beschreibung "
+            "FROM buchungen WHERE id = ?", (buchung_id,)
+        ).fetchone()
+        if nachher is None:
+            return
+        unveraendert = all(
+            vorher[feld] == nachher[feld]
+            for feld in ("objekt_id", "kategorie_id", "mieter_id")
+        )
+        if unveraendert:
+            return
+
+        beschreibung = nachher["beschreibung"] or ""
+        erkennung = lernsystem.erkennungstext_bilden(
+            lernsystem.normalisieren(beschreibung)
+        )
+        if erkennung:
+            # Muster auf die korrigierte Zuordnung umlernen.
+            muster.muster_speichern(
+                self._verbindung, erkennung,
+                nachher["objekt_id"], nachher["kategorie_id"],
+                mieter_id=nachher["mieter_id"],
+            )
+
+        # Ähnliche Buchungen mit abweichender Zuordnung suchen.
+        aehnlich = [
+            bid for bid in lernsystem.aehnliche_buchungen(
+                self._verbindung, beschreibung, ausser_id=buchung_id
+            )
+            if self._verbindung.execute(
+                "SELECT 1 FROM buchungen WHERE id = ? AND ("
+                "IFNULL(objekt_id, -1) != IFNULL(?, -1) OR "
+                "IFNULL(kategorie_id, -1) != IFNULL(?, -1) OR "
+                "IFNULL(mieter_id, -1) != IFNULL(?, -1))",
+                (bid, nachher["objekt_id"], nachher["kategorie_id"],
+                 nachher["mieter_id"]),
+            ).fetchone() is not None
+        ]
+        if not aehnlich:
+            return
+        antwort = QMessageBox.question(
+            self, "Ähnliche Buchungen anpassen?",
+            f"Die Zuordnung wurde geändert. Es gibt {len(aehnlich)} "
+            "weitere Buchung(en) desselben Empfängers mit der alten "
+            "Zuordnung.\n\nSollen diese ebenfalls angepasst werden?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            for bid in aehnlich:
+                buchungen.zuordnung_setzen(
+                    self._verbindung, bid,
+                    nachher["objekt_id"], nachher["kategorie_id"],
+                    nachher["mieter_id"],
+                )
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        QMessageBox.information(
+            self, "Umgelernt",
+            f"{len(aehnlich)} Buchung(en) wurden angepasst. Die App "
+            "verwendet die neue Zuordnung auch für künftige Importe."
+        )
 
     def _buchung_loeschen(self) -> None:
         buchung_id = self._ausgewaehlte_buchung()

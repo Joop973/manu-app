@@ -63,6 +63,17 @@ _FOOTER_START_RE = re.compile(
 # Auszugsnummer "Kontoauszug Nr. 3/2026" — präzise Jahresquelle.
 _AUSZUG_JAHR_RE = re.compile(r"Kontoauszug\s+Nr\.\s*\d+\s*/\s*(\d{4})")
 
+# Vollständige Auszugs-Kennung (Nummer + Jahr) für den Dubletten-Schutz.
+_AUSZUG_NR_RE = re.compile(r"Kontoauszug\s+Nr\.\s*(\d+)\s*/\s*(\d{4})")
+
+
+def auszug_kennung(text: str) -> str | None:
+    """Liest die eindeutige Auszugs-Kennung (z. B. "3/2026") aus dem Kopf."""
+    treffer = _AUSZUG_NR_RE.search(text)
+    if treffer is None:
+        return None
+    return f"{int(treffer.group(1))}/{treffer.group(2)}"
+
 # Saldo-Zeilen für die Plausibilitätsprüfung.
 _SALDO_RE = re.compile(
     r"^\s*(alter|neuer)\s+Kontostand\s+vom\s+\d{1,2}\.\d{1,2}\.\d{4}\s+"

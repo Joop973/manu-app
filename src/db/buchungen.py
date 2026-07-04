@@ -189,6 +189,35 @@ def buchung_aktualisieren(
     verbindung.commit()
 
 
+def zuordnung_setzen(
+    verbindung: sqlite3.Connection,
+    buchung_id: int,
+    objekt_id: int | None,
+    kategorie_id: int | None,
+    mieter_id: int | None,
+) -> None:
+    """Ändert nur die Zuordnung (Haus/Kategorie/Mieter) einer Buchung.
+
+    Für das nachträgliche Umlernen: ähnliche Buchungen übernehmen die
+    korrigierte Zuordnung, alle übrigen Felder bleiben unverändert.
+    Wird im Aktions-Log als Änderung protokolliert.
+    """
+    vorher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))
+    if vorher is None:
+        return
+    verbindung.execute(
+        "UPDATE buchungen SET objekt_id = ?, kategorie_id = ?, mieter_id = ? "
+        "WHERE id = ?",
+        (objekt_id, kategorie_id, mieter_id, buchung_id),
+    )
+    nachher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))
+    aktionen.aktion_protokollieren(
+        verbindung, aktionen.ART_AENDERN, "buchungen", buchung_id,
+        zustand_alt=vorher, zustand_neu=nachher,
+    )
+    verbindung.commit()
+
+
 def buchung_loeschen(verbindung: sqlite3.Connection, buchung_id: int) -> None:
     """Löscht eine Buchung."""
     vorher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))

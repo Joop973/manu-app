@@ -13,7 +13,7 @@ from __future__ import annotations
 
 # Versionsnummer des Schemas. Wird in app_settings hinterlegt, damit
 # spätere Phasen kontrollierte Migrationen durchführen können.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Spalten, die in späteren Versionen ergänzt wurden. Werden beim Start
 # per ALTER TABLE nachgerüstet, falls sie in einer Alt-Datenbank fehlen.
@@ -157,6 +157,15 @@ TABELLEN: list[str] = [
         beleg_pfad  TEXT PRIMARY KEY,
         text        TEXT,
         erstellt_am TEXT
+    )
+    """,
+    # Gedächtnis bereits importierter Kontoauszüge (Dubletten-Schutz).
+    # Kennung ist z. B. "3/2026" aus "Kontoauszug Nr. 3/2026".
+    """
+    CREATE TABLE IF NOT EXISTS importierte_auszuege (
+        kennung       TEXT PRIMARY KEY,
+        dateiname     TEXT,
+        importiert_am TEXT
     )
     """,
 ]

@@ -105,6 +105,34 @@ def mietzahlung_erfassen(
     verbindung.commit()
 
 
+def zahlung_vermerken(
+    verbindung: sqlite3.Connection,
+    mieter_id: int,
+    monat: int,
+    jahr: int,
+    betrag: Decimal,
+) -> bool:
+    """Hakt einen Monat als bezahlt ab, ohne eigene Buchungen anzulegen.
+
+    Für den Kontoauszug-Import: Die Kontobewegung ist dort bereits als
+    Buchung erfasst; hier wird nur die Monats-Checkliste der Mieter-Seite
+    abgehakt. Liefert True, wenn neu vermerkt wurde, False bei bereits
+    vorhandenem Eintrag.
+    """
+    if verbindung.execute(
+        "SELECT 1 FROM mietzahlungen WHERE mieter_id = ? AND monat = ? AND jahr = ?",
+        (mieter_id, monat, jahr),
+    ).fetchone():
+        return False
+    verbindung.execute(
+        "INSERT INTO mietzahlungen "
+        "(mieter_id, monat, jahr, betrag, datum_eingang) VALUES (?, ?, ?, ?, ?)",
+        (mieter_id, monat, jahr, str(betrag), date.today().isoformat()),
+    )
+    verbindung.commit()
+    return True
+
+
 def mietzahlung_entfernen(
     verbindung: sqlite3.Connection, mieter_id: int, monat: int, jahr: int
 ) -> None:

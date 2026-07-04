@@ -354,6 +354,31 @@ def klassifizieren(
     return kandidat
 
 
+def aehnliche_buchungen(
+    verbindung: sqlite3.Connection,
+    beschreibung: str,
+    ausser_id: int | None = None,
+) -> list[int]:
+    """Findet Buchungen mit demselben Empfänger-Erkennungstext.
+
+    Grundlage für das nachträgliche Umlernen: Wird eine Buchung
+    korrigiert, können ähnliche Buchungen (gleicher Empfänger) die neue
+    Zuordnung übernehmen. Liefert die IDs der ähnlichen Buchungen.
+    """
+    erkennung = erkennungstext_bilden(normalisieren(beschreibung))
+    if not erkennung:
+        return []
+    ids: list[int] = []
+    for zeile in verbindung.execute(
+        "SELECT id, beschreibung FROM buchungen"
+    ).fetchall():
+        if ausser_id is not None and zeile["id"] == ausser_id:
+            continue
+        if erkennung in normalisieren(zeile["beschreibung"] or ""):
+            ids.append(zeile["id"])
+    return ids
+
+
 def _rahmen_kategorie_name(normalisiert: str) -> str:
     """Bildet aus dem Empfängertext einen kurzen Kategorienamen (Rahmen).
 

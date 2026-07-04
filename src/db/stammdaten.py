@@ -314,6 +314,48 @@ def kategorie_holen_oder_anlegen(
     return cursor.lastrowid
 
 
+def kategorien_zusammenlegen(
+    verbindung: sqlite3.Connection, quelle_id: int, ziel_id: int
+) -> int:
+    """Lässt eine Kategorie in einer anderen aufgehen.
+
+    Alle Buchungen, gelernten Muster und Regeln der Quell-Kategorie
+    wandern zur Ziel-Kategorie; die Quelle wird gelöscht. Beide müssen
+    denselben Typ (Einnahme/Ausgabe) haben. Liefert die Zahl der
+    umgehängten Buchungen.
+    """
+    if quelle_id == ziel_id:
+        raise ValidierungsFehler("Quelle und Ziel sind dieselbe Kategorie.")
+    quelle = verbindung.execute(
+        "SELECT typ FROM kategorien WHERE id = ?", (quelle_id,)
+    ).fetchone()
+    ziel = verbindung.execute(
+        "SELECT typ FROM kategorien WHERE id = ?", (ziel_id,)
+    ).fetchone()
+    if quelle is None or ziel is None:
+        raise ValidierungsFehler("Eine der Kategorien wurde nicht gefunden.")
+    if quelle["typ"] != ziel["typ"]:
+        raise ValidierungsFehler(
+            "Einnahme- und Ausgabe-Kategorien können nicht "
+            "zusammengelegt werden."
+        )
+    cursor = verbindung.execute(
+        "UPDATE buchungen SET kategorie_id = ? WHERE kategorie_id = ?",
+        (ziel_id, quelle_id),
+    )
+    verbindung.execute(
+        "UPDATE buchungsmuster SET kategorie_id = ? WHERE kategorie_id = ?",
+        (ziel_id, quelle_id),
+    )
+    verbindung.execute(
+        "UPDATE regeln SET kategorie_id = ? WHERE kategorie_id = ?",
+        (ziel_id, quelle_id),
+    )
+    verbindung.execute("DELETE FROM kategorien WHERE id = ?", (quelle_id,))
+    verbindung.commit()
+    return cursor.rowcount
+
+
 def kategorie_aktiv_setzen(
     verbindung: sqlite3.Connection, kategorie_id: int, aktiv: bool
 ) -> None:
