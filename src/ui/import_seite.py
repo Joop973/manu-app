@@ -122,9 +122,11 @@ def _kategorie_aus_combo(
     einer bestehenden Kategorie entspricht → neue Kategorie anlegen.
     Liefert ``None``, wenn nichts Sinnvolles eingegeben wurde.
     """
-    # 1) Ausgewählter Eintrag mit hinterlegter ID.
-    if combo.currentIndex() >= 0:
-        data = combo.itemData(combo.currentIndex())
+    # 1) Ausgewählter Eintrag mit hinterlegter ID — aber nur, wenn der
+    #    sichtbare Text noch zum Eintrag passt (sonst wurde getippt).
+    index = combo.currentIndex()
+    if index >= 0 and combo.currentText() == combo.itemText(index):
+        data = combo.itemData(index)
         if isinstance(data, int):
             return data
     # 2) Freitext auswerten.

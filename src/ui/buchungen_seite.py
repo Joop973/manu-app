@@ -81,14 +81,29 @@ class BuchungDialog(QDialog):
         self._feld_haus.currentIndexChanged.connect(self._mieter_combo_fuellen)
         formular.addRow("Haus:", self._feld_haus)
 
+        # Kategorie: frei beschreibbar — ein neu getippter Name wird beim
+        # Speichern automatisch als Kategorie angelegt (Rahmen-Prinzip).
         self._feld_kategorie = QComboBox()
+        self._feld_kategorie.setEditable(True)
+        self._feld_kategorie.setInsertPolicy(QComboBox.NoInsert)
+        self._feld_kategorie.setProperty("kategorie_typ", "ausgabe")
         for typ, bezeichnung in (("einnahme", "Einnahme"), ("ausgabe", "Ausgabe")):
             for kategorie in stammdaten.kategorien_laden(verbindung, typ):
                 text = f"{kategorie['name']} ({bezeichnung})"
                 if not kategorie["aktiv"]:
                     text += " – inaktiv"
                 self._feld_kategorie.addItem(text, kategorie["id"])
-        formular.addRow("Kategorie:", self._feld_kategorie)
+        kategorie_zeile = QVBoxLayout()
+        kategorie_zeile.setSpacing(2)
+        kategorie_zeile.addWidget(self._feld_kategorie)
+        kategorie_hinweis = QLabel(
+            "Neue Kategorie? Einfach eintippen — mit „(Einnahme)“ am Ende "
+            "wird sie als Einnahme angelegt, sonst als Ausgabe."
+        )
+        kategorie_hinweis.setStyleSheet("color: #666666; font-size: 8pt;")
+        kategorie_hinweis.setWordWrap(True)
+        kategorie_zeile.addWidget(kategorie_hinweis)
+        formular.addRow("Kategorie:", kategorie_zeile)
 
         # Mieter-Bezug (optional). Steuert auch die Anzeige
         # „Mieteinnahme von <Name>" in der Buchungsliste.
@@ -201,13 +216,20 @@ class BuchungDialog(QDialog):
             QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
             return
 
+        from src.ui.import_seite import _kategorie_aus_combo
         objekt_id = self._feld_haus.currentData()
-        kategorie_id = self._feld_kategorie.currentData()
+        try:
+            kategorie_id = _kategorie_aus_combo(
+                self._verbindung, self._feld_kategorie
+            )
+        except (ValidierungsFehler, sqlite3.Error) as fehler:
+            QMessageBox.warning(self, "Kategorie ungültig", str(fehler))
+            return
         if objekt_id is None or kategorie_id is None:
             QMessageBox.warning(
                 self, "Auswahl fehlt",
-                "Bitte Haus und Kategorie auswählen. Falls keine "
-                "vorhanden sind, zuerst unter „Stammdaten“ anlegen."
+                "Bitte Haus wählen und eine Kategorie wählen oder neu "
+                "eintippen."
             )
             return
 
@@ -309,6 +331,13 @@ class BuchungenSeite(QWidget):
             self._schnell_haus.addItem(haus["name"], haus["id"])
         schnellzeile.addWidget(self._schnell_haus)
         self._schnell_kategorie = QComboBox()
+        self._schnell_kategorie.setEditable(True)
+        self._schnell_kategorie.setInsertPolicy(QComboBox.NoInsert)
+        self._schnell_kategorie.setProperty("kategorie_typ", "ausgabe")
+        self._schnell_kategorie.setToolTip(
+            "Neue Kategorie einfach eintippen — mit „(Einnahme)“ am Ende "
+            "wird sie als Einnahme angelegt."
+        )
         for typ, label in (("einnahme", "Einnahme"), ("ausgabe", "Ausgabe")):
             for kat in stammdaten.kategorien_laden(self._verbindung, typ):
                 self._schnell_kategorie.addItem(
@@ -332,6 +361,9 @@ class BuchungenSeite(QWidget):
              "Beschreibung", "Beleg", "Quelle"]
         )
         tabelle_vorbereiten(self._tabelle)
+        # Mehrfach-Auswahl für die Sammel-Bearbeitung (Strg/Shift-Klick).
+        from PySide6.QtWidgets import QAbstractItemView
+        self._tabelle.setSelectionMode(QAbstractItemView.ExtendedSelection)
         layout.addWidget(self._tabelle)
 
         # Knöpfe
@@ -339,6 +371,7 @@ class BuchungenSeite(QWidget):
         for beschriftung, methode in (
             ("Neue Buchung", self._neue_buchung),
             ("Bearbeiten", self._buchung_bearbeiten),
+            ("Sammel-Bearbeiten …", self._sammel_bearbeiten),
             ("Löschen", self._buchung_loeschen),
             ("Beleg öffnen", self._beleg_oeffnen),
         ):
@@ -374,12 +407,19 @@ class BuchungenSeite(QWidget):
         except ValidierungsFehler as fehler:
             QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
             return
+        from src.ui.import_seite import _kategorie_aus_combo
         objekt_id = self._schnell_haus.currentData()
-        kategorie_id = self._schnell_kategorie.currentData()
+        try:
+            kategorie_id = _kategorie_aus_combo(
+                self._verbindung, self._schnell_kategorie
+            )
+        except (ValidierungsFehler, sqlite3.Error) as fehler:
+            QMessageBox.warning(self, "Kategorie ungültig", str(fehler))
+            return
         if objekt_id is None or kategorie_id is None:
             QMessageBox.warning(
                 self, "Auswahl fehlt",
-                "Haus und Kategorie sind nötig (unter Stammdaten anlegen)."
+                "Haus wählen und Kategorie wählen oder neu eintippen."
             )
             return
         datum = self._schnell_datum.date().toString("yyyy-MM-dd")
@@ -495,6 +535,68 @@ class BuchungenSeite(QWidget):
         if zeile < 0:
             return None
         return self._tabelle.item(zeile, 0).data(Qt.UserRole)
+
+    def _ausgewaehlte_buchungen(self) -> list[int]:
+        """Liefert die IDs aller markierten Buchungen (Mehrfach-Auswahl)."""
+        zeilen = sorted({idx.row() for idx in self._tabelle.selectedIndexes()})
+        ids = []
+        for zeile in zeilen:
+            item = self._tabelle.item(zeile, 0)
+            if item is not None:
+                ids.append(item.data(Qt.UserRole))
+        return ids
+
+    def _sammel_bearbeiten(self) -> None:
+        """Setzt Haus, Kategorie und/oder Mieter für alle markierten Buchungen.
+
+        Felder, die im Dialog auf „nicht ändern" stehen, behalten je
+        Buchung ihren bisherigen Wert. Jede Änderung wird im Aktions-Log
+        protokolliert und ist einzeln rückgängig machbar.
+        """
+        from src.ui.import_seite import SammelZuordnungDialog
+        ids = self._ausgewaehlte_buchungen()
+        if len(ids) < 1:
+            QMessageBox.information(
+                self, "Nichts markiert",
+                "Bitte zuerst eine oder mehrere Buchungen markieren "
+                "(Strg/Shift-Klick für mehrere)."
+            )
+            return
+        dialog = SammelZuordnungDialog(self._verbindung, parent=self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        auswahl = dialog.auswahl()
+        if all(wert == "__keep__" for wert in auswahl.values()):
+            return
+        try:
+            for buchung_id in ids:
+                zeile = self._verbindung.execute(
+                    "SELECT objekt_id, kategorie_id, mieter_id "
+                    "FROM buchungen WHERE id = ?", (buchung_id,)
+                ).fetchone()
+                if zeile is None:
+                    continue
+                objekt_id = zeile["objekt_id"] \
+                    if auswahl["objekt_id"] == "__keep__" \
+                    else auswahl["objekt_id"]
+                kategorie_id = zeile["kategorie_id"] \
+                    if auswahl["kategorie_id"] == "__keep__" \
+                    else auswahl["kategorie_id"]
+                mieter_id = zeile["mieter_id"] \
+                    if auswahl["mieter_id"] == "__keep__" \
+                    else auswahl["mieter_id"]
+                buchungen.zuordnung_setzen(
+                    self._verbindung, buchung_id,
+                    objekt_id, kategorie_id, mieter_id,
+                )
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        QMessageBox.information(
+            self, "Sammel-Bearbeitung",
+            f"{len(ids)} Buchung(en) wurden angepasst."
+        )
+        self.aktualisieren()
 
     def _neue_buchung(self) -> None:
         dialog = BuchungDialog(self._verbindung, parent=self)
