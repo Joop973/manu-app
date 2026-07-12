@@ -66,13 +66,32 @@ _AUSZUG_JAHR_RE = re.compile(r"Kontoauszug\s+Nr\.\s*\d+\s*/\s*(\d{4})")
 # Vollständige Auszugs-Kennung (Nummer + Jahr) für den Dubletten-Schutz.
 _AUSZUG_NR_RE = re.compile(r"Kontoauszug\s+Nr\.\s*(\d+)\s*/\s*(\d{4})")
 
+# Kontonummer bzw. IBAN aus dem Auszugskopf — unterscheidet die Konten,
+# denn jedes Konto zählt seine Auszüge selbst ("Nr. 3/2026" gibt es je
+# Konto einmal).
+_KONTO_RE = re.compile(r"Kontonummer\s+(\d{4,})")
+_IBAN_RE = re.compile(r"IBAN:?\s*([A-Z]{2}[0-9][0-9 ]{12,})")
+
 
 def auszug_kennung(text: str) -> str | None:
-    """Liest die eindeutige Auszugs-Kennung (z. B. "3/2026") aus dem Kopf."""
+    """Liest die eindeutige Auszugs-Kennung aus dem Kopf des Auszugs.
+
+    Format: ``<kontonummer>|<nr>/<jahr>`` (z. B. ``324779100|3/2026``),
+    damit sich Auszüge verschiedener Konten mit gleicher laufender
+    Nummer nicht gegenseitig als Dublette blockieren. Ohne erkennbare
+    Kontonummer/IBAN fällt die Kennung auf ``<nr>/<jahr>`` zurück.
+    """
     treffer = _AUSZUG_NR_RE.search(text)
     if treffer is None:
         return None
-    return f"{int(treffer.group(1))}/{treffer.group(2)}"
+    nummer = f"{int(treffer.group(1))}/{treffer.group(2)}"
+    konto = _KONTO_RE.search(text)
+    if konto:
+        return f"{konto.group(1)}|{nummer}"
+    iban = _IBAN_RE.search(text)
+    if iban:
+        return f"{iban.group(1).replace(' ', '')}|{nummer}"
+    return nummer
 
 # Saldo-Zeilen für die Plausibilitätsprüfung.
 _SALDO_RE = re.compile(

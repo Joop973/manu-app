@@ -1025,17 +1025,27 @@ class ImportSeite(QWidget):
                     f"{Path(pfad).name}: keine Buchungen erkannt."
                 )
                 continue
-            # Dubletten-Schutz: bereits importierte Auszüge überspringen.
+            # Dubletten-Schutz: bereits importierte Auszüge nur nach
+            # ausdrücklicher Bestätigung erneut einlesen.
             kennung = auszug_kennung(rohtext)
             if kennung:
                 vermerk = auszuege.ist_importiert(self._verbindung, kennung)
                 if vermerk is not None:
-                    fehler.append(
-                        f"{Path(pfad).name}: Auszug Nr. {kennung} wurde "
-                        f"bereits am {vermerk['importiert_am'][:10]} "
-                        "importiert — übersprungen."
+                    antwort = QMessageBox.question(
+                        self, "Auszug bereits importiert",
+                        f"{Path(pfad).name}:\nDieser Auszug "
+                        f"({kennung.split('|')[-1]}) wurde bereits am "
+                        f"{vermerk['importiert_am'][:10]} importiert.\n\n"
+                        "Trotzdem erneut einlesen? (Gefahr doppelter "
+                        "Buchungen)",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
                     )
-                    continue
+                    if antwort != QMessageBox.Yes:
+                        fehler.append(
+                            f"{Path(pfad).name}: übersprungen (bereits "
+                            "importiert)."
+                        )
+                        continue
                 kennungen.append((kennung, Path(pfad).name))
             pruefung = saldo_pruefen(rohtext, zeilen)
             pruefungen.append((pfad, pruefung))
