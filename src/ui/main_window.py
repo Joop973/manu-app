@@ -9,19 +9,21 @@ from __future__ import annotations
 
 import sqlite3
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
     QMainWindow,
+    QMessageBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from src.logic.backup import datensicherung_durchfuehren
+from src.utils import paths
 from src.ui.buchungen_seite import BuchungenSeite
 from src.ui.dashboard_seite import DashboardSeite
 from src.ui.einstellungen_seite import EinstellungenSeite
@@ -107,6 +109,75 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(zentral)
         self._navigation.setCurrentRow(0)
+
+        # Eingangs-Ordner kurz nach dem Start prüfen (Auto-Import).
+        QTimer.singleShot(600, self._eingang_pruefen)
+
+    def _eingang_pruefen(self) -> None:
+        """Prüft den Eingangs-Ordner auf neue Kontoauszüge.
+
+        Bereits importierte Auszüge (bekannte Kennung) werden still in
+        den Unterordner ``verarbeitet`` verschoben; neue werden nach
+        Rückfrage über den normalen Import-Weg verarbeitet und danach
+        ebenfalls verschoben.
+        """
+        from src.db import auszuege
+        from src.logic.pdf_import import auszug_kennung, rohtext_lesen
+
+        ordner = paths.eingang_verzeichnis()
+        if not ordner.is_dir():
+            return
+        neue: list[str] = []
+        for pdf in sorted(ordner.glob("*.pdf")):
+            try:
+                kennung = auszug_kennung(rohtext_lesen(pdf))
+            except Exception:  # noqa: BLE001 - defekte Datei liegen lassen
+                continue
+            if kennung and auszuege.ist_importiert(self._verbindung, kennung):
+                self._eingang_ablegen(pdf)
+                continue
+            neue.append(str(pdf))
+        if not neue:
+            return
+        antwort = QMessageBox.question(
+            self, "Neue Kontoauszüge",
+            f"Im Eingangs-Ordner liegen {len(neue)} neue "
+            f"Kontoauszüge.\n\nJetzt importieren?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        import_index = NAVIGATIONSBEREICHE.index("Import")
+        import_seite = self._inhalt.widget(import_index)
+        import_seite._mehrere_kontoauszuege_oeffnen(neue)
+        # Erfolgreich verbuchte Auszüge (Kennung nun bekannt) ablegen.
+        from pathlib import Path
+        from src.db import auszuege as auszuege_db
+        for pfad in neue:
+            pdf = Path(pfad)
+            try:
+                kennung = auszug_kennung(rohtext_lesen(pdf))
+            except Exception:  # noqa: BLE001
+                continue
+            if kennung and auszuege_db.ist_importiert(
+                self._verbindung, kennung
+            ):
+                self._eingang_ablegen(pdf)
+
+    @staticmethod
+    def _eingang_ablegen(pdf) -> None:
+        """Verschiebt eine verarbeitete Datei nach eingang/verarbeitet."""
+        ziel_ordner = paths.eingang_verarbeitet_verzeichnis()
+        ziel_ordner.mkdir(parents=True, exist_ok=True)
+        ziel = ziel_ordner / pdf.name
+        zaehler = 1
+        while ziel.exists():
+            ziel = ziel_ordner / f"{pdf.stem}_{zaehler}{pdf.suffix}"
+            zaehler += 1
+        try:
+            pdf.rename(ziel)
+        except OSError:
+            pass
 
     @staticmethod
     def _platzhalter_seite(bereich: str) -> QWidget:

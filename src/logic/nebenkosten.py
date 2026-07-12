@@ -5,17 +5,23 @@ zusammengezählt und nach dem Umlageschlüssel des Hauses auf die Mieter
 verteilt. Aus den geleisteten Vorauszahlungen ergibt sich je Mieter
 eine Nachzahlung oder ein Guthaben.
 
+Bei unterjährigem Ein- oder Auszug wird der Umlageschlüssel taggenau
+mit dem Nutzungsanteil gewichtet (z. B. 60 m² × 184/365 Tage).
+
 Vereinfachungen (bewusst, für die private Nutzung):
 * Abrechnungszeitraum ist stets das Kalenderjahr.
-* Mieter, deren Mietzeitraum das Jahr berührt, werden voll einbezogen;
-  taggenaue Anteile bei unterjährigem Ein-/Auszug werden nicht gebildet.
-* Heizkosten werden wie alle übrigen umlagefähigen Kosten verteilt.
+* Heizkosten werden wie alle übrigen umlagefähigen Kosten verteilt
+  (keine verbrauchsabhängige Abrechnung nach Heizkostenverordnung).
+* Der Anteil ergibt sich aus gewichteter Schlüssel ÷ Summe der
+  gewichteten Schlüssel; Leerstand verteilt sich damit auf die
+  verbleibenden Mieter.
 """
 
 from __future__ import annotations
 
 import html
 import sqlite3
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -31,23 +37,38 @@ _CENT = Decimal("0.01")
 _WAEHRUNG = '#,##0.00 "€"'
 
 
-def _aktiv_im_jahr(
+def _datum_lesen(text: str | None) -> date | None:
+    """Liest ein ISO-Datum (YYYY-MM-DD) tolerant ein."""
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def zeitanteil_im_jahr(
     aktiv_von: str | None, aktiv_bis: str | None, jahr: int
-) -> bool:
-    """Prüft, ob ein Mietzeitraum das angegebene Jahr berührt."""
-    if aktiv_von:
-        try:
-            if int(aktiv_von[:4]) > jahr:
-                return False
-        except ValueError:
-            pass
-    if aktiv_bis:
-        try:
-            if int(aktiv_bis[:4]) < jahr:
-                return False
-        except ValueError:
-            pass
-    return True
+) -> tuple[Decimal, date | None, date | None]:
+    """Berechnet den taggenauen Nutzungsanteil eines Mieters am Jahr.
+
+    Liefert ``(anteil, nutzung_von, nutzung_bis)``: der Anteil liegt
+    zwischen 0 (Zeitraum berührt das Jahr nicht) und 1 (ganzjährig);
+    die beiden Daten begrenzen den tatsächlichen Nutzungszeitraum
+    innerhalb des Jahres. Bei unterjährigem Ein-/Auszug trägt der
+    Mieter nur den Anteil seiner Nutzungstage.
+    """
+    jahr_start = date(jahr, 1, 1)
+    jahr_ende = date(jahr, 12, 31)
+    von = _datum_lesen(aktiv_von) or jahr_start
+    bis = _datum_lesen(aktiv_bis) or jahr_ende
+    start = max(von, jahr_start)
+    ende = min(bis, jahr_ende)
+    if ende < start:
+        return Decimal("0"), None, None
+    tage = (ende - start).days + 1
+    jahr_tage = (jahr_ende - jahr_start).days + 1
+    return Decimal(tage) / Decimal(jahr_tage), start, ende
 
 
 def _umlagefaehige_kosten(
@@ -92,10 +113,6 @@ def abrechnung_erstellen(
         "ORDER BY name COLLATE NOCASE",
         (objekt_id,),
     ).fetchall()
-    mieter = [
-        m for m in alle_mieter
-        if _aktiv_im_jahr(m["aktiv_von"], m["aktiv_bis"], jahr)
-    ]
 
     def schluesselwert(zeile: sqlite3.Row) -> Decimal:
         if schluessel == "personen":
@@ -107,13 +124,25 @@ def abrechnung_erstellen(
         except (ValueError, TypeError):
             return Decimal("0")
 
+    # Taggenauer Nutzungsanteil je Mieter: bei unterjährigem Ein- oder
+    # Auszug wird der Umlageschlüssel mit dem Zeitanteil gewichtet
+    # (z. B. 60 m² × ein halbes Jahr = 30 gewichtete Anteile).
+    mieter: list[tuple[sqlite3.Row, Decimal, date, date]] = []
+    for m in alle_mieter:
+        anteil_zeit, von, bis = zeitanteil_im_jahr(
+            m["aktiv_von"], m["aktiv_bis"], jahr
+        )
+        if anteil_zeit > 0:
+            mieter.append((m, anteil_zeit, von, bis))
+
     summe_schluessel = sum(
-        (schluesselwert(m) for m in mieter), Decimal("0")
+        (schluesselwert(m) * anteil_zeit for m, anteil_zeit, _, _ in mieter),
+        Decimal("0"),
     )
 
     mieter_ergebnis = []
-    for m in mieter:
-        wert = schluesselwert(m)
+    for m, anteil_zeit, von, bis in mieter:
+        wert = schluesselwert(m) * anteil_zeit
         anteil = (wert / summe_schluessel) if summe_schluessel > 0 \
             else Decimal("0")
         kostenanteil = (kosten_gesamt * anteil).quantize(_CENT)
@@ -127,6 +156,9 @@ def abrechnung_erstellen(
             "name": m["name"],
             "schluesselwert": wert,
             "anteil": anteil,
+            "zeitanteil": anteil_zeit,
+            "nutzung_von": von.isoformat(),
+            "nutzung_bis": bis.isoformat(),
             "kostenanteil": kostenanteil,
             "monate": monate,
             "vorauszahlung": vorauszahlung,
@@ -220,6 +252,19 @@ def abrechnung_html(abrechnung: dict, eintrag: dict) -> str:
         fazit = (f"Nachzahlung durch den Mieter: "
                  f"{betrag_formatieren(-differenz)} €")
 
+    def datum_de(iso: str) -> str:
+        return f"{iso[8:10]}.{iso[5:7]}.{iso[:4]}"
+
+    zeitanteil = eintrag.get("zeitanteil", Decimal("1"))
+    nutzungszeile = ""
+    if zeitanteil < 1:
+        nutzungszeile = (
+            "<tr><td>Ihr Nutzungszeitraum (taggenau)</td>"
+            f"<td align='right'>{datum_de(eintrag['nutzung_von'])} – "
+            f"{datum_de(eintrag['nutzung_bis'])} "
+            f"({zeitanteil * 100:.1f} % des Jahres)</td></tr>"
+        )
+
     return f"""
     <h2>Nebenkostenabrechnung {abrechnung['jahr']}</h2>
     <p>
@@ -237,6 +282,7 @@ def abrechnung_html(abrechnung: dict, eintrag: dict) -> str:
     </table>
     <h3>Ihr Anteil</h3>
     <table border='1' cellspacing='0' cellpadding='5' width='100%'>
+      {nutzungszeile}
       <tr><td>Anteil ({schluessel_text})</td>
         <td align='right'>{eintrag['anteil'] * 100:.1f} %</td></tr>
       <tr><td>Ihr Kostenanteil</td>

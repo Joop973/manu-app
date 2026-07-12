@@ -45,7 +45,22 @@ def exporte_verzeichnis() -> Path:
     return app_verzeichnis() / "exports"
 
 
+def eingang_verzeichnis() -> Path:
+    """Überwachter Ordner für neue Kontoauszüge (Auto-Import)."""
+    return app_verzeichnis() / "eingang"
+
+
+def eingang_verarbeitet_verzeichnis() -> Path:
+    """Unterordner, in den verarbeitete Auszüge verschoben werden."""
+    return eingang_verzeichnis() / "verarbeitet"
+
+
 def verzeichnisse_sicherstellen() -> None:
     """Legt die benötigten Arbeitsordner an, falls sie noch fehlen."""
-    for ordner in (belege_verzeichnis(), exporte_verzeichnis()):
+    for ordner in (
+        belege_verzeichnis(),
+        exporte_verzeichnis(),
+        eingang_verzeichnis(),
+        eingang_verarbeitet_verzeichnis(),
+    ):
         ordner.mkdir(parents=True, exist_ok=True)
