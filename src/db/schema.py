@@ -13,7 +13,7 @@ from __future__ import annotations
 
 # Versionsnummer des Schemas. Wird in app_settings hinterlegt, damit
 # spätere Phasen kontrollierte Migrationen durchführen können.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Spalten, die in späteren Versionen ergänzt wurden. Werden beim Start
 # per ALTER TABLE nachgerüstet, falls sie in einer Alt-Datenbank fehlen.
@@ -160,12 +160,24 @@ TABELLEN: list[str] = [
     )
     """,
     # Gedächtnis bereits importierter Kontoauszüge (Dubletten-Schutz).
-    # Kennung ist z. B. "3/2026" aus "Kontoauszug Nr. 3/2026".
+    # Kennung ist z. B. "324779100|3/2026".
     """
     CREATE TABLE IF NOT EXISTS importierte_auszuege (
         kennung       TEXT PRIMARY KEY,
         dateiname     TEXT,
         importiert_am TEXT
+    )
+    """,
+    # Zuordnung Bankkonto -> Standard-Haus. ``kennung`` wird als Endung
+    # der Kontonummer im Auszug abgeglichen (z. B. "100"). ``objekt_id``
+    # NULL bedeutet: Konto bekannt, aber kein pauschales Standard-Haus
+    # (Erkennung entscheidet, Unklares bleibt zur Kontrolle).
+    """
+    CREATE TABLE IF NOT EXISTS konten (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        kennung   TEXT    NOT NULL UNIQUE,
+        name      TEXT,
+        objekt_id INTEGER REFERENCES objekte(id)
     )
     """,
 ]
@@ -199,4 +211,12 @@ SEED_KATEGORIEN_EINNAHME: list[str] = [
     "Kaltmiete",
     "Nebenkosten",
     "Rücklage",
+]
+
+# Vordefinierte Konto-Zuordnung: (Endung der Kontonummer, Anzeigename,
+# Standard-Haus-Name oder None). None = mehrere Häuser teilen das Konto,
+# daher kein pauschales Standard-Haus.
+SEED_KONTEN: list[tuple[str, str, str | None]] = [
+    ("100", "Konto Südstraße (…100)", "Südstraße"),
+    ("300", "Konto Annaveen/Finken/Oberwohnung (…300)", None),
 ]

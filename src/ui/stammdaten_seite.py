@@ -926,12 +926,14 @@ class StammdatenSeite(QWidget):
         self._muster = MusterTab(verbindung)
         self._regeln = RegelnTab(verbindung)
         self._investitionen = InvestitionenTab(verbindung)
+        self._konten = KontenTab(verbindung)
         self._reiter.addTab(self._haeuser, "Häuser")
         self._reiter.addTab(self._mieter, "Mieter")
         self._reiter.addTab(self._kategorien, "Kategorien")
         self._reiter.addTab(self._muster, "Muster")
         self._reiter.addTab(self._regeln, "Regeln")
         self._reiter.addTab(self._investitionen, "Investitionen")
+        self._reiter.addTab(self._konten, "Konten")
         self._reiter.currentChanged.connect(self._reiter_gewechselt)
         layout.addWidget(self._reiter)
 
@@ -1411,6 +1413,187 @@ class InvestitionenTab(QWidget):
             return
         try:
             self._inv.investition_loeschen(self._verbindung, inv_id)
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.aktualisieren()
+
+
+# =========================================================================
+# Reiter: Konten (Bankkonto -> Standard-Haus)
+# =========================================================================
+
+
+class KontoDialog(QDialog):
+    """Anlegen/Bearbeiten einer Konto-Zuordnung."""
+
+    def __init__(
+        self,
+        verbindung: sqlite3.Connection,
+        konto_id: int | None = None,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        from src.db import konten
+        self._verbindung = verbindung
+        self._konten = konten
+        self._konto_id = konto_id
+        self.setModal(True)
+        self.setWindowTitle("Konto bearbeiten" if konto_id else "Neues Konto")
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Ordne ein Bankkonto einem Standard-Haus zu. Die Kennung ist "
+            "die Endung der Kontonummer aus dem Auszug (z. B. „100“). "
+            "Lass das Haus auf „— kein Standard-Haus —“, wenn sich mehrere "
+            "Häuser das Konto teilen — dann entscheidet die Erkennung und "
+            "Unklares bleibt zur Kontrolle stehen."
+        ))
+        formular = QFormLayout()
+        self._feld_kennung = QLineEdit()
+        self._feld_kennung.setPlaceholderText("z. B. 100")
+        formular.addRow("Konto-Endung:", self._feld_kennung)
+        self._feld_name = QLineEdit()
+        self._feld_name.setPlaceholderText("frei, z. B. „Konto Südstraße“")
+        formular.addRow("Bezeichnung:", self._feld_name)
+        self._haus = QComboBox()
+        self._haus.addItem("— kein Standard-Haus —", None)
+        for haus in stammdaten.objekte_laden(verbindung):
+            self._haus.addItem(haus["name"], haus["id"])
+        formular.addRow("Standard-Haus:", self._haus)
+        layout.addLayout(formular)
+
+        if konto_id is not None:
+            self._daten_laden()
+
+        knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        knoepfe.button(QDialogButtonBox.Ok).setText("Speichern")
+        knoepfe.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        knoepfe.accepted.connect(self._speichern)
+        knoepfe.rejected.connect(self.reject)
+        layout.addWidget(knoepfe)
+
+    def _daten_laden(self) -> None:
+        zeile = self._verbindung.execute(
+            "SELECT kennung, name, objekt_id FROM konten WHERE id = ?",
+            (self._konto_id,),
+        ).fetchone()
+        if zeile is None:
+            return
+        self._feld_kennung.setText(zeile["kennung"])
+        self._feld_name.setText(zeile["name"] or "")
+        idx = self._haus.findData(zeile["objekt_id"])
+        if idx >= 0:
+            self._haus.setCurrentIndex(idx)
+
+    def _speichern(self) -> None:
+        try:
+            if self._konto_id is None:
+                self._konten.konto_anlegen(
+                    self._verbindung, self._feld_kennung.text(),
+                    self._feld_name.text(), self._haus.currentData(),
+                )
+            else:
+                self._konten.konto_aktualisieren(
+                    self._verbindung, self._konto_id,
+                    self._feld_kennung.text(), self._feld_name.text(),
+                    self._haus.currentData(),
+                )
+        except ValidierungsFehler as fehler:
+            QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
+            return
+        except sqlite3.Error as fehler:
+            QMessageBox.critical(self, "Datenbankfehler", str(fehler))
+            return
+        self.accept()
+
+
+class KontenTab(QWidget):
+    """Verwaltung der Zuordnung Bankkonto -> Standard-Haus."""
+
+    def __init__(self, verbindung: sqlite3.Connection, parent=None) -> None:
+        super().__init__(parent)
+        from src.db import konten
+        self._verbindung = verbindung
+        self._konten = konten
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(
+            "Ordnet Bankkonten einem Standard-Haus zu. Beim Import wird "
+            "das Konto an der Kontonummer erkannt; unklare Buchungen "
+            "landen dann beim Standard-Haus dieses Kontos. Konten ohne "
+            "Standard-Haus (mehrere Häuser) lassen Unklares zur Kontrolle."
+        ))
+
+        self._tabelle = QTableWidget(0, 3)
+        self._tabelle.setHorizontalHeaderLabels(
+            ["Konto-Endung", "Bezeichnung", "Standard-Haus"]
+        )
+        tabelle_vorbereiten(self._tabelle)
+        layout.addWidget(self._tabelle)
+
+        knopfleiste = QHBoxLayout()
+        for beschriftung, methode in (
+            ("Neu", self._neu),
+            ("Bearbeiten", self._bearbeiten),
+            ("Löschen", self._loeschen),
+        ):
+            knopf = QPushButton(beschriftung)
+            knopf.clicked.connect(methode)
+            knopfleiste.addWidget(knopf)
+        knopfleiste.addStretch()
+        layout.addLayout(knopfleiste)
+
+        self.aktualisieren()
+
+    def aktualisieren(self) -> None:
+        zeilen = self._konten.konten_laden(self._verbindung)
+        self._tabelle.setSortingEnabled(False)
+        self._tabelle.setRowCount(len(zeilen))
+        for zeile, konto in enumerate(zeilen):
+            kennung_item = QTableWidgetItem(konto["kennung"])
+            kennung_item.setData(Qt.UserRole, konto["id"])
+            self._tabelle.setItem(zeile, 0, kennung_item)
+            self._tabelle.setItem(zeile, 1, QTableWidgetItem(konto["name"] or ""))
+            haus = konto["objekt_name"] or "— kein Standard-Haus —"
+            self._tabelle.setItem(zeile, 2, QTableWidgetItem(haus))
+        self._tabelle.setSortingEnabled(True)
+
+    def _ausgewaehlt(self) -> int | None:
+        zeile = self._tabelle.currentRow()
+        if zeile < 0:
+            return None
+        return self._tabelle.item(zeile, 0).data(Qt.UserRole)
+
+    def _neu(self) -> None:
+        if KontoDialog(self._verbindung,
+                       parent=self).exec() == QDialog.Accepted:
+            self.aktualisieren()
+
+    def _bearbeiten(self) -> None:
+        konto_id = self._ausgewaehlt()
+        if konto_id is None:
+            QMessageBox.information(self, "Kein Konto gewählt",
+                                    "Bitte zuerst ein Konto auswählen.")
+            return
+        if KontoDialog(self._verbindung, konto_id=konto_id,
+                       parent=self).exec() == QDialog.Accepted:
+            self.aktualisieren()
+
+    def _loeschen(self) -> None:
+        konto_id = self._ausgewaehlt()
+        if konto_id is None:
+            return
+        antwort = QMessageBox.question(
+            self, "Konto löschen", "Diese Konto-Zuordnung wirklich löschen?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            self._konten.konto_loeschen(self._verbindung, konto_id)
         except sqlite3.Error as fehler:
             QMessageBox.critical(self, "Datenbankfehler", str(fehler))
             return

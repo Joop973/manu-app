@@ -37,11 +37,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.db import auszuege, buchungen, einstellungen, mietzahlungen, muster, stammdaten
+from src.db import (
+    auszuege, buchungen, einstellungen, konten, mietzahlungen, muster,
+    stammdaten,
+)
 from src.logic import lernsystem
 from src.logic.belege import beleg_archivieren
 from src.logic.pdf_import import (
-    auszug_kennung, buchungszeilen_aus_text, rohtext_lesen, saldo_pruefen,
+    auszug_kennung, buchungszeilen_aus_text, konto_nummer, rohtext_lesen,
+    saldo_pruefen,
 )
 from src.ui.tabelle import tabelle_vorbereiten
 from src.utils.eingaben import (
@@ -1049,11 +1053,24 @@ class ImportSeite(QWidget):
                 kennungen.append((kennung, Path(pfad).name))
             pruefung = saldo_pruefen(rohtext, zeilen)
             pruefungen.append((pfad, pruefung))
+            # Standard-Haus je Konto bestimmen: Passt eine Konto-Zuordnung
+            # auf die Kontonummer im Auszug, gilt deren Haus (auch None =
+            # bewusst keins); sonst greift die globale Einstellung.
+            nummer = konto_nummer(rohtext)
+            gefunden, konto_haus = konten.standard_haus_fuer_konto(
+                self._verbindung, nummer
+            )
             for zeile in zeilen:
-                alle_kandidaten.append(lernsystem.klassifizieren(
-                    self._verbindung, zeile["datum"], zeile["betrag"],
-                    zeile["text"],
-                ))
+                if gefunden:
+                    alle_kandidaten.append(lernsystem.klassifizieren(
+                        self._verbindung, zeile["datum"], zeile["betrag"],
+                        zeile["text"], standard_haus=konto_haus,
+                    ))
+                else:
+                    alle_kandidaten.append(lernsystem.klassifizieren(
+                        self._verbindung, zeile["datum"], zeile["betrag"],
+                        zeile["text"],
+                    ))
 
         if fehler:
             QMessageBox.warning(

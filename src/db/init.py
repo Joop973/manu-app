@@ -48,6 +48,40 @@ def _stammdaten_einfuegen(verbindung: sqlite3.Connection) -> None:
             [(name,) for name in schema.SEED_KATEGORIEN_EINNAHME],
         )
 
+    _konten_einfuegen(verbindung)
+
+
+def _konten_einfuegen(verbindung: sqlite3.Connection) -> None:
+    """Fügt die vordefinierte Konto-Zuordnung ein (nur wenn Tabelle leer).
+
+    Das Standard-Haus wird über den Hausnamen aufgelöst, damit die
+    Zuordnung auch in einer bestehenden Datenbank greift, in der die
+    Häuser bereits eigene IDs haben.
+    """
+    tabellen = {
+        z["name"]
+        for z in verbindung.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+    if "konten" not in tabellen:
+        return
+    if verbindung.execute("SELECT COUNT(*) FROM konten").fetchone()[0] != 0:
+        return
+    for kennung, name, haus_name in schema.SEED_KONTEN:
+        objekt_id = None
+        if haus_name is not None:
+            zeile = verbindung.execute(
+                "SELECT id FROM objekte WHERE name = ? COLLATE NOCASE",
+                (haus_name,),
+            ).fetchone()
+            if zeile is not None:
+                objekt_id = zeile["id"]
+        verbindung.execute(
+            "INSERT INTO konten (kennung, name, objekt_id) VALUES (?, ?, ?)",
+            (kennung, name, objekt_id),
+        )
+
 
 def _schema_version_setzen(verbindung: sqlite3.Connection) -> None:
     """Hinterlegt die aktuelle Schema-Version in app_settings."""

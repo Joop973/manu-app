@@ -22,6 +22,10 @@ _STOPWORTE = {
 # Mindest-Wortlänge, damit ein Token für die Erkennung zählt.
 _MIN_TOKEN = 3
 
+# Sentinel: unterscheidet „kein Argument übergeben" (globale Einstellung
+# nutzen) von „ausdrücklich None übergeben" (Konto ohne Standard-Haus).
+_UNSET = object()
+
 # Maximale Länge des gespeicherten Erkennungstextes.
 _ERKENNUNG_LAENGE = 40
 # Ab dieser relativen Betragsabweichung gilt ein Treffer als unsicher.
@@ -250,7 +254,11 @@ def _standard_haus_id(verbindung: sqlite3.Connection) -> int | None:
 
 
 def klassifizieren(
-    verbindung: sqlite3.Connection, datum: str, betrag: Decimal, text: str
+    verbindung: sqlite3.Connection,
+    datum: str,
+    betrag: Decimal,
+    text: str,
+    standard_haus: int | None | object = _UNSET,
 ) -> dict:
     """Klassifiziert eine importierte Buchungszeile möglichst vollständig.
 
@@ -262,6 +270,12 @@ def klassifizieren(
       5. Kategorie: Stichwort-Heuristik; Einnahme eines erkannten
          Mieters → Kaltmiete; sonst „Rahmen"-Kategorie aus dem
          Empfängernamen bzw. „Sonstiges"
+
+    ``standard_haus`` überschreibt das Standard-Haus für diese Zeile:
+    wird es übergeben (auch ``None``), gilt es statt der globalen
+    Einstellung. So kann der Import je Konto ein eigenes Standard-Haus
+    setzen — oder mit ``None`` bewusst keins (mehrere Häuser teilen das
+    Konto). Ohne Angabe greift die globale Standard-Haus-Einstellung.
 
     ``status``:
     * ``auto``     — Haus **und** Kategorie stehen fest
@@ -320,7 +334,11 @@ def klassifizieren(
     if kandidat["objekt_id"] is None:
         kandidat["objekt_id"] = haus_aus_text(verbindung, normalisiert)
     if kandidat["objekt_id"] is None:
-        kandidat["objekt_id"] = _standard_haus_id(verbindung)
+        if standard_haus is _UNSET:
+            kandidat["objekt_id"] = _standard_haus_id(verbindung)
+        else:
+            # Konto-spezifische Vorgabe (auch None = bewusst kein Haus).
+            kandidat["objekt_id"] = standard_haus
 
     # 5) Kategorie bestimmen.
     if kandidat["kategorie_id"] is None:

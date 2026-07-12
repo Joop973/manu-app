@@ -73,6 +73,17 @@ _KONTO_RE = re.compile(r"Kontonummer\s+(\d{4,})")
 _IBAN_RE = re.compile(r"IBAN:?\s*([A-Z]{2}[0-9][0-9 ]{12,})")
 
 
+def konto_nummer(text: str) -> str | None:
+    """Liest die Kontonummer (bzw. IBAN) aus dem Auszugskopf."""
+    konto = _KONTO_RE.search(text)
+    if konto:
+        return konto.group(1)
+    iban = _IBAN_RE.search(text)
+    if iban:
+        return iban.group(1).replace(" ", "")
+    return None
+
+
 def auszug_kennung(text: str) -> str | None:
     """Liest die eindeutige Auszugs-Kennung aus dem Kopf des Auszugs.
 
