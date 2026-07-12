@@ -1,8 +1,10 @@
 """Nebenkostenabrechnung: Berechnung anzeigen und exportieren.
 
-Zeigt je Haus und Jahr die umlagefähigen Kosten und die Verteilung auf
-die Mieter. Exportiert die Abrechnung als Excel-Datei (alle Häuser) und
-als PDF je Mieter des gewählten Hauses.
+Zeigt je Haus und Jahr die einzelnen umlagefähigen Buchungen (mit
+Beleg-Status; fehlende Belege werden markiert und lassen sich per
+Doppelklick direkt nachreichen) sowie die Verteilung auf die Mieter.
+Exportiert die Abrechnung als Excel-Datei (alle Häuser) und als PDF
+je Mieter — inklusive Einzelkosten-Aufstellung.
 """
 
 from __future__ import annotations
@@ -10,10 +12,11 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -26,8 +29,14 @@ from PySide6.QtWidgets import (
 
 from src.db import buchungen, stammdaten
 from src.logic import nebenkosten
+from src.logic.belege import beleg_archivieren
 from src.ui.tabelle import tabelle_vorbereiten
-from src.utils.eingaben import ValidierungsFehler, betrag_formatieren
+from src.utils.eingaben import (
+    ValidierungsFehler, betrag_formatieren, datum_anzeigen,
+)
+
+# Zeilen ohne Beleg werden farblich hervorgehoben.
+_FARBE_BELEG_FEHLT = QColor("#f3cba6")
 
 
 class NebenkostenSeite(QWidget):
@@ -56,11 +65,19 @@ class NebenkostenSeite(QWidget):
         self._info.setWordWrap(True)
         layout.addWidget(self._info)
 
-        # Kostenaufstellung
-        layout.addWidget(QLabel("Umlagefähige Kosten des Hauses:"))
-        self._kosten_tabelle = QTableWidget(0, 2)
-        self._kosten_tabelle.setHorizontalHeaderLabels(["Kategorie", "Betrag"])
+        # Kostenaufstellung: jede einzelne umlagefähige Buchung.
+        layout.addWidget(QLabel(
+            "Umlagefähige Buchungen des Hauses — orange Zeilen ohne Beleg, "
+            "Doppelklick ordnet einen Beleg zu:"
+        ))
+        self._kosten_tabelle = QTableWidget(0, 5)
+        self._kosten_tabelle.setHorizontalHeaderLabels(
+            ["Datum", "Kategorie", "Beschreibung", "Betrag", "Beleg"]
+        )
         tabelle_vorbereiten(self._kosten_tabelle, sortierbar=False)
+        self._kosten_tabelle.itemDoubleClicked.connect(
+            lambda *_: self._beleg_nachreichen()
+        )
         layout.addWidget(self._kosten_tabelle)
 
         # Verteilung auf die Mieter
@@ -129,18 +146,37 @@ class NebenkostenSeite(QWidget):
         schluessel = stammdaten.UMLAGESCHLUESSEL.get(
             abrechnung["umlageschluessel"], abrechnung["umlageschluessel"]
         )
+        belege_fehlen = abrechnung.get("belege_fehlen", 0)
+        beleg_hinweis = ""
+        if belege_fehlen:
+            beleg_hinweis = (f"  ·  ⚠ {belege_fehlen} Buchung(en) "
+                             "noch ohne Beleg")
         self._info.setText(
             f"Umlageschlüssel: {schluessel}  ·  "
             f"Umlagefähige Kosten gesamt: "
             f"{betrag_formatieren(abrechnung['kosten_gesamt'])} €"
+            f"{beleg_hinweis}"
         )
 
-        self._kosten_tabelle.setRowCount(len(abrechnung["kosten"]))
-        for zeile, (name, betrag) in enumerate(abrechnung["kosten"]):
-            self._kosten_tabelle.setItem(zeile, 0, QTableWidgetItem(name))
-            self._kosten_tabelle.setItem(
-                zeile, 1, QTableWidgetItem(f"{betrag_formatieren(betrag)} €")
-            )
+        einzel = abrechnung.get("einzelbuchungen", [])
+        self._kosten_tabelle.setRowCount(len(einzel))
+        for zeile, buchung in enumerate(einzel):
+            datum_item = QTableWidgetItem(datum_anzeigen(buchung["datum"]))
+            datum_item.setData(Qt.UserRole, buchung["id"])
+            datum_item.setData(Qt.UserRole + 1, buchung["beleg"])
+            werte = [
+                datum_item,
+                QTableWidgetItem(buchung["kategorie"]),
+                QTableWidgetItem(buchung["beschreibung"][:80]),
+                QTableWidgetItem(
+                    f"{betrag_formatieren(buchung['betrag'])} €"
+                ),
+                QTableWidgetItem("✓" if buchung["beleg"] else "fehlt"),
+            ]
+            for spalte, item in enumerate(werte):
+                if not buchung["beleg"]:
+                    item.setBackground(_FARBE_BELEG_FEHLT)
+                self._kosten_tabelle.setItem(zeile, spalte, item)
 
         self._mieter_tabelle.setRowCount(len(abrechnung["mieter"]))
         for zeile, eintrag in enumerate(abrechnung["mieter"]):
@@ -160,6 +196,37 @@ class NebenkostenSeite(QWidget):
                 self._mieter_tabelle.setItem(
                     zeile, spalte, QTableWidgetItem(wert)
                 )
+
+    def _beleg_nachreichen(self) -> None:
+        """Ordnet der markierten Buchung per Dateiauswahl einen Beleg zu."""
+        zeile = self._kosten_tabelle.currentRow()
+        if zeile < 0:
+            return
+        item = self._kosten_tabelle.item(zeile, 0)
+        buchung_id = item.data(Qt.UserRole)
+        hat_beleg = item.data(Qt.UserRole + 1)
+        if hat_beleg:
+            QMessageBox.information(
+                self, "Beleg vorhanden",
+                "Für diese Buchung ist bereits ein Beleg hinterlegt."
+            )
+            return
+        pfad, _ = QFileDialog.getOpenFileName(
+            self, "Beleg für diese Buchung auswählen", "",
+            "PDF/Bild (*.pdf *.jpg *.jpeg *.png);;Alle Dateien (*)"
+        )
+        if not pfad:
+            return
+        jahr = self._jahr.currentData() or date.today().year
+        try:
+            relativ = beleg_archivieren(pfad, jahr)
+            buchungen.buchung_beleg_setzen(
+                self._verbindung, buchung_id, relativ
+            )
+        except (OSError, sqlite3.Error) as fehler:
+            QMessageBox.critical(self, "Beleg-Fehler", str(fehler))
+            return
+        self._berechnen()
 
     def _excel_export(self) -> None:
         jahr = self._jahr.currentData()

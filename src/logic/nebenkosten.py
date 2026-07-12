@@ -71,6 +71,41 @@ def zeitanteil_im_jahr(
     return Decimal(tage) / Decimal(jahr_tage), start, ende
 
 
+def umlagefaehige_buchungen(
+    verbindung: sqlite3.Connection, objekt_id: int, jahr: int
+) -> list[dict]:
+    """Liefert die einzelnen umlagefähigen Buchungen eines Hauses im Jahr.
+
+    Jeder Eintrag enthält Datum, Kategorie, Beschreibung, Betrag und ob
+    ein Beleg hinterlegt ist — die Grundlage für die Belegliste der
+    Abrechnung und für den Hinweis, wo noch Belege fehlen.
+    """
+    zeilen = verbindung.execute(
+        "SELECT b.id, b.datum, b.betrag, b.beschreibung, b.beleg_pfad, "
+        "k.name AS kategorie_name "
+        "FROM buchungen b JOIN kategorien k ON k.id = b.kategorie_id "
+        "WHERE b.objekt_id = ? AND substr(b.datum, 1, 4) = ? "
+        "AND k.typ = 'ausgabe' AND k.umlagefaehig = 1 "
+        "ORDER BY b.datum, b.id",
+        (objekt_id, f"{jahr:04d}"),
+    ).fetchall()
+    ergebnis: list[dict] = []
+    for zeile in zeilen:
+        try:
+            betrag = Decimal(zeile["betrag"])
+        except (ValueError, TypeError):
+            continue
+        ergebnis.append({
+            "id": zeile["id"],
+            "datum": zeile["datum"],
+            "kategorie": zeile["kategorie_name"],
+            "beschreibung": zeile["beschreibung"] or "",
+            "betrag": betrag,
+            "beleg": bool(zeile["beleg_pfad"]),
+        })
+    return ergebnis
+
+
 def _umlagefaehige_kosten(
     verbindung: sqlite3.Connection, objekt_id: int, jahr: int
 ) -> list[tuple[str, Decimal]]:
@@ -165,6 +200,7 @@ def abrechnung_erstellen(
             "differenz": vorauszahlung - kostenanteil,
         })
 
+    einzelbuchungen = umlagefaehige_buchungen(verbindung, objekt_id, jahr)
     return {
         "haus": haus["name"],
         "jahr": jahr,
@@ -172,6 +208,8 @@ def abrechnung_erstellen(
         "kosten": kosten,
         "kosten_gesamt": kosten_gesamt,
         "mieter": mieter_ergebnis,
+        "einzelbuchungen": einzelbuchungen,
+        "belege_fehlen": sum(1 for b in einzelbuchungen if not b["beleg"]),
     }
 
 
@@ -255,6 +293,28 @@ def abrechnung_html(abrechnung: dict, eintrag: dict) -> str:
     def datum_de(iso: str) -> str:
         return f"{iso[8:10]}.{iso[5:7]}.{iso[:4]}"
 
+    # Belegliste: jede einzelne umlagefähige Buchung des Hauses.
+    einzel_zeilen = "".join(
+        f"<tr><td>{datum_de(b['datum'])}</td>"
+        f"<td>{html.escape(b['kategorie'])}</td>"
+        f"<td>{html.escape(b['beschreibung'][:70])}</td>"
+        f"<td align='right'>{betrag_formatieren(b['betrag'])} €</td>"
+        f"<td align='center'>{'✓' if b['beleg'] else '—'}</td></tr>"
+        for b in abrechnung.get("einzelbuchungen", [])
+    )
+    belegliste = ""
+    if einzel_zeilen:
+        belegliste = (
+            "<h3>Kostenaufstellung im Einzelnen</h3>"
+            "<table border='1' cellspacing='0' cellpadding='4' width='100%'>"
+            "<tr><th>Datum</th><th>Kategorie</th><th>Beschreibung</th>"
+            "<th align='right'>Betrag</th><th>Beleg</th></tr>"
+            + einzel_zeilen +
+            "</table>"
+            "<p><i>Die Belege können nach Terminabsprache eingesehen "
+            "werden.</i></p>"
+        )
+
     zeitanteil = eintrag.get("zeitanteil", Decimal("1"))
     nutzungszeile = ""
     if zeitanteil < 1:
@@ -292,6 +352,7 @@ def abrechnung_html(abrechnung: dict, eintrag: dict) -> str:
         {betrag_formatieren(eintrag['vorauszahlung'])} €</td></tr>
     </table>
     <h3>{fazit}</h3>
+    {belegliste}
     <p><i>Hinweis: Diese Abrechnung wurde automatisch erstellt und ist
     vor Weitergabe zu prüfen.</i></p>
     """
