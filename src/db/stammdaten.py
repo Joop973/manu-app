@@ -125,10 +125,29 @@ def mieter_laden(
     """Lädt alle Mieter eines Hauses."""
     return verbindung.execute(
         "SELECT id, objekt_id, name, kaltmiete, nebenkosten, ruecklage, "
-        "aktiv_von, aktiv_bis, wohnflaeche, personenzahl FROM mieter "
-        "WHERE objekt_id = ? ORDER BY name COLLATE NOCASE",
+        "aktiv_von, aktiv_bis, wohnflaeche, personenzahl, umlage_gewicht "
+        "FROM mieter WHERE objekt_id = ? ORDER BY name COLLATE NOCASE",
         (objekt_id,),
     ).fetchall()
+
+
+def mieter_umlage_gewicht_setzen(
+    verbindung: sqlite3.Connection, mieter_id: int, gewicht: str | None
+) -> None:
+    """Setzt das manuelle Umlage-Gewicht eines Mieters (None = automatisch).
+
+    Ein gesetztes Gewicht überschreibt in der Nebenkostenabrechnung den
+    automatischen Schlüsselwert (Fläche/Personen/gleich).
+    """
+    wert: str | None = None
+    if gewicht is not None and str(gewicht).strip() != "":
+        from src.utils.eingaben import betrag_parsen
+        wert = str(betrag_parsen(str(gewicht)))
+    verbindung.execute(
+        "UPDATE mieter SET umlage_gewicht = ? WHERE id = ?",
+        (wert, mieter_id),
+    )
+    verbindung.commit()
 
 
 def mieter_alle_laden(verbindung: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -282,6 +301,34 @@ def kategorie_anlegen(
     verbindung.execute(
         "INSERT INTO kategorien (name, typ, aktiv) VALUES (?, ?, 1)",
         (name, typ),
+    )
+    verbindung.commit()
+
+
+def kategorie_umbenennen(
+    verbindung: sqlite3.Connection, kategorie_id: int, neuer_name: str
+) -> None:
+    """Benennt eine Kategorie um (Buchungen behalten ihre Zuordnung)."""
+    neuer_name = neuer_name.strip()
+    if not neuer_name:
+        raise ValidierungsFehler("Der Kategoriename darf nicht leer sein.")
+    typ_zeile = verbindung.execute(
+        "SELECT typ FROM kategorien WHERE id = ?", (kategorie_id,)
+    ).fetchone()
+    if typ_zeile is None:
+        raise ValidierungsFehler("Die Kategorie wurde nicht gefunden.")
+    kollision = verbindung.execute(
+        "SELECT 1 FROM kategorien WHERE name = ? COLLATE NOCASE AND typ = ? "
+        "AND id != ?",
+        (neuer_name, typ_zeile["typ"], kategorie_id),
+    ).fetchone()
+    if kollision is not None:
+        raise ValidierungsFehler(
+            f"Die Kategorie „{neuer_name}“ existiert bereits."
+        )
+    verbindung.execute(
+        "UPDATE kategorien SET name = ? WHERE id = ?",
+        (neuer_name, kategorie_id),
     )
     verbindung.commit()
 

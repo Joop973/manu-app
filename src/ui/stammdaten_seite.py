@@ -571,6 +571,8 @@ class _KategorieListe(QWidget):
         knopfleiste = QHBoxLayout()
         knopf_neu = QPushButton("Neu")
         knopf_neu.clicked.connect(self._neue_kategorie)
+        knopf_umbenennen = QPushButton("Umbenennen …")
+        knopf_umbenennen.clicked.connect(self._umbenennen)
         knopf_status = QPushButton("Status ändern")
         knopf_status.clicked.connect(self._status_aendern)
         knopf_umlage = QPushButton("Umlagefähig ändern")
@@ -578,6 +580,7 @@ class _KategorieListe(QWidget):
         knopf_zusammen = QPushButton("Zusammenlegen …")
         knopf_zusammen.clicked.connect(self._zusammenlegen)
         knopfleiste.addWidget(knopf_neu)
+        knopfleiste.addWidget(knopf_umbenennen)
         knopfleiste.addWidget(knopf_status)
         knopfleiste.addWidget(knopf_umlage)
         knopfleiste.addWidget(knopf_zusammen)
@@ -617,6 +620,28 @@ class _KategorieListe(QWidget):
         name = item.text()
         aktiv = self._tabelle.item(zeile, 1).text() == "aktiv"
         return kategorie_id, name, aktiv, umlagefaehig
+
+    def _umbenennen(self) -> None:
+        """Benennt die markierte Kategorie um."""
+        auswahl = self._ausgewaehlt()
+        if auswahl is None:
+            QMessageBox.information(self, "Keine Kategorie gewählt",
+                                    "Bitte zuerst eine Kategorie auswählen.")
+            return
+        kategorie_id, name, _, _ = auswahl
+        neuer_name, ok = QInputDialog.getText(
+            self, "Kategorie umbenennen", "Neuer Name:", text=name
+        )
+        if not ok:
+            return
+        try:
+            stammdaten.kategorie_umbenennen(
+                self._verbindung, kategorie_id, neuer_name
+            )
+        except (ValidierungsFehler, sqlite3.Error) as fehler:
+            QMessageBox.warning(self, "Umbenennen fehlgeschlagen", str(fehler))
+            return
+        self.aktualisieren()
 
     def _neue_kategorie(self) -> None:
         name, ok = QInputDialog.getText(

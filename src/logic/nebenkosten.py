@@ -144,12 +144,23 @@ def abrechnung_erstellen(
 
     alle_mieter = verbindung.execute(
         "SELECT id, name, nebenkosten, aktiv_von, aktiv_bis, wohnflaeche, "
-        "personenzahl FROM mieter WHERE objekt_id = ? "
+        "personenzahl, umlage_gewicht FROM mieter WHERE objekt_id = ? "
         "ORDER BY name COLLATE NOCASE",
         (objekt_id,),
     ).fetchall()
 
     def schluesselwert(zeile: sqlite3.Row) -> Decimal:
+        # Manuell gesetztes Umlage-Gewicht hat Vorrang (Aufteilung
+        # bearbeiten): überschreibt den automatischen Schlüssel.
+        try:
+            manuell = zeile["umlage_gewicht"]
+        except (KeyError, IndexError):
+            manuell = None
+        if manuell is not None and str(manuell).strip() != "":
+            try:
+                return Decimal(str(manuell))
+            except (ValueError, TypeError):
+                pass
         if schluessel == "personen":
             return Decimal(zeile["personenzahl"])
         if schluessel == "gleich":
@@ -358,12 +369,21 @@ def abrechnung_html(abrechnung: dict, eintrag: dict) -> str:
     """
 
 
-def html_nach_pdf(inhalt_html: str, ziel_pfad: Path) -> None:
-    """Schreibt einen HTML-Inhalt als PDF-Datei (über Qt, ohne Zusatzpaket)."""
-    from PySide6.QtGui import QPageSize, QPdfWriter, QTextDocument
+def html_nach_pdf(
+    inhalt_html: str, ziel_pfad: Path, quer: bool = False
+) -> None:
+    """Schreibt einen HTML-Inhalt als PDF-Datei (über Qt, ohne Zusatzpaket).
+
+    ``quer=True`` erzeugt A4-Querformat (für breite Tabellen).
+    """
+    from PySide6.QtGui import (
+        QPageLayout, QPageSize, QPdfWriter, QTextDocument,
+    )
 
     schreiber = QPdfWriter(str(ziel_pfad))
     schreiber.setPageSize(QPageSize(QPageSize.A4))
+    if quer:
+        schreiber.setPageOrientation(QPageLayout.Landscape)
     dokument = QTextDocument()
     dokument.setHtml(inhalt_html)
     dokument.print_(schreiber)
@@ -391,3 +411,125 @@ def abrechnung_pdfs(
         html_nach_pdf(abrechnung_html(abrechnung, eintrag), ziel)
         erstellt.append(ziel)
     return erstellt
+
+
+# =========================================================================
+# Mieteinnahmen-Nachweis (für die Steuer / Anlage V)
+# =========================================================================
+
+_MONATE_KURZ = [
+    "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+    "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
+]
+
+
+def mieteinnahmen_daten(
+    verbindung: sqlite3.Connection, objekt_id: int | None, jahr: int
+) -> dict:
+    """Sammelt die erfassten Mietzahlungen je Mieter für ein Jahr.
+
+    Grundlage für den Steuer-Nachweis „wer wann wie viel gezahlt hat".
+    ``objekt_id=None`` wertet alle Häuser aus. Für jeden Mieter werden
+    die Monatsbeträge (aus der Mietzahlungs-Checkliste) und die Summe
+    geliefert, dazu Soll-Miete und die Häuser.
+    """
+    haus_filter = ""
+    params: list = [f"{jahr:04d}"]
+    if objekt_id is not None:
+        haus_filter = "AND m.objekt_id = ?"
+        params.append(objekt_id)
+
+    zeilen = verbindung.execute(
+        "SELECT m.id AS mieter_id, m.name AS mieter, o.name AS haus, "
+        "m.kaltmiete, m.nebenkosten, m.ruecklage, z.monat, z.betrag "
+        "FROM mietzahlungen z "
+        "JOIN mieter m ON m.id = z.mieter_id "
+        "JOIN objekte o ON o.id = m.objekt_id "
+        f"WHERE z.jahr = ? {haus_filter} "
+        "ORDER BY o.name COLLATE NOCASE, m.name COLLATE NOCASE, z.monat",
+        params,
+    ).fetchall()
+
+    mieter: dict[int, dict] = {}
+    for z in zeilen:
+        eintrag = mieter.setdefault(z["mieter_id"], {
+            "mieter": z["mieter"],
+            "haus": z["haus"],
+            "monate": {},
+            "summe": Decimal("0"),
+            "soll_monat": _summe_soll(z),
+        })
+        try:
+            betrag = Decimal(str(z["betrag"]))
+        except (ValueError, TypeError):
+            betrag = Decimal("0")
+        eintrag["monate"][z["monat"]] = betrag
+        eintrag["summe"] += betrag
+
+    liste = sorted(mieter.values(), key=lambda e: (e["haus"], e["mieter"]))
+    gesamt = sum((e["summe"] for e in liste), Decimal("0"))
+    return {"jahr": jahr, "mieter": liste, "gesamt": gesamt}
+
+
+def _summe_soll(zeile: sqlite3.Row) -> Decimal:
+    """Summiert die vereinbarte Monatsmiete (Kalt + NK + Rücklage)."""
+    gesamt = Decimal("0")
+    for feld in ("kaltmiete", "nebenkosten", "ruecklage"):
+        try:
+            gesamt += Decimal(str(zeile[feld]))
+        except (ValueError, TypeError):
+            pass
+    return gesamt
+
+
+def mieteinnahmen_html(daten: dict, haus_name: str) -> str:
+    """Baut den Mieteinnahmen-Nachweis als HTML (Mieter × Monate)."""
+    kopf = "".join(f"<th>{m}</th>" for m in _MONATE_KURZ)
+    zeilen_html = ""
+    for e in daten["mieter"]:
+        zellen = ""
+        for monat in range(1, 13):
+            betrag = e["monate"].get(monat)
+            if betrag is not None:
+                zellen += (f"<td align='right'>"
+                           f"{betrag_formatieren(betrag)}</td>")
+            else:
+                zellen += "<td align='center'>–</td>"
+        zeilen_html += (
+            f"<tr><td>{html.escape(e['mieter'])}</td>"
+            f"<td>{html.escape(e['haus'])}</td>"
+            f"{zellen}"
+            f"<td align='right'><b>{betrag_formatieren(e['summe'])}</b></td>"
+            f"</tr>"
+        )
+
+    return f"""
+    <h2>Mieteinnahmen-Nachweis {daten['jahr']}</h2>
+    <p><b>Haus:</b> {html.escape(haus_name)}<br>
+    <b>Zeitraum:</b> 01.01.{daten['jahr']} – 31.12.{daten['jahr']}</p>
+    <p>Beträge in Euro, wie in der Mietzahlungs-Checkliste erfasst
+    (– = kein Zahlungseingang vermerkt).</p>
+    <table border='1' cellspacing='0' cellpadding='3' width='100%'>
+      <tr><th>Mieter</th><th>Haus</th>{kopf}<th>Summe</th></tr>
+      {zeilen_html}
+      <tr><td colspan='14'></td>
+      <td align='right'><b>{betrag_formatieren(daten['gesamt'])}</b></td></tr>
+    </table>
+    <p><i>Nachweis für die Anlage V (Einkünfte aus Vermietung und
+    Verpachtung). Automatisch erstellt, bitte vor Abgabe prüfen.</i></p>
+    """
+
+
+def mieteinnahmen_pdf(
+    verbindung: sqlite3.Connection, objekt_id: int | None, jahr: int,
+    haus_name: str,
+) -> Path:
+    """Erstellt den Mieteinnahmen-Nachweis eines Jahres als PDF."""
+    daten = mieteinnahmen_daten(verbindung, objekt_id, jahr)
+    ordner = exporte_verzeichnis()
+    ordner.mkdir(parents=True, exist_ok=True)
+    ziel = ordner / (
+        f"Mieteinnahmen_{_dateiname_saeubern(haus_name)}_{jahr}.pdf"
+    )
+    html_nach_pdf(mieteinnahmen_html(daten, haus_name), ziel, quer=True)
+    return ziel

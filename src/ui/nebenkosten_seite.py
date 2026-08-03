@@ -16,9 +16,13 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -90,14 +94,20 @@ class NebenkostenSeite(QWidget):
         tabelle_vorbereiten(self._mieter_tabelle, sortierbar=False)
         layout.addWidget(self._mieter_tabelle)
 
-        # Export-Knöpfe
+        # Aktions-/Export-Knöpfe
         knopfzeile = QHBoxLayout()
+        knopf_aufteilung = QPushButton("Aufteilung bearbeiten …")
+        knopf_aufteilung.clicked.connect(self._aufteilung_bearbeiten)
         knopf_excel = QPushButton("Excel-Export (alle Häuser)")
         knopf_excel.clicked.connect(self._excel_export)
-        knopf_pdf = QPushButton("PDF-Abrechnungen erzeugen (dieses Haus)")
+        knopf_pdf = QPushButton("PDF-Abrechnungen (dieses Haus)")
         knopf_pdf.clicked.connect(self._pdf_export)
+        knopf_miete = QPushButton("Mieteinnahmen-Nachweis (PDF)")
+        knopf_miete.clicked.connect(self._mieteinnahmen_export)
+        knopfzeile.addWidget(knopf_aufteilung)
         knopfzeile.addWidget(knopf_excel)
         knopfzeile.addWidget(knopf_pdf)
+        knopfzeile.addWidget(knopf_miete)
         knopfzeile.addStretch()
         layout.addLayout(knopfzeile)
 
@@ -264,6 +274,38 @@ class NebenkostenSeite(QWidget):
             pfade[0].parent,
         )
 
+    def _mieteinnahmen_export(self) -> None:
+        """Erstellt den Mieteinnahmen-Nachweis (Anlage V) als PDF."""
+        objekt_id = self._haus.currentData()
+        jahr = self._jahr.currentData()
+        if jahr is None:
+            return
+        haus_name = self._haus.currentText() or "Alle Häuser"
+        try:
+            pfad = nebenkosten.mieteinnahmen_pdf(
+                self._verbindung, objekt_id, jahr, haus_name
+            )
+        except (OSError, sqlite3.Error, ValidierungsFehler) as fehler:
+            QMessageBox.critical(self, "Export fehlgeschlagen", str(fehler))
+            return
+        self._fertig_melden(
+            "Mieteinnahmen-Nachweis erstellt",
+            f"Der Nachweis „wer wann wie viel gezahlt“ für {jahr} "
+            f"wurde erstellt:\n{pfad}",
+            pfad,
+        )
+
+    def _aufteilung_bearbeiten(self) -> None:
+        """Öffnet den Dialog zum manuellen Bearbeiten der Umlage-Anteile."""
+        objekt_id = self._haus.currentData()
+        if objekt_id is None:
+            QMessageBox.information(self, "Kein Haus gewählt",
+                                    "Bitte zuerst ein Haus auswählen.")
+            return
+        dialog = AufteilungDialog(self._verbindung, objekt_id, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            self._berechnen()
+
     def _fertig_melden(self, titel: str, text: str, oeffnen_pfad) -> None:
         """Meldet einen erfolgreichen Export und bietet das Öffnen an."""
         antwort = QMessageBox.question(
@@ -272,3 +314,76 @@ class NebenkostenSeite(QWidget):
         )
         if antwort == QMessageBox.Yes:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(oeffnen_pfad)))
+
+
+class AufteilungDialog(QDialog):
+    """Manuelles Bearbeiten der Umlage-Anteile je Mieter eines Hauses.
+
+    Je Mieter kann ein festes Gewicht eingetragen werden, das den
+    automatischen Schlüssel (Fläche/Personen/gleich) überschreibt. Leeres
+    Feld = automatisch. So lässt sich die Nebenkosten-Aufteilung frei
+    anpassen.
+    """
+
+    def __init__(
+        self, verbindung: sqlite3.Connection, objekt_id: int, parent=None
+    ) -> None:
+        super().__init__(parent)
+        self._verbindung = verbindung
+        self._objekt_id = objekt_id
+        self.setModal(True)
+        self.setWindowTitle("Umlage-Aufteilung bearbeiten")
+        self.resize(460, 360)
+
+        layout = QVBoxLayout(self)
+        haus = verbindung.execute(
+            "SELECT name, umlageschluessel FROM objekte WHERE id = ?",
+            (objekt_id,),
+        ).fetchone()
+        schluessel = stammdaten.UMLAGESCHLUESSEL.get(
+            haus["umlageschluessel"], haus["umlageschluessel"]
+        ) if haus else ""
+        layout.addWidget(QLabel(
+            f"Haus: <b>{haus['name'] if haus else ''}</b><br>"
+            f"Automatischer Schlüssel: {schluessel}<br><br>"
+            "Trage je Mieter ein festes Gewicht ein, um die Aufteilung "
+            "manuell zu bestimmen (z. B. Quadratmeter oder ein eigener "
+            "Wert). Leer lassen = automatisch nach obigem Schlüssel."
+        ))
+
+        formular = QFormLayout()
+        self._felder: list[tuple[int, QLineEdit]] = []
+        for mieter in stammdaten.mieter_laden(verbindung, objekt_id):
+            feld = QLineEdit()
+            try:
+                if mieter["umlage_gewicht"]:
+                    feld.setText(
+                        betrag_formatieren(float(mieter["umlage_gewicht"]))
+                    )
+            except (KeyError, IndexError, ValueError, TypeError):
+                pass
+            feld.setPlaceholderText("automatisch")
+            formular.addRow(mieter["name"] + ":", feld)
+            self._felder.append((mieter["id"], feld))
+        layout.addLayout(formular)
+
+        knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        knoepfe.button(QDialogButtonBox.Ok).setText("Speichern")
+        knoepfe.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        knoepfe.accepted.connect(self._speichern)
+        knoepfe.rejected.connect(self.reject)
+        layout.addWidget(knoepfe)
+
+    def _speichern(self) -> None:
+        try:
+            for mieter_id, feld in self._felder:
+                text = feld.text().strip()
+                stammdaten.mieter_umlage_gewicht_setzen(
+                    self._verbindung, mieter_id, text or None
+                )
+        except (ValidierungsFehler, sqlite3.Error) as fehler:
+            QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
+            return
+        self.accept()
