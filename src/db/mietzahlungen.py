@@ -25,16 +25,26 @@ _SPALTEN = {
 }
 
 
+# Feste Rolle der Einnahme-Kategorie je Mietbestandteil.
+_ROLLEN = {
+    "Kaltmiete": "kaltmiete",
+    "Nebenkosten": "nebenkosten",
+    "Rücklage": "ruecklage",
+}
+
+
 def _einnahme_kategorie_ids(verbindung: sqlite3.Connection) -> dict[str, int | None]:
-    """Sucht die IDs der Einnahme-Kategorien je Mietbestandteil."""
-    ids: dict[str, int | None] = {}
-    for name in _BESTANDTEILE:
-        zeile = verbindung.execute(
-            "SELECT id FROM kategorien WHERE name = ? AND typ = 'einnahme'",
-            (name,),
-        ).fetchone()
-        ids[name] = zeile["id"] if zeile else None
-    return ids
+    """Sucht die IDs der Einnahme-Kategorien je Mietbestandteil.
+
+    Gesucht wird über die feste Rolle der Kategorie, damit die
+    Kategorien frei umbenannt werden können.
+    """
+    from src.db.stammdaten import kategorie_nach_rolle
+
+    return {
+        name: kategorie_nach_rolle(verbindung, _ROLLEN[name])
+        for name in _BESTANDTEILE
+    }
 
 
 def bezahlte_monate(
@@ -84,7 +94,7 @@ def mietzahlung_erfassen(
     quelle = f"mietzahlung:{mietzahlung_id}"
     for name in _BESTANDTEILE:
         betrag = betraege[name]
-        if betrag <= 0:
+        if betrag <= 0 or kategorie_ids[name] is None:
             continue
         verbindung.execute(
             "INSERT INTO buchungen "

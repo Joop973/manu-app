@@ -21,8 +21,9 @@ def objekte_laden(
     verbindung: sqlite3.Connection, nur_aktive: bool = False
 ) -> list[sqlite3.Row]:
     """Lädt alle Häuser, optional nur die aktiven."""
-    sql = ("SELECT id, name, aktiv, umlageschluessel, erkennungstext "
-           "FROM objekte")
+    sql = ("SELECT id, name, aktiv, umlageschluessel, erkennungstext, "
+           "adresse, gesamtflaeche, afa_bemessung, afa_beginn, afa_satz, "
+           "kostenstelle FROM objekte")
     if nur_aktive:
         sql += " WHERE aktiv = 1"
     sql += " ORDER BY name COLLATE NOCASE"
@@ -89,6 +90,53 @@ def objekt_aktiv_setzen(
     verbindung.execute(
         "UPDATE objekte SET aktiv = ? WHERE id = ?",
         (1 if aktiv else 0, objekt_id),
+    )
+    verbindung.commit()
+
+
+def objekt_steuerdaten_setzen(
+    verbindung: sqlite3.Connection,
+    objekt_id: int,
+    adresse: str | None,
+    gesamtflaeche: Decimal | None,
+    afa_bemessung: Decimal | None,
+    afa_beginn: str | None,
+    afa_satz: Decimal | None,
+    kostenstelle: str | None,
+) -> None:
+    """Speichert Anlage-V-, AfA-, Nebenkosten- und DATEV-Daten eines Hauses.
+
+    Leere Werte werden als NULL gespeichert (= nicht hinterlegt).
+    """
+    if afa_satz is not None and not Decimal("0") < afa_satz <= Decimal("100"):
+        raise ValidierungsFehler("Der AfA-Satz muss zwischen 0 und 100 % liegen.")
+    angaben_afa = [afa_bemessung, afa_beginn, afa_satz]
+    if any(a not in (None, "") for a in angaben_afa) and not all(
+        a not in (None, "") for a in angaben_afa
+    ):
+        raise ValidierungsFehler(
+            "Für die Gebäude-AfA bitte alle drei Angaben machen "
+            "(Bemessungsgrundlage, Beginn, Satz) – oder alle leer lassen."
+        )
+    kst = (kostenstelle or "").strip() or None
+    if kst is not None and (len(kst) > 36 or not all(
+            z.isascii() and (z.isalnum() or z == " ") for z in kst)):
+        raise ValidierungsFehler(
+            "Die Kostenstelle darf nur Buchstaben/Ziffern enthalten "
+            "(max. 36 Zeichen)."
+        )
+    verbindung.execute(
+        "UPDATE objekte SET adresse = ?, gesamtflaeche = ?, afa_bemessung = ?, "
+        "afa_beginn = ?, afa_satz = ?, kostenstelle = ? WHERE id = ?",
+        (
+            (adresse or "").strip() or None,
+            None if gesamtflaeche is None else str(gesamtflaeche),
+            None if afa_bemessung is None else str(afa_bemessung),
+            afa_beginn or None,
+            None if afa_satz is None else str(afa_satz),
+            kst,
+            objekt_id,
+        ),
     )
     verbindung.commit()
 
@@ -275,7 +323,8 @@ def kategorien_laden(
     verbindung: sqlite3.Connection, typ: str, nur_aktive: bool = False
 ) -> list[sqlite3.Row]:
     """Lädt alle Kategorien eines Typs ('ausgabe' oder 'einnahme')."""
-    sql = ("SELECT id, name, typ, aktiv, umlagefaehig "
+    sql = ("SELECT id, name, typ, aktiv, umlagefaehig, steuer_art, "
+           "steuer_prozent, rolle, datev_konto "
            "FROM kategorien WHERE typ = ?")
     if nur_aktive:
         sql += " AND aktiv = 1"
@@ -284,9 +333,10 @@ def kategorien_laden(
 
 
 def kategorie_anlegen(
-    verbindung: sqlite3.Connection, name: str, typ: str
+    verbindung: sqlite3.Connection, name: str, typ: str,
+    steuer_art: str | None = None,
 ) -> None:
-    """Legt eine neue Kategorie an."""
+    """Legt eine neue Kategorie an (optional mit steuerlicher Art)."""
     name = name.strip()
     if not name:
         raise ValidierungsFehler("Der Kategoriename darf nicht leer sein.")
@@ -299,9 +349,102 @@ def kategorie_anlegen(
     if zeile is not None:
         raise ValidierungsFehler(f"Die Kategorie „{name}“ existiert bereits.")
     verbindung.execute(
-        "INSERT INTO kategorien (name, typ, aktiv) VALUES (?, ?, 1)",
-        (name, typ),
+        "INSERT INTO kategorien (name, typ, aktiv, steuer_art) "
+        "VALUES (?, ?, 1, ?)",
+        (name, typ, steuer_art),
     )
+    verbindung.commit()
+
+
+def kategorie_steuer_setzen(
+    verbindung: sqlite3.Connection,
+    kategorie_id: int,
+    steuer_art: str | None,
+    steuer_prozent: Decimal | None,
+    datev_konto: str | None,
+) -> None:
+    """Legt steuerliche Art, Voreinstellung des Anteils und DATEV-Konto fest."""
+    from src.logic.steuer import STEUER_ARTEN
+
+    if steuer_art is not None and steuer_art not in STEUER_ARTEN:
+        raise ValidierungsFehler("Unbekannte steuerliche Art.")
+    prozent = Decimal("100") if steuer_prozent is None else steuer_prozent
+    if not Decimal("0") <= prozent <= Decimal("100"):
+        raise ValidierungsFehler("Der Anteil muss zwischen 0 und 100 % liegen.")
+    konto = (datev_konto or "").strip() or None
+    if konto is not None and (not konto.isdigit() or len(konto) > 9):
+        raise ValidierungsFehler("Das DATEV-Konto besteht nur aus Ziffern.")
+    verbindung.execute(
+        "UPDATE kategorien SET steuer_art = ?, steuer_prozent = ?, "
+        "datev_konto = ? WHERE id = ?",
+        (steuer_art, str(prozent), konto, kategorie_id),
+    )
+    verbindung.commit()
+
+
+def kategorie_nach_rolle(
+    verbindung: sqlite3.Connection, rolle: str
+) -> int | None:
+    """Liefert die ID der Einnahme-Kategorie mit fester Rolle.
+
+    Rollen: ``kaltmiete``, ``nebenkosten``, ``ruecklage``. Fällt auf die
+    historischen Namen zurück, falls keine Rolle hinterlegt ist.
+    """
+    zeile = verbindung.execute(
+        "SELECT id FROM kategorien WHERE rolle = ? AND typ = 'einnahme' "
+        "ORDER BY aktiv DESC, id LIMIT 1",
+        (rolle,),
+    ).fetchone()
+    if zeile is not None:
+        return zeile["id"]
+    alt = {"kaltmiete": "Kaltmiete", "nebenkosten": "Nebenkosten",
+           "ruecklage": "Rücklage"}.get(rolle)
+    if alt is None:
+        return None
+    zeile = verbindung.execute(
+        "SELECT id FROM kategorien WHERE name = ? COLLATE NOCASE "
+        "AND typ = 'einnahme'",
+        (alt,),
+    ).fetchone()
+    return zeile["id"] if zeile else None
+
+
+def haus_anteile_laden(
+    verbindung: sqlite3.Connection, kategorie_id: int
+) -> dict[int, Decimal]:
+    """Abweichende Anteile einer Kategorie je Haus: {objekt_id: prozent}."""
+    return {
+        z["objekt_id"]: Decimal(z["prozent"])
+        for z in verbindung.execute(
+            "SELECT objekt_id, prozent FROM kategorie_haus_anteil "
+            "WHERE kategorie_id = ?",
+            (kategorie_id,),
+        ).fetchall()
+    }
+
+
+def haus_anteil_setzen(
+    verbindung: sqlite3.Connection, kategorie_id: int, objekt_id: int,
+    prozent: Decimal | None,
+) -> None:
+    """Setzt (oder löscht bei ``None``) den Anteil für ein Haus."""
+    if prozent is None:
+        verbindung.execute(
+            "DELETE FROM kategorie_haus_anteil WHERE kategorie_id = ? "
+            "AND objekt_id = ?",
+            (kategorie_id, objekt_id),
+        )
+    else:
+        if not Decimal("0") <= prozent <= Decimal("100"):
+            raise ValidierungsFehler(
+                "Der Anteil muss zwischen 0 und 100 % liegen."
+            )
+        verbindung.execute(
+            "INSERT INTO kategorie_haus_anteil (objekt_id, kategorie_id, "
+            "prozent) VALUES (?, ?, ?) ON CONFLICT(objekt_id, kategorie_id) "
+            "DO UPDATE SET prozent = excluded.prozent",
+            (objekt_id, kategorie_id, str(prozent)),
+        )
     verbindung.commit()
 
 
@@ -397,6 +540,18 @@ def kategorien_zusammenlegen(
     verbindung.execute(
         "UPDATE regeln SET kategorie_id = ? WHERE kategorie_id = ?",
         (ziel_id, quelle_id),
+    )
+    # Haus-Anteile der Quelle übernehmen, sofern das Ziel keine hat.
+    verbindung.execute(
+        "INSERT OR IGNORE INTO kategorie_haus_anteil "
+        "(objekt_id, kategorie_id, prozent) "
+        "SELECT objekt_id, ?, prozent FROM kategorie_haus_anteil "
+        "WHERE kategorie_id = ?",
+        (ziel_id, quelle_id),
+    )
+    verbindung.execute(
+        "DELETE FROM kategorie_haus_anteil WHERE kategorie_id = ?",
+        (quelle_id,),
     )
     verbindung.execute("DELETE FROM kategorien WHERE id = ?", (quelle_id,))
     verbindung.commit()

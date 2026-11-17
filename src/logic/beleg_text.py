@@ -26,18 +26,41 @@ def belege_basis() -> Path:
     return belege_verzeichnis()
 
 
-_BILDFORMATE = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
-# Geldbeträge in deutscher Schreibweise (1.234,56) im Belegtext.
-_GELD_RE = re.compile(r"\b(\d{1,3}(?:\.\d{3})*,\d{2})\b")
-_DATUM_DE_RE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})\b")
+_BILDFORMATE = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp",
+                ".heic", ".heif"}
+BELEG_ENDUNGEN = _BILDFORMATE | {".pdf"}
+# Geldbeträge in deutscher Schreibweise (1.234,56 / 1234,56 / 12,50) im
+# Belegtext; OCR liefert gelegentlich Leerzeichen als Tausendertrenner.
+_GELD_RE = re.compile(
+    r"(?<![\d,.])(\d{1,3}(?:[.\u00a0 ]\d{3})+|\d+),(\d{2})(?![\d,])"
+)
+_DATUM_DE_RE = re.compile(r"\b(\d{1,2})\.\s?(\d{1,2})\.\s?(\d{2,4})\b")
 _DATUM_ISO_RE = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
+# Schlüsselwörter, hinter denen auf Rechnungen/Quittungen der zu
+# zahlende Gesamtbetrag steht (Reihenfolge = Priorität).
+_GESAMT_WOERTER = (
+    "zu zahlen", "zahlbetrag", "rechnungsbetrag", "endbetrag",
+    "gesamtbetrag", "gesamtsumme", "bruttobetrag", "brutto", "summe",
+    "gesamt", "total", "betrag eur", "betrag",
+)
+_DATUM_WOERTER = ("rechnungsdatum", "belegdatum", "datum", "date")
+
+# Typische Installationsorte von Tesseract unter Windows.
+_TESSERACT_WINDOWS = (
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+)
 
 
 def text_aus_datei(pfad: Path) -> str:
     """Liest den Volltext einer Belegdatei (PDF oder Bild)."""
     suffix = pfad.suffix.lower()
     if suffix == ".pdf":
-        return _pdf_text(pfad)
+        text = _pdf_text(pfad)
+        if len(text.strip()) < 20:
+            # Eingescanntes PDF ohne Textebene → Seiten per OCR lesen.
+            text = _pdf_ocr(pfad) or text
+        return text
     if suffix in _BILDFORMATE:
         return _ocr_text(pfad)
     if suffix in (".txt", ".md"):
@@ -58,26 +81,192 @@ def _pdf_text(pfad: Path) -> str:
         return ""
 
 
-def _ocr_text(pfad: Path) -> str:
-    """Liest Text aus einer Bilddatei per OCR (falls Tesseract installiert)."""
+def _tesseract_einrichten():
+    """Lädt pytesseract und findet die Tesseract-Programmdatei.
+
+    Liefert das Modul oder ``None``, wenn OCR nicht verfügbar ist.
+    """
     try:
         import pytesseract  # type: ignore
-        from PIL import Image  # type: ignore
     except ImportError:
-        return ""
+        return None
+    import shutil
+
+    if shutil.which(pytesseract.pytesseract.tesseract_cmd) is None:
+        for kandidat in _TESSERACT_WINDOWS:
+            if Path(kandidat).is_file():
+                pytesseract.pytesseract.tesseract_cmd = kandidat
+                break
     try:
-        return pytesseract.image_to_string(
-            Image.open(str(pfad)), lang="deu"
+        pytesseract.get_tesseract_version()
+    except Exception:  # noqa: BLE001
+        return None
+    return pytesseract
+
+
+def ocr_status() -> tuple[bool, str]:
+    """Prüft, ob Texterkennung für Fotos/Scans verfügbar ist."""
+    try:
+        import PIL  # noqa: F401
+    except ImportError:
+        return False, ("Paket „Pillow“ fehlt: pip install Pillow pytesseract")
+    modul = _tesseract_einrichten()
+    if modul is None:
+        return False, (
+            "Tesseract-OCR ist nicht installiert. Windows: Installer von "
+            "github.com/UB-Mannheim/tesseract/wiki herunterladen, bei der "
+            "Installation „German“ als Sprache anhaken; außerdem "
+            "pip install pytesseract Pillow."
         )
+    try:
+        sprachen = modul.get_languages(config="")
+    except Exception:  # noqa: BLE001
+        sprachen = []
+    if "deu" not in sprachen:
+        return True, ("Tesseract gefunden, aber ohne deutsche Sprachdaten "
+                      "(deu) – Umlaute und Beträge werden schlechter erkannt.")
+    return True, "Texterkennung (Tesseract, Deutsch) ist verfügbar."
+
+
+def _bild_oeffnen(pfad: Path):
+    from PIL import Image  # type: ignore
+
+    if pfad.suffix.lower() in (".heic", ".heif"):
+        try:
+            from pillow_heif import register_heif_opener  # type: ignore
+            register_heif_opener()
+        except ImportError:
+            return None
+    return Image.open(str(pfad))
+
+
+def _bild_vorbereiten(bild):
+    """Bereitet ein Handyfoto für die OCR vor.
+
+    EXIF-Drehung anwenden, in Graustufen wandeln, Kontrast strecken und
+    kleine Bilder hochskalieren — das verbessert die Erkennung von
+    Beträgen auf Fotos deutlich.
+    """
+    from PIL import ImageFilter, ImageOps  # type: ignore
+
+    bild = ImageOps.exif_transpose(bild)
+    bild = bild.convert("L")
+    bild = ImageOps.autocontrast(bild, cutoff=1)
+    breite, hoehe = bild.size
+    if max(breite, hoehe) < 1800:
+        faktor = 1800 / max(breite, hoehe)
+        bild = bild.resize((int(breite * faktor), int(hoehe * faktor)))
+    return bild.filter(ImageFilter.SHARPEN)
+
+
+def _ocr_bild(bild, modul) -> str:
+    """OCR eines vorbereiteten Bildes, inkl. Korrektur gedrehter Fotos."""
+    sprache = "deu"
+    try:
+        if "deu" not in modul.get_languages(config=""):
+            sprache = "eng"
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        osd = modul.image_to_osd(bild, output_type=modul.Output.DICT)
+        drehung = int(osd.get("rotate", 0))
+        if drehung:
+            bild = bild.rotate(-drehung, expand=True)
+    except Exception:  # noqa: BLE001 - OSD optional (zu wenig Text o. ä.)
+        pass
+    try:
+        return modul.image_to_string(bild, lang=sprache, config="--psm 4")
     except Exception:  # noqa: BLE001
         return ""
+
+
+def _ocr_text(pfad: Path) -> str:
+    """Liest Text aus einer Bilddatei per OCR (falls Tesseract installiert)."""
+    modul = _tesseract_einrichten()
+    if modul is None:
+        return ""
+    try:
+        bild = _bild_oeffnen(pfad)
+        if bild is None:
+            return ""
+        return _ocr_bild(_bild_vorbereiten(bild), modul)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _pdf_ocr(pfad: Path) -> str:
+    """OCR für eingescannte PDFs (Seiten als Bild, 300 dpi)."""
+    modul = _tesseract_einrichten()
+    if modul is None:
+        return ""
+    try:
+        import pdfplumber
+        teile = []
+        with pdfplumber.open(str(pfad)) as pdf:
+            for seite in pdf.pages[:5]:
+                bild = seite.to_image(resolution=300).original
+                teile.append(_ocr_bild(_bild_vorbereiten(bild), modul))
+        return "\n".join(teile)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _geld(treffer: re.Match) -> Decimal | None:
+    ganz = re.sub(r"[.\u00a0 ]", "", treffer.group(1))
+    try:
+        return Decimal(f"{ganz}.{treffer.group(2)}")
+    except InvalidOperation:
+        return None
+
+
+def gesamtbetrag_aus_text(text: str) -> Decimal | None:
+    """Sucht den zu zahlenden Gesamtbetrag eines Belegs.
+
+    Bevorzugt Beträge in Zeilen mit „Summe“, „Gesamt“, „zu zahlen“ usw.
+    (auch in der Folgezeile). Ohne solches Stichwort wird der größte
+    Betrag genommen. Liefert ``None``, wenn kein Betrag erkannt wurde.
+    """
+    zeilen = [z.strip() for z in (text or "").splitlines()]
+    for wort in _GESAMT_WOERTER:
+        for index in range(len(zeilen) - 1, -1, -1):
+            zeile = zeilen[index].lower()
+            if wort not in zeile or "zwischensumme" in zeile:
+                continue
+            for kandidat in (zeilen[index], zeilen[index + 1]
+                             if index + 1 < len(zeilen) else ""):
+                betraege = [b for b in (_geld(t) for t in
+                                        _GELD_RE.finditer(kandidat)) if b]
+                if betraege:
+                    return betraege[-1]
+    alle = _betraege_aus_text(text)
+    return max(alle) if alle else None
+
+
+def beleg_analysieren(pfad: Path) -> dict:
+    """Liest einen Beleg und erkennt Gesamtbetrag und Rechnungsdatum."""
+    text = text_aus_datei(Path(pfad))
+    return {
+        "text": text,
+        "betrag": gesamtbetrag_aus_text(text),
+        "datum": _datum_aus_text(text),
+        "lesbar": bool(text.strip()),
+    }
 
 
 def beleg_text_aktualisieren(
     verbindung: sqlite3.Connection, relativer_pfad: str
 ) -> str:
-    """Liest die Belegdatei und speichert den Volltext in der DB."""
-    absoluter_pfad = belege_basis() / relativer_pfad
+    """Liest die Belegdatei und speichert den Volltext in der DB.
+
+    ``relativer_pfad`` ist wie in der Buchung gespeichert relativ zum
+    App-Ordner (z. B. ``belege/2026/rechnung.jpg``).
+    """
+    from src.logic.belege import beleg_absolut
+
+    absoluter_pfad = beleg_absolut(relativer_pfad)
+    if not absoluter_pfad.is_file():
+        # Ältere Einträge relativ zum Belege-Ordner.
+        absoluter_pfad = belege_basis() / relativer_pfad
     if not absoluter_pfad.is_file():
         return ""
     text = text_aus_datei(absoluter_pfad)
@@ -112,41 +301,48 @@ def beleg_text_suchen(
 # ---------------------------------------------------------------------------
 
 
+def _datum_gueltig(jahr: int, monat: int, tag: int) -> str | None:
+    if jahr < 100:
+        jahr += 2000
+    try:
+        wert = date(jahr, monat, tag)
+    except ValueError:
+        return None
+    if not 2000 <= wert.year <= date.today().year + 1:
+        return None
+    return wert.isoformat()
+
+
 def _datum_aus_text(text: str) -> str | None:
-    """Sucht das erste plausible Datum (ISO oder DE) im Belegtext."""
-    treffer = _DATUM_DE_RE.search(text)
-    if treffer:
-        tag, monat, jahr = treffer.group(1), treffer.group(2), treffer.group(3)
-        if len(jahr) == 2:
-            jahr = "20" + jahr
-        try:
-            return date(int(jahr), int(monat), int(tag)).isoformat()
-        except ValueError:
-            return None
-    treffer = _DATUM_ISO_RE.search(text)
-    if treffer:
-        try:
-            return date(
-                int(treffer.group(1)),
-                int(treffer.group(2)),
-                int(treffer.group(3)),
-            ).isoformat()
-        except ValueError:
-            return None
+    """Sucht das Belegdatum: bevorzugt hinter „Rechnungsdatum“/„Datum“,
+    sonst das erste plausible Datum im Text."""
+    zeilen = (text or "").splitlines()
+    for wort in _DATUM_WOERTER:
+        for index, zeile in enumerate(zeilen):
+            if wort not in zeile.lower():
+                continue
+            for kandidat in (zeile, zeilen[index + 1]
+                             if index + 1 < len(zeilen) else ""):
+                for t in _DATUM_DE_RE.finditer(kandidat):
+                    iso = _datum_gueltig(int(t.group(3)), int(t.group(2)),
+                                         int(t.group(1)))
+                    if iso:
+                        return iso
+    for t in _DATUM_DE_RE.finditer(text or ""):
+        iso = _datum_gueltig(int(t.group(3)), int(t.group(2)), int(t.group(1)))
+        if iso:
+            return iso
+    for t in _DATUM_ISO_RE.finditer(text or ""):
+        iso = _datum_gueltig(int(t.group(1)), int(t.group(2)), int(t.group(3)))
+        if iso:
+            return iso
     return None
 
 
 def _betraege_aus_text(text: str) -> list[Decimal]:
     """Extrahiert alle plausiblen Geldbeträge aus dem Belegtext."""
-    werte: list[Decimal] = []
-    for treffer in _GELD_RE.finditer(text):
-        try:
-            werte.append(
-                Decimal(treffer.group(1).replace(".", "").replace(",", "."))
-            )
-        except InvalidOperation:
-            continue
-    return werte
+    return [b for b in (_geld(t) for t in _GELD_RE.finditer(text or ""))
+            if b is not None]
 
 
 def match_kandidaten(
@@ -166,32 +362,37 @@ def match_kandidaten(
         "WHERE beleg_pfad IS NULL OR beleg_pfad = ''"
     ).fetchall()
     paare: list[dict] = []
-    for datei in belege_ordner.iterdir():
-        if not datei.is_file() or datei.suffix.lower() not in (
-            ".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"
-        ):
+    for datei in sorted(belege_ordner.iterdir()):
+        if not datei.is_file() or datei.suffix.lower() not in BELEG_ENDUNGEN:
             continue
-        text = text_aus_datei(datei)
+        analyse = beleg_analysieren(datei)
+        text = analyse["text"]
+        gesamt = analyse["betrag"]
         betraege = _betraege_aus_text(text)
-        beleg_datum = _datum_aus_text(text)
+        beleg_datum = analyse["datum"]
         bester: dict | None = None
         for buchung in offene:
             try:
                 buchungs_betrag = abs(Decimal(buchung["betrag"]))
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, ArithmeticError):
                 continue
-            if not any(abs(b - buchungs_betrag) <= Decimal("0.01")
-                       for b in betraege):
+            if gesamt is not None and abs(gesamt - buchungs_betrag) \
+                    <= Decimal("0.01"):
+                score = 60          # Gesamtbetrag des Belegs passt
+            elif any(abs(b - buchungs_betrag) <= Decimal("0.01")
+                     for b in betraege):
+                score = 40          # irgendein Betrag im Beleg passt
+            else:
                 continue
-            score = 50
             if beleg_datum and buchung["datum"]:
                 try:
                     delta = abs(
                         date.fromisoformat(buchung["datum"]).toordinal()
                         - date.fromisoformat(beleg_datum).toordinal()
                     )
-                    if delta <= 10:
-                        score += 50 - delta
+                    # Rechnungen werden oft erst nach Wochen bezahlt.
+                    if delta <= 45:
+                        score += 45 - delta
                 except ValueError:
                     pass
             if bester is None or score > bester["score"]:

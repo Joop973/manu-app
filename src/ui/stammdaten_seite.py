@@ -11,6 +11,7 @@ import sqlite3
 from decimal import Decimal
 
 from PySide6.QtCore import QDate, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -75,9 +76,9 @@ class HaeuserTab(QWidget):
         self._nur_aktive.toggled.connect(self.aktualisieren)
         layout.addWidget(self._nur_aktive)
 
-        self._tabelle = QTableWidget(0, 3)
+        self._tabelle = QTableWidget(0, 4)
         self._tabelle.setHorizontalHeaderLabels(
-            ["Haus", "Umlageschlüssel", "Status"]
+            ["Haus", "Umlageschlüssel", "Status", "Steuer-Daten"]
         )
         tabelle_vorbereiten(self._tabelle)
         layout.addWidget(self._tabelle)
@@ -88,6 +89,7 @@ class HaeuserTab(QWidget):
             ("Umbenennen", self._umbenennen),
             ("Umlageschlüssel …", self._umlageschluessel_aendern),
             ("Erkennungstext …", self._erkennungstext_aendern),
+            ("Steuer-Daten …", self._steuerdaten_aendern),
             ("Status ändern", self._status_aendern),
         ):
             knopf = QPushButton(beschriftung)
@@ -97,6 +99,18 @@ class HaeuserTab(QWidget):
         layout.addLayout(knopfleiste)
 
         self.aktualisieren()
+
+    def _steuerdaten_aendern(self) -> None:
+        """Adresse, Gesamtwohnfläche, Kostenstelle und Gebäude-AfA pflegen."""
+        auswahl = self._ausgewaehltes_haus()
+        if auswahl is None:
+            QMessageBox.information(self, "Kein Haus gewählt",
+                                    "Bitte zuerst ein Haus auswählen.")
+            return
+        from src.ui.steuer_dialoge import HausSteuerDialog
+        if HausSteuerDialog(self._verbindung, auswahl[0], self).exec() \
+                == QDialog.Accepted:
+            self.aktualisieren()
 
     def _erkennungstext_aendern(self) -> None:
         """Setzt Stichwörter (Straßenname o. ä.) für die Haus-Auto-Erkennung."""
@@ -145,9 +159,17 @@ class HaeuserTab(QWidget):
                 haus["umlageschluessel"], haus["umlageschluessel"]
             )
             status = "aktiv" if haus["aktiv"] else "inaktiv"
+            fehlt = [text for text, wert in (
+                ("Adresse", haus["adresse"]),
+                ("Gesamtfläche", haus["gesamtflaeche"]),
+                ("AfA", haus["afa_bemessung"]),
+            ) if not wert]
+            steuer_text = "vollständig" if not fehlt else \
+                "fehlt: " + ", ".join(fehlt)
             self._tabelle.setItem(zeile, 0, name_item)
             self._tabelle.setItem(zeile, 1, QTableWidgetItem(schluessel_text))
             self._tabelle.setItem(zeile, 2, QTableWidgetItem(status))
+            self._tabelle.setItem(zeile, 3, QTableWidgetItem(steuer_text))
         self._tabelle.setSortingEnabled(True)
 
     def _ausgewaehltes_haus(self) -> tuple[int, str, bool, str] | None:
@@ -561,11 +583,12 @@ class _KategorieListe(QWidget):
         self._nur_aktive.toggled.connect(self.aktualisieren)
         gruppen_layout.addWidget(self._nur_aktive)
 
-        self._tabelle = QTableWidget(0, 3)
+        self._tabelle = QTableWidget(0, 5)
         self._tabelle.setHorizontalHeaderLabels(
-            ["Kategorie", "Status", "Umlagefähig"]
+            ["Kategorie", "Status", "Umlagefähig", "Steuerlich", "Anteil"]
         )
         tabelle_vorbereiten(self._tabelle)
+        self._tabelle.doubleClicked.connect(lambda _i: self._steuer_einstellen())
         gruppen_layout.addWidget(self._tabelle)
 
         knopfleiste = QHBoxLayout()
@@ -579,6 +602,12 @@ class _KategorieListe(QWidget):
         knopf_umlage.clicked.connect(self._umlagefaehig_aendern)
         knopf_zusammen = QPushButton("Zusammenlegen …")
         knopf_zusammen.clicked.connect(self._zusammenlegen)
+        knopf_steuer = QPushButton("Steuer-Einstellung …")
+        knopf_steuer.setToolTip(
+            "Steuerliche Behandlung (Anlage V), Anteil in Prozent – auch je "
+            "Haus – und DATEV-Konto festlegen. Doppelklick öffnet ebenfalls.")
+        knopf_steuer.clicked.connect(self._steuer_einstellen)
+        knopfleiste.addWidget(knopf_steuer)
         knopfleiste.addWidget(knopf_neu)
         knopfleiste.addWidget(knopf_umbenennen)
         knopfleiste.addWidget(knopf_status)
@@ -604,9 +633,21 @@ class _KategorieListe(QWidget):
             name_item.setData(Qt.UserRole + 1, bool(kategorie["umlagefaehig"]))
             status = "aktiv" if kategorie["aktiv"] else "inaktiv"
             umlage = "ja" if kategorie["umlagefaehig"] else "nein"
+            from src.logic import steuer
+            art_item = QTableWidgetItem(
+                steuer.steuer_art_text(kategorie["steuer_art"]))
+            if kategorie["steuer_art"] is None:
+                art_item.setForeground(QColor("#b3261e"))
+            anteil = steuer.dezimal(kategorie["steuer_prozent"])
+            if stammdaten.haus_anteile_laden(self._verbindung, kategorie["id"]):
+                anteil_text = steuer.prozent_formatieren(anteil) + " (+ je Haus)"
+            else:
+                anteil_text = steuer.prozent_formatieren(anteil)
             self._tabelle.setItem(zeile, 0, name_item)
             self._tabelle.setItem(zeile, 1, QTableWidgetItem(status))
             self._tabelle.setItem(zeile, 2, QTableWidgetItem(umlage))
+            self._tabelle.setItem(zeile, 3, art_item)
+            self._tabelle.setItem(zeile, 4, QTableWidgetItem(anteil_text))
         self._tabelle.setSortingEnabled(True)
 
     def _ausgewaehlt(self) -> tuple[int, str, bool, bool] | None:
@@ -643,6 +684,17 @@ class _KategorieListe(QWidget):
             return
         self.aktualisieren()
 
+    def _steuer_einstellen(self) -> None:
+        auswahl = self._ausgewaehlt()
+        if auswahl is None:
+            QMessageBox.information(self, "Keine Kategorie gewählt",
+                                    "Bitte zuerst eine Kategorie auswählen.")
+            return
+        from src.ui.steuer_dialoge import KategorieSteuerDialog
+        if KategorieSteuerDialog(self._verbindung, auswahl[0], self).exec() \
+                == QDialog.Accepted:
+            self.aktualisieren()
+
     def _neue_kategorie(self) -> None:
         name, ok = QInputDialog.getText(
             self, "Neue Kategorie", "Name der Kategorie:"
@@ -657,6 +709,14 @@ class _KategorieListe(QWidget):
         except sqlite3.Error as fehler:
             QMessageBox.critical(self, "Datenbankfehler", str(fehler))
             return
+        neu = self._verbindung.execute(
+            "SELECT id FROM kategorien WHERE name = ? COLLATE NOCASE "
+            "AND typ = ?", (name.strip(), self._typ),
+        ).fetchone()
+        if neu is not None:
+            # Gleich die steuerliche Behandlung festlegen lassen.
+            from src.ui.steuer_dialoge import KategorieSteuerDialog
+            KategorieSteuerDialog(self._verbindung, neu["id"], self).exec()
         self.aktualisieren()
 
     def _status_aendern(self) -> None:
@@ -1268,10 +1328,30 @@ class InvestitionDialog(QDialog):
         self._nutzungsdauer.setSuffix(" Jahre")
         formular.addRow("Nutzungsdauer (AfA):", self._nutzungsdauer)
 
+        self._verteilung = QSpinBox()
+        self._verteilung.setRange(1, 5)
+        self._verteilung.setValue(1)
+        self._verteilung.setSuffix(" Jahr(e)")
+        self._verteilung.setToolTip(
+            "Nur Erhaltungsaufwand: größere Reparaturen dürfen nach "
+            "§ 82b EStDV gleichmäßig auf 2–5 Jahre verteilt werden "
+            "(1 = sofort im Zahlungsjahr).")
+        formular.addRow("Verteilung (§ 82b EStDV):", self._verteilung)
+        self._typ.currentIndexChanged.connect(self._typ_gewechselt)
+
+        hinweis = QLabel(
+            "Achtung Doppelzählung: Wurde die Rechnung auch per Kontoauszug "
+            "importiert, die Bank-Buchung auf „Modernisierung/Anschaffung "
+            "(AfA)“ stellen – sonst wird sie doppelt abgezogen.")
+        hinweis.setWordWrap(True)
+        hinweis.setStyleSheet("color: #7a5b00; font-size: 8pt;")
+        formular.addRow("", hinweis)
+
         layout.addLayout(formular)
 
         if investition_id is not None:
             self._daten_laden()
+        self._typ_gewechselt()
 
         knoepfe = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
@@ -1282,10 +1362,15 @@ class InvestitionDialog(QDialog):
         knoepfe.rejected.connect(self.reject)
         layout.addWidget(knoepfe)
 
+    def _typ_gewechselt(self, *_args) -> None:
+        erhaltung = self._typ.currentData() == "erhaltung"
+        self._verteilung.setEnabled(erhaltung)
+        self._nutzungsdauer.setEnabled(not erhaltung)
+
     def _daten_laden(self) -> None:
         zeile = self._verbindung.execute(
-            "SELECT objekt_id, datum, betrag, beschreibung, typ, nutzungsdauer "
-            "FROM investitionen WHERE id = ?",
+            "SELECT objekt_id, datum, betrag, beschreibung, typ, nutzungsdauer, "
+            "verteilung_jahre FROM investitionen WHERE id = ?",
             (self._investition_id,),
         ).fetchone()
         if zeile is None:
@@ -1303,6 +1388,7 @@ class InvestitionDialog(QDialog):
         if idx >= 0:
             self._typ.setCurrentIndex(idx)
         self._nutzungsdauer.setValue(zeile["nutzungsdauer"] or 50)
+        self._verteilung.setValue(zeile["verteilung_jahre"] or 1)
 
     def _speichern(self) -> None:
         try:
@@ -1317,6 +1403,7 @@ class InvestitionDialog(QDialog):
                     self._datum.date().toString("yyyy-MM-dd"),
                     betrag, self._beschreibung.text(),
                     self._typ.currentData(), self._nutzungsdauer.value(),
+                    verteilung_jahre=self._verteilung_wert(),
                 )
             else:
                 self._inv.investition_aktualisieren(
@@ -1325,6 +1412,7 @@ class InvestitionDialog(QDialog):
                     self._datum.date().toString("yyyy-MM-dd"),
                     betrag, self._beschreibung.text(),
                     self._typ.currentData(), self._nutzungsdauer.value(),
+                    verteilung_jahre=self._verteilung_wert(),
                 )
         except ValidierungsFehler as fehler:
             QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
@@ -1333,6 +1421,11 @@ class InvestitionDialog(QDialog):
             QMessageBox.critical(self, "Datenbankfehler", str(fehler))
             return
         self.accept()
+
+
+    def _verteilung_wert(self) -> int:
+        return self._verteilung.value() \
+            if self._typ.currentData() == "erhaltung" else 1
 
 
 class InvestitionenTab(QWidget):

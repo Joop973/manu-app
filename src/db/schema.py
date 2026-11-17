@@ -13,7 +13,7 @@ from __future__ import annotations
 
 # Versionsnummer des Schemas. Wird in app_settings hinterlegt, damit
 # spätere Phasen kontrollierte Migrationen durchführen können.
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # Spalten, die in späteren Versionen ergänzt wurden. Werden beim Start
 # per ALTER TABLE nachgerüstet, falls sie in einer Alt-Datenbank fehlen.
@@ -30,6 +30,32 @@ NACHRUEST_SPALTEN: list[tuple[str, str, str]] = [
     # Manuelles Umlage-Gewicht je Mieter (überschreibt den automatischen
     # Schlüssel in der Nebenkostenabrechnung). NULL = automatisch.
     ("mieter", "umlage_gewicht", "TEXT"),
+    # --- Schema 10: steuerliche Behandlung -------------------------------
+    # Steuerliche Art der Kategorie (Schlüssel aus src/logic/steuer.py,
+    # z. B. "miete", "wk_laufend", "privat"). NULL = noch nicht geklärt.
+    ("kategorien", "steuer_art", "TEXT"),
+    # Voreinstellung: welcher Anteil (Prozent) steuerlich angesetzt wird.
+    ("kategorien", "steuer_prozent", "TEXT NOT NULL DEFAULT '100'"),
+    # Feste Rolle für die Mietlogik ("kaltmiete", "nebenkosten",
+    # "ruecklage"), damit Kategorien frei umbenannt werden können.
+    ("kategorien", "rolle", "TEXT"),
+    # Sachkonto für den DATEV-Export (leer = Vorgabe je steuerlicher Art).
+    ("kategorien", "datev_konto", "TEXT"),
+    # Abweichender steuerlicher Anteil nur für diese Buchung (NULL =
+    # Voreinstellung von Haus/Kategorie).
+    ("buchungen", "steuer_prozent", "TEXT"),
+    # Abweichendes Steuerjahr (§ 11 EStG, 10-Tage-Regel). NULL = Jahr
+    # des Buchungsdatums.
+    ("buchungen", "steuerjahr", "INTEGER"),
+    # Stammdaten je Haus für Anlage V, AfA, Nebenkosten und DATEV.
+    ("objekte", "adresse", "TEXT"),
+    ("objekte", "gesamtflaeche", "TEXT"),
+    ("objekte", "afa_bemessung", "TEXT"),
+    ("objekte", "afa_beginn", "TEXT"),
+    ("objekte", "afa_satz", "TEXT"),
+    ("objekte", "kostenstelle", "TEXT"),
+    # Verteilung größeren Erhaltungsaufwands auf 1–5 Jahre (§ 82b EStDV).
+    ("investitionen", "verteilung_jahre", "INTEGER NOT NULL DEFAULT 1"),
 ]
 
 # --- Tabellendefinitionen -------------------------------------------------
@@ -183,6 +209,16 @@ TABELLEN: list[str] = [
         objekt_id INTEGER REFERENCES objekte(id)
     )
     """,
+    # Abweichender steuerlicher Anteil einer Kategorie für ein bestimmtes
+    # Haus (überschreibt die Voreinstellung der Kategorie).
+    """
+    CREATE TABLE IF NOT EXISTS kategorie_haus_anteil (
+        objekt_id    INTEGER NOT NULL REFERENCES objekte(id),
+        kategorie_id INTEGER NOT NULL REFERENCES kategorien(id),
+        prozent      TEXT    NOT NULL,
+        PRIMARY KEY (objekt_id, kategorie_id)
+    )
+    """,
 ]
 
 # --- Vordefinierte Stammdaten (Seed) -------------------------------------
@@ -194,27 +230,70 @@ SEED_OBJEKTE: list[str] = [
     "Oberwohnung",
 ]
 
-SEED_KATEGORIEN_AUSGABE: list[str] = [
-    "Versicherung",
-    "Schornsteinfeger",
-    "Gemeinde/Grundbesitz",
-    "Müll",
-    "Wasser",
-    "Gas",
-    "Strom",
-    "Vodafone",
-    "GEZ",
-    "Erbpacht",
-    "Kontoabschluss",
-    "Finanzamt",
-    "Sonstiges",
+# Vordefinierte Kategorien: (Name, Typ, steuerliche Art, Rolle).
+# Die steuerliche Art steuert, wo die Kategorie in der Anlage V landet
+# (siehe src/logic/steuer.py). ``None`` = noch zu klären.
+SEED_KATEGORIEN: list[tuple[str, str, str | None, str | None]] = [
+    ("Versicherung (Gebäude/Haftpflicht)", "ausgabe", "wk_laufend", None),
+    ("Schornsteinfeger", "ausgabe", "wk_laufend", None),
+    ("Grundsteuer/Gemeindeabgaben", "ausgabe", "wk_laufend", None),
+    ("Müllabfuhr", "ausgabe", "wk_laufend", None),
+    ("Wasser/Abwasser", "ausgabe", "wk_laufend", None),
+    ("Heizung/Gas", "ausgabe", "wk_laufend", None),
+    ("Strom", "ausgabe", "wk_laufend", None),
+    ("Internet/Telefon für Mieter", "ausgabe", "wk_laufend", None),
+    ("Rundfunkbeitrag (GEZ) für Mieter", "ausgabe", "wk_laufend", None),
+    ("Erbpacht/Erbbauzins", "ausgabe", "wk_laufend", None),
+    ("Kontoführung/Bankgebühren", "ausgabe", "wk_laufend", None),
+    ("Reparaturen/Instandhaltung", "ausgabe", "wk_erhaltung", None),
+    ("Modernisierung/Anschaffung (AfA)", "ausgabe", "herstellung", None),
+    ("Sonstige Werbungskosten (Fahrten, Porto, Beratung)", "ausgabe",
+     "wk_sonstige", None),
+    ("Einkommensteuer/Finanzamt (privat)", "ausgabe", "privat", None),
+    ("Sonstiges", "ausgabe", None, None),
+    ("Kaltmiete", "einnahme", "miete", "kaltmiete"),
+    ("Nebenkosten-Vorauszahlung", "einnahme", "umlagen", "nebenkosten"),
+    ("Rücklage (Umbuchung eigenes Geld)", "einnahme", "neutral",
+     "ruecklage"),
+    ("Mietkaution", "einnahme", "neutral", None),
 ]
 
-SEED_KATEGORIEN_EINNAHME: list[str] = [
-    "Kaltmiete",
-    "Nebenkosten",
-    "Rücklage",
-]
+# Umstellung bestehender Datenbanken (Schema 10): alte Seed-Namen
+# bekommen verständliche Namen und eine steuerliche Art. Nur Kategorien,
+# die noch exakt den alten Namen tragen, werden umbenannt.
+# (alter Name, Typ) -> (neuer Name, steuerliche Art, Rolle)
+KATEGORIE_UMSTELLUNG_V10: dict[tuple[str, str], tuple[str, str | None, str | None]] = {
+    ("Versicherung", "ausgabe"):
+        ("Versicherung (Gebäude/Haftpflicht)", "wk_laufend", None),
+    ("Schornsteinfeger", "ausgabe"): ("Schornsteinfeger", "wk_laufend", None),
+    ("Gemeinde/Grundbesitz", "ausgabe"):
+        ("Grundsteuer/Gemeindeabgaben", "wk_laufend", None),
+    ("Müll", "ausgabe"): ("Müllabfuhr", "wk_laufend", None),
+    ("Wasser", "ausgabe"): ("Wasser/Abwasser", "wk_laufend", None),
+    ("Gas", "ausgabe"): ("Heizung/Gas", "wk_laufend", None),
+    ("Strom", "ausgabe"): ("Strom", "wk_laufend", None),
+    ("Vodafone", "ausgabe"): ("Internet/Telefon für Mieter", "wk_laufend", None),
+    ("GEZ", "ausgabe"):
+        ("Rundfunkbeitrag (GEZ) für Mieter", "wk_laufend", None),
+    ("Erbpacht", "ausgabe"): ("Erbpacht/Erbbauzins", "wk_laufend", None),
+    ("Kontoabschluss", "ausgabe"):
+        ("Kontoführung/Bankgebühren", "wk_laufend", None),
+    ("Finanzamt", "ausgabe"):
+        ("Einkommensteuer/Finanzamt (privat)", "privat", None),
+    ("Kaltmiete", "einnahme"): ("Kaltmiete", "miete", "kaltmiete"),
+    ("Nebenkosten", "einnahme"):
+        ("Nebenkosten-Vorauszahlung", "umlagen", "nebenkosten"),
+    ("Rücklage", "einnahme"):
+        ("Rücklage (Umbuchung eigenes Geld)", "neutral", "ruecklage"),
+}
+
+# Frühere Namen je aktuellem Namen — damit Stichwort-Heuristik und
+# Altdaten auch dann greifen, wenn die Umbenennung (z. B. wegen einer
+# Namenskollision) nicht stattfinden konnte.
+KATEGORIE_ALTNAMEN: dict[str, str] = {
+    neu: alt for (alt, _typ), (neu, _art, _rolle)
+    in KATEGORIE_UMSTELLUNG_V10.items() if neu != alt
+}
 
 # Vordefinierte Konto-Zuordnung: (Endung der Kontonummer, Anzeigename,
 # Standard-Haus-Name oder None). None = mehrere Häuser teilen das Konto,

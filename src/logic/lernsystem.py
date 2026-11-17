@@ -116,62 +116,92 @@ def _durchschnitt_fuer_muster(
 # Kategorie zu, *bevor* irgendetwas gelernt wurde. Wirkt nur, wenn keine
 # Regel und kein Muster getroffen haben.
 #
-# Reihenfolge wichtig: spezifischere Stichwörter zuerst, damit z. B.
-# „STADTWERKE" nicht ungewollt vor „WERKE" trifft.
+# Reihenfolge wichtig: spezifischere Stichwörter zuerst. Insbesondere
+# muss „GRUNDSTEUER" vor den Einkommensteuer-Stichwörtern stehen, sonst
+# landet die (abziehbare) Grundsteuer bei der privaten Einkommensteuer.
+# Kurze Stichwörter (bis 4 Zeichen) müssen als ganzes Wort vorkommen,
+# damit z. B. „GAS" nicht in „GASTHAUS" trifft.
 _KATEGORIE_HEURISTIK: list[tuple[tuple[str, ...], str]] = [
+    # Gemeinde / Grundsteuer
+    (("GRUNDSTEUER", "GRUNDBESITZ", "GRUNDBESITZABGABEN", "GEMEINDE",
+      "STADTKASSE", "SAMTGEMEINDE"),
+     "Grundsteuer/Gemeindeabgaben"),
     # Kontoabschluss / Bankgebühren
     (("ABSCHLUSS", "KONTOFUEHRUNG", "KONTOFÜHRUNG", "ENTGELT", "AUSLAGEN"),
-     "Kontoabschluss"),
-    # Steuern
-    (("FINANZAMT", "LANDESHAUPTKASSE", "EINK ST", "STEUER", "FINANZKASSE"),
-     "Finanzamt"),
+     "Kontoführung/Bankgebühren"),
+    # Einkommensteuer (privat, nicht abziehbar)
+    (("FINANZAMT", "LANDESHAUPTKASSE", "EINK ST", "EINKOMMENSTEUER",
+      "FINANZKASSE"),
+     "Einkommensteuer/Finanzamt (privat)"),
     # Versicherungen
     (("HUK", "ALLIANZ", "BRANDKASSE", "VERSICHERUNG", "AXA", "PROVINZIAL",
-      "DEVK", "GOTHAER", "ERGO", "DEBEKA", "GENERALI", "VHV", "ZURICH"),
-     "Versicherung"),
-    # Gemeinde / Grundsteuer
-    (("GRUNDBESITZ", "GRUNDSTEUER", "GEMEINDE", "STADTKASSE"),
-     "Gemeinde/Grundbesitz"),
+      "DEVK", "GOTHAER", "ERGO", "DEBEKA", "GENERALI", "VHV", "ZURICH",
+      "LVM", "VGH"),
+     "Versicherung (Gebäude/Haftpflicht)"),
     # Abfall / Müll
     (("ABFALLWIRTSCHAFT", "ABFALL", "MUELL", "MÜLL", "AWB"),
-     "Müll"),
+     "Müllabfuhr"),
     # Schornstein
-    (("SCHORNSTEINFEGER", "KAMINKEHRER"),
+    (("SCHORNSTEINFEGER", "KAMINKEHRER", "BEZIRKSSCHORNSTEINFEGER"),
      "Schornsteinfeger"),
     # Wasser
-    (("WASSERWERK", "WASSERVERBAND", "STADTENTWAESSERUNG", "ABWASSER"),
-     "Wasser"),
+    (("WASSERWERK", "WASSERVERBAND", "STADTENTWAESSERUNG", "ABWASSER",
+      "WASSERVERSORGUNG", "OOWV"),
+     "Wasser/Abwasser"),
     # Energie
     (("STADTWERKE",),
-     "Gas"),  # Default Gas; nutzer kann auf Strom umstellen
+     "Heizung/Gas"),  # Vorgabe Gas; Nutzer kann auf Strom umstellen
     (("STROM", "ENERGIE", "ELEKTRIZITAET"),
      "Strom"),
-    (("GAS", "ERDGAS"),
-     "Gas"),
+    (("GAS", "ERDGAS", "HEIZOEL", "HEIZÖL"),
+     "Heizung/Gas"),
     # Medien / Telefon
-    (("VODAFONE", "TELEKOM", "1UND1", "1&1", "O2", "TELEFONICA"),
-     "Vodafone"),
+    (("VODAFONE", "TELEKOM", "1UND1", "1&1", "O2", "TELEFONICA", "EWETEL",
+      "INTERNET"),
+     "Internet/Telefon für Mieter"),
     (("GEZ", "RUNDFUNK", "ARD ZDF", "ARDZDF", "BEITRAGSSERVICE"),
-     "GEZ"),
+     "Rundfunkbeitrag (GEZ) für Mieter"),
     # Erbpacht
     (("ERBPACHT", "ERBBAUZINS"),
-     "Erbpacht"),
+     "Erbpacht/Erbbauzins"),
 ]
+
+
+def _stichwort_trifft(stichwort: str, normalisiert: str, worte: set[str]) -> bool:
+    if len(stichwort) <= 4 and " " not in stichwort:
+        return stichwort in worte
+    return stichwort in normalisiert
+
+
+def _kategorie_id_nach_name(
+    verbindung: sqlite3.Connection, name: str, typ: str = "ausgabe"
+) -> int | None:
+    """Sucht eine aktive Kategorie über den aktuellen oder früheren Namen."""
+    from src.db.schema import KATEGORIE_ALTNAMEN
+
+    for kandidat in (name, KATEGORIE_ALTNAMEN.get(name)):
+        if not kandidat:
+            continue
+        zeile = verbindung.execute(
+            "SELECT id FROM kategorien WHERE name = ? COLLATE NOCASE "
+            "AND typ = ? AND aktiv = 1",
+            (kandidat, typ),
+        ).fetchone()
+        if zeile is not None:
+            return zeile["id"]
+    return None
 
 
 def _heuristik_kategorie_id(
     verbindung: sqlite3.Connection, normalisiert: str
 ) -> int | None:
     """Sucht eine Kategorie über Stichwörter im normalisierten Text."""
+    worte = set(normalisiert.split())
     for stichworte, kategorie_name in _KATEGORIE_HEURISTIK:
-        if any(s in normalisiert for s in stichworte):
-            zeile = verbindung.execute(
-                "SELECT id FROM kategorien WHERE name = ? AND typ = 'ausgabe' "
-                "AND aktiv = 1",
-                (kategorie_name,),
-            ).fetchone()
-            if zeile is not None:
-                return zeile["id"]
+        if any(_stichwort_trifft(s, normalisiert, worte) for s in stichworte):
+            kategorie_id = _kategorie_id_nach_name(verbindung, kategorie_name)
+            if kategorie_id is not None:
+                return kategorie_id
     return None
 
 
@@ -342,10 +372,23 @@ def klassifizieren(
 
     # 5) Kategorie bestimmen.
     if kandidat["kategorie_id"] is None:
+        erstattung = (
+            _heuristik_kategorie_id(verbindung, normalisiert)
+            if betrag > 0 and kandidat["mieter_id"] is None else None
+        )
         if betrag > 0 and kandidat["mieter_id"] is not None:
-            # Eingang eines erkannten Mieters → Kaltmiete
-            kandidat["kategorie_name"] = "Kaltmiete"
-            kandidat["kategorie_typ"] = "einnahme"
+            # Eingang eines erkannten Mieters → Kaltmiete (wird beim
+            # Buchen anhand des Mietvertrags in Kalt/NK aufgeteilt).
+            kaltmiete = stammdaten.kategorie_nach_rolle(verbindung, "kaltmiete")
+            if kaltmiete is not None:
+                kandidat["kategorie_id"] = kaltmiete
+            else:
+                kandidat["kategorie_name"] = "Kaltmiete"
+                kandidat["kategorie_typ"] = "einnahme"
+        elif erstattung is not None:
+            # Geldeingang von Versorger/Versicherung o. ä. → Erstattung,
+            # mindert die Kosten dieser Kategorie (Gegenbuchung).
+            kandidat["kategorie_id"] = erstattung
         elif betrag < 0:
             vorschlag = _heuristik_kategorie_id(verbindung, normalisiert)
             if vorschlag is not None:

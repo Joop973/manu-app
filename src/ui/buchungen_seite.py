@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.db import buchungen, stammdaten
+from src.logic import steuer
 from src.logic.belege import beleg_absolut, beleg_archivieren
 from src.ui.tabelle import SortierItem, tabelle_vorbereiten
 from src.utils.eingaben import (
@@ -72,6 +73,18 @@ class BuchungDialog(QDialog):
         self._feld_betrag = QLineEdit("0,00")
         formular.addRow("Betrag (€):", self._feld_betrag)
 
+        # Zahlungsrichtung wie auf dem Kontoauszug. Ein Geldeingang auf
+        # einer Ausgabe-Kategorie wird zur Erstattung (mindert die Kosten),
+        # ein Geldausgang auf einer Einnahme-Kategorie zur Rückzahlung.
+        self._feld_richtung = QComboBox()
+        self._feld_richtung.addItem("Geldausgang (−)", -1)
+        self._feld_richtung.addItem("Geldeingang (+)", 1)
+        self._richtung_angefasst = False
+        self._feld_richtung.activated.connect(self._richtung_gewaehlt)
+        self._feld_richtung.currentIndexChanged.connect(
+            self._hinweise_aktualisieren)
+        formular.addRow("Zahlungsrichtung:", self._feld_richtung)
+
         self._feld_haus = QComboBox()
         for haus in stammdaten.objekte_laden(verbindung):
             text = haus["name"]
@@ -87,12 +100,19 @@ class BuchungDialog(QDialog):
         self._feld_kategorie.setEditable(True)
         self._feld_kategorie.setInsertPolicy(QComboBox.NoInsert)
         self._feld_kategorie.setProperty("kategorie_typ", "ausgabe")
+        # Typ und Steuer-Voreinstellung je Kategorie (für Hinweise).
+        self._kategorie_info: dict[int, dict] = {}
         for typ, bezeichnung in (("einnahme", "Einnahme"), ("ausgabe", "Ausgabe")):
             for kategorie in stammdaten.kategorien_laden(verbindung, typ):
                 text = f"{kategorie['name']} ({bezeichnung})"
                 if not kategorie["aktiv"]:
                     text += " – inaktiv"
                 self._feld_kategorie.addItem(text, kategorie["id"])
+                self._kategorie_info[kategorie["id"]] = {
+                    "typ": typ,
+                    "art": kategorie["steuer_art"],
+                    "prozent": steuer.dezimal(kategorie["steuer_prozent"]),
+                }
         kategorie_zeile = QVBoxLayout()
         kategorie_zeile.setSpacing(2)
         kategorie_zeile.addWidget(self._feld_kategorie)
@@ -133,10 +153,43 @@ class BuchungDialog(QDialog):
         beleg_zeile.addWidget(knopf_beleg_weg)
         formular.addRow("Beleg:", beleg_zeile)
 
+        # --- Steuerliche Behandlung (optional) ------------------------
+        self._feld_anteil = QLineEdit()
+        self._feld_anteil.setToolTip(
+            "Leer lassen = Voreinstellung von Kategorie bzw. Haus. "
+            "Beispiel: 50 für eine Ausgabe, die nur zur Hälfte auf die "
+            "Vermietung entfällt."
+        )
+        formular.addRow("Steuerlicher Anteil (%):", self._feld_anteil)
+
+        self._feld_steuerjahr = QComboBox()
+        self._feld_steuerjahr.setToolTip(
+            "Nur für regelmäßige Zahlungen kurz vor/nach dem Jahreswechsel "
+            "(10-Tage-Regel, § 11 EStG): z. B. Januar-Miete, die am 28.12. "
+            "eingeht, gehört steuerlich ins neue Jahr."
+        )
+        formular.addRow("Steuerjahr:", self._feld_steuerjahr)
+
+        self._hinweis = QLabel("")
+        self._hinweis.setWordWrap(True)
+        self._hinweis.setStyleSheet("color: #7a5b00; font-size: 8pt;")
+        formular.addRow("", self._hinweis)
+
         layout.addLayout(formular)
+
+        self._steuerjahre_fuellen(None)
+        self._feld_datum.dateChanged.connect(
+            lambda _d: self._steuerjahre_fuellen(
+                self._feld_steuerjahr.currentData()))
+        self._feld_kategorie.currentIndexChanged.connect(
+            self._kategorie_gewechselt)
+        self._feld_haus.currentIndexChanged.connect(
+            self._hinweise_aktualisieren)
 
         if buchung_id is not None:
             self._daten_laden()
+        else:
+            self._kategorie_gewechselt()
 
         knoepfe = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
@@ -146,6 +199,68 @@ class BuchungDialog(QDialog):
         knoepfe.accepted.connect(self._speichern)
         knoepfe.rejected.connect(self.reject)
         layout.addWidget(knoepfe)
+
+    def _richtung_gewaehlt(self, _index: int) -> None:
+        self._richtung_angefasst = True
+
+    def _gewaehlte_kategorie(self) -> dict | None:
+        kategorie_id = self._feld_kategorie.currentData()
+        if (isinstance(kategorie_id, int)
+                and self._feld_kategorie.currentText()
+                == self._feld_kategorie.itemText(
+                    self._feld_kategorie.currentIndex())):
+            return self._kategorie_info.get(kategorie_id)
+        return None
+
+    def _kategorie_gewechselt(self, *_args) -> None:
+        """Neue Buchung: Zahlungsrichtung passend zur Kategorie vorbelegen."""
+        info = self._gewaehlte_kategorie()
+        if (info is not None and self._buchung_id is None
+                and not self._richtung_angefasst):
+            self._feld_richtung.setCurrentIndex(
+                self._feld_richtung.findData(
+                    1 if info["typ"] == "einnahme" else -1))
+        self._hinweise_aktualisieren()
+
+    def _steuerjahre_fuellen(self, auswahl) -> None:
+        jahr = self._feld_datum.date().year()
+        self._feld_steuerjahr.blockSignals(True)
+        self._feld_steuerjahr.clear()
+        self._feld_steuerjahr.addItem(
+            f"automatisch ({jahr}, Jahr der Zahlung)", None)
+        for kandidat in (jahr - 1, jahr + 1):
+            self._feld_steuerjahr.addItem(f"{kandidat} (10-Tage-Regel)",
+                                          kandidat)
+        index = self._feld_steuerjahr.findData(auswahl)
+        self._feld_steuerjahr.setCurrentIndex(max(index, 0))
+        self._feld_steuerjahr.blockSignals(False)
+
+    def _hinweise_aktualisieren(self, *_args) -> None:
+        info = self._gewaehlte_kategorie()
+        texte = []
+        if info is None:
+            self._feld_anteil.setPlaceholderText("Voreinstellung")
+            self._hinweis.setText("")
+            return
+        prozent = info["prozent"]
+        haus_id = self._feld_haus.currentData()
+        kategorie_id = self._feld_kategorie.currentData()
+        if haus_id is not None:
+            ausnahme = stammdaten.haus_anteile_laden(
+                self._verbindung, kategorie_id).get(haus_id)
+            if ausnahme is not None:
+                prozent = ausnahme
+        self._feld_anteil.setPlaceholderText(
+            f"Voreinstellung: {steuer.prozent_formatieren(prozent or 100)}")
+        texte.append("Steuerlich: " + steuer.steuer_art_text(info["art"]))
+        eingang = self._feld_richtung.currentData() == 1
+        if info["typ"] == "ausgabe" and eingang:
+            texte.append("Geldeingang auf Ausgabe-Kategorie → wird als "
+                         "Erstattung gebucht und mindert diese Kosten.")
+        elif info["typ"] == "einnahme" and not eingang:
+            texte.append("Geldausgang auf Einnahme-Kategorie → wird als "
+                         "Rückzahlung gebucht und mindert diese Einnahmen.")
+        self._hinweis.setText("\n".join(texte))
 
     def _mieter_combo_fuellen(self) -> None:
         """Befüllt die Mieter-Auswahl passend zum gewählten Haus.
@@ -163,8 +278,10 @@ class BuchungDialog(QDialog):
     def _daten_laden(self) -> None:
         """Füllt das Formular mit den Werten einer bestehenden Buchung."""
         zeile = self._verbindung.execute(
-            "SELECT datum, betrag, objekt_id, kategorie_id, mieter_id, "
-            "beschreibung, beleg_pfad FROM buchungen WHERE id = ?",
+            "SELECT b.datum, b.betrag, b.objekt_id, b.kategorie_id, "
+            "b.mieter_id, b.beschreibung, b.beleg_pfad, b.steuer_prozent, "
+            "b.steuerjahr, k.typ FROM buchungen b "
+            "LEFT JOIN kategorien k ON k.id = b.kategorie_id WHERE b.id = ?",
             (self._buchung_id,),
         ).fetchone()
         if zeile is None:
@@ -173,7 +290,14 @@ class BuchungDialog(QDialog):
             self._feld_datum.setDate(
                 QDate.fromString(zeile["datum"], "yyyy-MM-dd")
             )
-        self._feld_betrag.setText(betrag_formatieren(zeile["betrag"]))
+        kasse = steuer.kassenbetrag(Decimal(zeile["betrag"]), zeile["typ"])
+        self._feld_betrag.setText(betrag_formatieren(abs(kasse)))
+        self._feld_richtung.setCurrentIndex(
+            self._feld_richtung.findData(1 if kasse > 0 else -1))
+        self._feld_anteil.setText(
+            steuer.prozent_formatieren(steuer.dezimal(zeile["steuer_prozent"]))
+            .replace(" %", ""))
+        self._steuerjahre_fuellen(zeile["steuerjahr"])
         index_haus = self._feld_haus.findData(zeile["objekt_id"])
         if index_haus >= 0:
             self._feld_haus.setCurrentIndex(index_haus)
@@ -212,8 +336,13 @@ class BuchungDialog(QDialog):
         """Validiert die Eingaben und schreibt die Buchung in die Datenbank."""
         try:
             betrag = betrag_parsen(self._feld_betrag.text())
+            anteil = steuer.prozent_parsen(self._feld_anteil.text())
         except ValidierungsFehler as fehler:
             QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
+            return
+        if betrag == 0:
+            QMessageBox.warning(self, "Eingabe ungültig",
+                                "Der Betrag darf nicht 0 sein.")
             return
 
         from src.ui.import_seite import _kategorie_aus_combo
@@ -247,19 +376,30 @@ class BuchungDialog(QDialog):
                 return
 
         mieter_id = self._feld_mieter.currentData()
+        typ = self._verbindung.execute(
+            "SELECT typ FROM kategorien WHERE id = ?", (kategorie_id,)
+        ).fetchone()["typ"]
+        gespeichert = steuer.betrag_fuer_kategorie(
+            betrag * self._feld_richtung.currentData(), typ
+        )
+        steuerjahr = self._feld_steuerjahr.currentData()
         try:
             if self._buchung_id is None:
                 buchungen.buchung_anlegen(
-                    self._verbindung, datum, betrag, objekt_id, kategorie_id,
-                    self._feld_beschreibung.text().strip(), beleg_pfad,
-                    "manuell", mieter_id=mieter_id,
+                    self._verbindung, datum, gespeichert, objekt_id,
+                    kategorie_id, self._feld_beschreibung.text().strip(),
+                    beleg_pfad, "manuell", mieter_id=mieter_id,
+                    steuer_prozent=anteil, steuerjahr=steuerjahr,
                 )
             else:
-                buchungen.buchung_aktualisieren(
-                    self._verbindung, self._buchung_id, datum, betrag,
-                    objekt_id, kategorie_id,
-                    self._feld_beschreibung.text().strip(), beleg_pfad,
-                    mieter_id=mieter_id,
+                buchungen.buchung_felder_setzen(
+                    self._verbindung, self._buchung_id, datum=datum,
+                    betrag=str(gespeichert), objekt_id=objekt_id,
+                    kategorie_id=kategorie_id, mieter_id=mieter_id,
+                    beschreibung=self._feld_beschreibung.text().strip(),
+                    beleg_pfad=beleg_pfad,
+                    steuer_prozent=None if anteil is None else str(anteil),
+                    steuerjahr=steuerjahr,
                 )
         except ValidierungsFehler as fehler:
             QMessageBox.warning(self, "Eingabe ungültig", str(fehler))
@@ -355,10 +495,10 @@ class BuchungenSeite(QWidget):
         layout.addLayout(schnellzeile)
 
         # Tabelle
-        self._tabelle = QTableWidget(0, 8)
+        self._tabelle = QTableWidget(0, 9)
         self._tabelle.setHorizontalHeaderLabels(
             ["Datum", "Betrag", "Haus", "Kategorie", "Mieter",
-             "Beschreibung", "Beleg", "Quelle"]
+             "Beschreibung", "Beleg", "Quelle", "Steuer"]
         )
         tabelle_vorbereiten(self._tabelle)
         # Mehrfach-Auswahl für die Sammel-Bearbeitung (Strg/Shift-Klick).
@@ -515,6 +655,13 @@ class BuchungenSeite(QWidget):
             quelle_text = "Mietzahlung" if quelle.startswith("mietzahlung") \
                 else quelle
 
+            steuer_teile = []
+            if zeile["steuer_prozent"] not in (None, ""):
+                steuer_teile.append(steuer.prozent_formatieren(
+                    steuer.dezimal(zeile["steuer_prozent"])))
+            if zeile["steuerjahr"] is not None:
+                steuer_teile.append(f"→ {zeile['steuerjahr']}")
+
             werte = [
                 datum_item,
                 betrag_item,
@@ -524,6 +671,7 @@ class BuchungenSeite(QWidget):
                 QTableWidgetItem(zeile["beschreibung"] or ""),
                 QTableWidgetItem(beleg_text),
                 QTableWidgetItem(quelle_text),
+                QTableWidgetItem(" · ".join(steuer_teile)),
             ]
             for spalte, item in enumerate(werte):
                 self._tabelle.setItem(index, spalte, item)

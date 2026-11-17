@@ -161,12 +161,20 @@ class NebenkostenSeite(QWidget):
         if belege_fehlen:
             beleg_hinweis = (f"  ·  ⚠ {belege_fehlen} Buchung(en) "
                              "noch ohne Beleg")
+        vermieter = ""
+        if abrechnung.get("anteil_vermieter"):
+            vermieter = (
+                "  ·  Leerstand/Anteil Vermieter: "
+                f"{betrag_formatieren(abrechnung['anteil_vermieter'])} €")
+        hinweise = "".join(
+            f"\n⚠ {h}" for h in abrechnung.get("hinweise", []))
         self._info.setText(
             f"Umlageschlüssel: {schluessel}  ·  "
             f"Umlagefähige Kosten gesamt: "
             f"{betrag_formatieren(abrechnung['kosten_gesamt'])} €"
-            f"{beleg_hinweis}"
+            f"{vermieter}{beleg_hinweis}{hinweise}"
         )
+        self._info.setWordWrap(True)
 
         einzel = abrechnung.get("einzelbuchungen", [])
         self._kosten_tabelle.setRowCount(len(einzel))
@@ -195,11 +203,14 @@ class NebenkostenSeite(QWidget):
                 differenz_text = f"Guthaben {betrag_formatieren(differenz)} €"
             else:
                 differenz_text = f"Nachzahlung {betrag_formatieren(-differenz)} €"
+            vorauszahlung = f"{betrag_formatieren(eintrag['vorauszahlung'])} €"
+            if eintrag.get("vorauszahlung_quelle") == "vertraglich":
+                vorauszahlung += " (lt. Vertrag – keine Zahlung gebucht)"
             werte = [
                 eintrag["name"],
-                f"{eintrag['anteil'] * 100:.1f} %",
+                f"{eintrag['anteil'] * 100:.2f} %",
                 f"{betrag_formatieren(eintrag['kostenanteil'])} €",
-                f"{betrag_formatieren(eintrag['vorauszahlung'])} €",
+                vorauszahlung,
                 differenz_text,
             ]
             for spalte, wert in enumerate(werte):
@@ -223,7 +234,8 @@ class NebenkostenSeite(QWidget):
             return
         pfad, _ = QFileDialog.getOpenFileName(
             self, "Beleg für diese Buchung auswählen", "",
-            "PDF/Bild (*.pdf *.jpg *.jpeg *.png);;Alle Dateien (*)"
+            "PDF/Bild (*.pdf *.jpg *.jpeg *.png *.heic *.heif *.webp);;"
+            "Alle Dateien (*)"
         )
         if not pfad:
             return

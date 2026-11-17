@@ -30,6 +30,10 @@ Bu-Tag  Wert    Vorgangstext                       Betrag  H|S
 * `S` = Soll → **Belastung** (negativ)
 * Wert-Datum (Spalte 2) kann fehlen oder vom Bu-Tag abweichen — wir
   verwenden ausschließlich den **Bu-Tag** als Buchungsdatum.
+* **Jahr:** Der Bu-Tag steht ohne Jahr im Auszug. Das Jahr ergibt sich
+  aus dem Auszugszeitraum („alter Kontostand vom …“ bis „neuer
+  Kontostand vom …“). So landet eine Buchung vom 31.12. auf dem
+  Januar-Auszug korrekt im Vorjahr.
 
 **Folgezeilen** enthalten Empfänger und Verwendungszweck und werden
 an die Buchung gehängt — bis die nächste Zeile mit einem `DD.MM.`
@@ -188,6 +192,12 @@ genau diesen Tests — alle drei müssen grün sein.
 * **Automatische Zuordnung** wiederkehrender Empfänger über das
   Lernsystem
 * **Saldo-Plausibilitätsprüfung** als sofortiges Erfolgs-/Fehler-Signal
+* **Jahreswechsel**: Dezember-Buchungen im Januar-Auszug bekommen das
+  Vorjahr
+* **Erstattungen** (Geldeingang von Versorger/Versicherung) werden als
+  Gegenbuchung der Kostenkategorie gebucht und mindern die Kosten
+* **Mietaufteilung**: Mietzahlungen in Höhe der vereinbarten Miete werden
+  automatisch in Kaltmiete und Nebenkosten-Vorauszahlung geteilt
 
 So bleibt die App auf Dauer beherrschbar und vertrauenswürdig: jeder
 neue Auszug fällt entweder zu 100 % korrekt durch — oder du merkst es

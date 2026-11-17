@@ -27,6 +27,7 @@ Endsaldo bestätigt, ist das Ergebnis nachweislich vollständig.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import re
@@ -133,14 +134,71 @@ def _auszugsjahr(text: str) -> int | None:
     return int(ersatz.group(1)) if ersatz else None
 
 
+# Datum der Saldo-Zeilen ("alter/neuer Kontostand vom 31.12.2025").
+_SALDO_DATUM_RE = re.compile(
+    r"(alter|neuer)\s+Kontostand\s+vom\s+(\d{1,2})\.(\d{1,2})\.(\d{4})",
+    re.IGNORECASE,
+)
+
+
+def auszug_zeitraum(text: str) -> tuple[date | None, date | None]:
+    """Liest Beginn (alter Kontostand) und Ende (neuer Kontostand) des Auszugs."""
+    von = bis = None
+    for treffer in _SALDO_DATUM_RE.finditer(text):
+        try:
+            datum = date(int(treffer.group(4)), int(treffer.group(3)),
+                         int(treffer.group(2)))
+        except ValueError:
+            continue
+        if treffer.group(1).lower() == "alter" and von is None:
+            von = datum
+        elif treffer.group(1).lower() == "neuer":
+            bis = datum
+    return von, bis
+
+
+def _jahr_fuer_buchung(
+    tag: int, monat: int, von: date | None, bis: date | None,
+    auszugsjahr: int | None, monate_im_auszug: set[int],
+) -> int:
+    """Bestimmt das Jahr einer Buchung, die nur als ``TT.MM.`` vorliegt.
+
+    Der Januar-Auszug enthält häufig noch Buchungen vom Dezember des
+    Vorjahres. Maßgeblich ist daher der Auszugszeitraum (alter bis neuer
+    Kontostand): gewählt wird das Jahr, in dem das Datum in diesen
+    Zeitraum fällt. Ohne Zeitraum gilt: Dezember-Buchungen in einem
+    Auszug, der auch Januar-Buchungen enthält, gehören ins Vorjahr.
+    """
+    if bis is not None:
+        for jahr in (bis.year, bis.year - 1, bis.year + 1):
+            try:
+                kandidat = date(jahr, monat, tag)
+            except ValueError:
+                continue
+            untere = von if von is not None else date(bis.year - 1, bis.month,
+                                                       1)
+            if untere <= kandidat <= bis:
+                return jahr
+        # Datum liegt (leicht) außerhalb: nächstliegendes Jahr ≤ Ende.
+        try:
+            return bis.year if date(bis.year, monat, tag) <= bis else bis.year - 1
+        except ValueError:
+            return bis.year
+    jahr = auszugsjahr if auszugsjahr is not None else 1900
+    if monat == 12 and 1 in monate_im_auszug:
+        return jahr - 1
+    return jahr
+
+
 def buchungszeilen_aus_text(text: str) -> list[dict]:
     """Extrahiert Buchungen aus dem Rohtext eines Volksbank-Auszugs.
 
     Liefert eine Liste von Dictionaries mit ``datum`` (ISO),
-    ``betrag`` (vorzeichenbehafteter Decimal) und ``text``
-    (Vorgang + Verwendungszweck).
+    ``betrag`` (vorzeichenbehafteter Decimal: + Eingang, − Ausgang) und
+    ``text`` (Vorgang + Verwendungszweck).
     """
     jahr = _auszugsjahr(text)
+    von, bis = auszug_zeitraum(text)
     buchungen: list[dict] = []
     aktuell: dict | None = None
 
@@ -166,9 +224,9 @@ def buchungszeilen_aus_text(text: str) -> list[dict]:
                 buchungen.append(aktuell)
             tag = int(treffer.group("bu_tag"))
             monat = int(treffer.group("bu_monat"))
-            jahr_eff = jahr if jahr is not None else 1900
             aktuell = {
-                "datum": f"{jahr_eff:04d}-{monat:02d}-{tag:02d}",
+                "_tag": tag,
+                "_monat": monat,
                 "betrag": _betrag_zu_decimal(
                     treffer.group("betrag"), treffer.group("sh")
                 ),
@@ -183,7 +241,17 @@ def buchungszeilen_aus_text(text: str) -> list[dict]:
     if aktuell is not None:
         buchungen.append(aktuell)
 
-    return buchungen
+    monate = {b["_monat"] for b in buchungen}
+    for buchung in buchungen:
+        tag = buchung.pop("_tag")
+        monat = buchung.pop("_monat")
+        jahr_eff = _jahr_fuer_buchung(tag, monat, von, bis, jahr, monate)
+        buchung["datum"] = f"{jahr_eff:04d}-{monat:02d}-{tag:02d}"
+    # Reihenfolge der Schlüssel wie bisher (datum, betrag, text).
+    return [
+        {"datum": b["datum"], "betrag": b["betrag"], "text": b["text"]}
+        for b in buchungen
+    ]
 
 
 def saldo_pruefen(text: str, buchungen: list[dict]) -> dict:

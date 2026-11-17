@@ -56,6 +56,53 @@ def betrag_parsen(text: str) -> Decimal:
     return wert.quantize(_GENAUIGKEIT)
 
 
+def betrag_mit_vorzeichen_parsen(text: str) -> Decimal:
+    """Wie ``betrag_parsen``, erlaubt aber Vorzeichen.
+
+    Akzeptiert ``-23,00``, ``23,00-``, ``23,00 S`` (Soll = Ausgang) und
+    ``23,00 H`` (Haben = Eingang) — typische Schreibweisen in
+    Bank-Exporten.
+    """
+    roh = (text or "").strip().replace("€", "").replace(" ", "")
+    negativ = False
+    if roh.upper().endswith("S"):
+        negativ, roh = True, roh[:-1]
+    elif roh.upper().endswith("H"):
+        roh = roh[:-1]
+    if roh.endswith("-"):
+        negativ, roh = True, roh[:-1]
+    if roh.startswith("-"):
+        negativ, roh = not negativ, roh[1:]
+    elif roh.startswith("+"):
+        roh = roh[1:]
+    wert = betrag_parsen(roh)
+    return -wert if negativ else wert
+
+
+def datum_iso_parsen(wert) -> str | None:
+    """Wandelt ein Datum (date/datetime, ``TT.MM.JJJJ``, ``JJJJ-MM-TT``)
+    in ISO-Text. Liefert ``None`` bei ungültiger Eingabe."""
+    from datetime import date, datetime
+
+    if wert is None:
+        return None
+    if isinstance(wert, datetime):
+        return wert.date().isoformat()
+    if isinstance(wert, date):
+        return wert.isoformat()
+    text = str(wert).strip()[:10]
+    try:
+        if "." in text:
+            tag, monat, jahr = text.split(".")[:3]
+            jahr = jahr.strip()
+            if len(jahr) == 2:
+                jahr = "20" + jahr
+            return date(int(jahr), int(monat), int(tag)).isoformat()
+        return date.fromisoformat(text).isoformat()
+    except (ValueError, TypeError):
+        return None
+
+
 def betrag_formatieren(wert: Decimal | str | int) -> str:
     """Formatiert einen Betrag in deutscher Schreibweise (z. B. ``1.250,50``)."""
     betrag = Decimal(str(wert)).quantize(_GENAUIGKEIT)

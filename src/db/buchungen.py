@@ -22,6 +22,8 @@ def _buchung_als_dict(zeile: sqlite3.Row | None) -> dict | None:
         "objekt_id": zeile["objekt_id"], "kategorie_id": zeile["kategorie_id"],
         "mieter_id": zeile["mieter_id"], "beschreibung": zeile["beschreibung"],
         "beleg_pfad": zeile["beleg_pfad"], "quelle": zeile["quelle"],
+        "steuer_prozent": zeile["steuer_prozent"],
+        "steuerjahr": zeile["steuerjahr"],
     }
 
 
@@ -30,7 +32,8 @@ def _buchung_lesen(
 ) -> sqlite3.Row | None:
     return verbindung.execute(
         "SELECT id, datum, betrag, objekt_id, kategorie_id, mieter_id, "
-        "beschreibung, beleg_pfad, quelle FROM buchungen WHERE id = ?",
+        "beschreibung, beleg_pfad, quelle, steuer_prozent, steuerjahr "
+        "FROM buchungen WHERE id = ?",
         (buchung_id,),
     ).fetchone()
 
@@ -54,6 +57,7 @@ def buchungen_laden(
     sql = (
         "SELECT b.id, b.datum, b.betrag, b.objekt_id, b.kategorie_id, "
         "b.mieter_id, b.beschreibung, b.beleg_pfad, b.quelle, "
+        "b.steuer_prozent, b.steuerjahr, "
         "o.name AS objekt_name, k.name AS kategorie_name, k.typ AS kategorie_typ, "
         "m.name AS mieter_name "
         "FROM buchungen b "
@@ -119,13 +123,27 @@ def buchung_existiert(
 ) -> bool:
     """Prüft, ob bereits eine Buchung mit gleichem Datum und Betrag existiert.
 
-    Dient der Dubletten-Warnung beim Import.
+    Dient der Dubletten-Warnung beim Import. Verglichen wird der Betrag
+    ohne Vorzeichen, weil Gegenbuchungen (Erstattungen) negativ
+    gespeichert sind. Aufgeteilte Mieten (Kaltmiete + Nebenkosten) gelten
+    über ihre Summe als vorhanden.
     """
-    zeile = verbindung.execute(
-        "SELECT 1 FROM buchungen WHERE datum = ? AND betrag = ? LIMIT 1",
-        (datum, str(abs(betrag))),
-    ).fetchone()
-    return zeile is not None
+    ziel = abs(Decimal(betrag))
+    zeilen = verbindung.execute(
+        "SELECT betrag, beschreibung FROM buchungen WHERE datum = ?",
+        (datum,),
+    ).fetchall()
+    gruppen: dict[str, Decimal] = {}
+    for zeile in zeilen:
+        try:
+            wert = abs(Decimal(zeile["betrag"]))
+        except (ValueError, TypeError, ArithmeticError):
+            continue
+        if wert == ziel:
+            return True
+        text = (zeile["beschreibung"] or "").split(" [Anteil ")[0]
+        gruppen[text] = gruppen.get(text, Decimal("0")) + wert
+    return any(summe == ziel for summe in gruppen.values())
 
 
 def buchung_anlegen(
@@ -138,24 +156,34 @@ def buchung_anlegen(
     beleg_pfad: str | None,
     quelle: str,
     mieter_id: int | None = None,
+    steuer_prozent: Decimal | None = None,
+    steuerjahr: int | None = None,
+    commit: bool = True,
 ) -> int:
-    """Legt eine neue Buchung an und liefert deren ID."""
+    """Legt eine neue Buchung an und liefert deren ID.
+
+    ``betrag`` ist in Richtung der Kategorie anzugeben: positiv im
+    Normalfall, negativ für Gegenbuchungen (z. B. Erstattungen).
+    """
     if not datum:
         raise ValidierungsFehler("Bitte ein Datum angeben.")
     cursor = verbindung.execute(
         "INSERT INTO buchungen "
         "(datum, betrag, objekt_id, kategorie_id, mieter_id, beschreibung, "
-        "beleg_pfad, quelle) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "beleg_pfad, quelle, steuer_prozent, steuerjahr) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (datum, str(betrag), objekt_id, kategorie_id, mieter_id,
-         beschreibung, beleg_pfad, quelle),
+         beschreibung, beleg_pfad, quelle,
+         None if steuer_prozent is None else str(steuer_prozent),
+         steuerjahr),
     )
     neue_id = cursor.lastrowid
     aktionen.aktion_protokollieren(
         verbindung, aktionen.ART_ANLEGEN, "buchungen", neue_id,
         zustand_neu=_buchung_als_dict(_buchung_lesen(verbindung, neue_id)),
     )
-    verbindung.commit()
+    if commit:
+        verbindung.commit()
     return neue_id
 
 
@@ -189,6 +217,83 @@ def buchung_aktualisieren(
     verbindung.commit()
 
 
+def _kategorie_typ(
+    verbindung: sqlite3.Connection, kategorie_id: int | None
+) -> str | None:
+    if kategorie_id is None:
+        return None
+    zeile = verbindung.execute(
+        "SELECT typ FROM kategorien WHERE id = ?", (kategorie_id,)
+    ).fetchone()
+    return zeile["typ"] if zeile else None
+
+
+def _betrag_bei_typwechsel(
+    verbindung: sqlite3.Connection, vorher: dict, neue_kategorie_id
+) -> str | None:
+    """Neuer gespeicherter Betrag, wenn die Kategorie den Typ wechselt.
+
+    Beträge sind in Richtung der Kategorie gespeichert. Wechselt eine
+    Buchung von einer Einnahme- auf eine Ausgabe-Kategorie (oder
+    umgekehrt), muss das Vorzeichen umgedreht werden, damit die
+    tatsächliche Zahlungsrichtung (Geldeingang/-ausgang) erhalten bleibt.
+    Liefert ``None``, wenn keine Änderung nötig ist.
+    """
+    alt = _kategorie_typ(verbindung, vorher.get("kategorie_id"))
+    neu = _kategorie_typ(verbindung, neue_kategorie_id)
+    if alt is None or neu is None or alt == neu:
+        return None
+    try:
+        return str(-Decimal(vorher["betrag"]))
+    except (ValueError, TypeError, ArithmeticError):
+        return None
+
+
+# Felder, die über ``buchung_felder_setzen`` geändert werden dürfen.
+_AENDERBARE_FELDER = {
+    "datum", "betrag", "objekt_id", "kategorie_id", "mieter_id",
+    "beschreibung", "beleg_pfad", "steuer_prozent", "steuerjahr",
+}
+
+
+def buchung_felder_setzen(
+    verbindung: sqlite3.Connection, buchung_id: int, **felder
+) -> None:
+    """Ändert einzelne Felder einer Buchung (mit Eintrag im Aktions-Log).
+
+    Beispiel: ``buchung_felder_setzen(v, 7, steuerjahr=2026)``.
+    """
+    unbekannt = set(felder) - _AENDERBARE_FELDER
+    if unbekannt:
+        raise ValueError(f"Unbekannte Felder: {', '.join(sorted(unbekannt))}")
+    if not felder:
+        return
+    vorher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))
+    if vorher is None:
+        return
+    if "kategorie_id" in felder and "betrag" not in felder:
+        gedreht = _betrag_bei_typwechsel(
+            verbindung, vorher, felder["kategorie_id"]
+        )
+        if gedreht is not None:
+            felder["betrag"] = gedreht
+    werte = []
+    for name, wert in felder.items():
+        if isinstance(wert, Decimal):
+            wert = str(wert)
+        werte.append(wert)
+    setzen = ", ".join(f"{name} = ?" for name in felder)
+    verbindung.execute(
+        f"UPDATE buchungen SET {setzen} WHERE id = ?", (*werte, buchung_id)
+    )
+    nachher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))
+    aktionen.aktion_protokollieren(
+        verbindung, aktionen.ART_AENDERN, "buchungen", buchung_id,
+        zustand_alt=vorher, zustand_neu=nachher,
+    )
+    verbindung.commit()
+
+
 def zuordnung_setzen(
     verbindung: sqlite3.Connection,
     buchung_id: int,
@@ -199,16 +304,20 @@ def zuordnung_setzen(
     """Ändert nur die Zuordnung (Haus/Kategorie/Mieter) einer Buchung.
 
     Für das nachträgliche Umlernen: ähnliche Buchungen übernehmen die
-    korrigierte Zuordnung, alle übrigen Felder bleiben unverändert.
+    korrigierte Zuordnung, alle übrigen Felder bleiben unverändert
+    (wechselt der Kategorie-Typ, wird nur das Vorzeichen angepasst, damit
+    die Zahlungsrichtung erhalten bleibt).
     Wird im Aktions-Log als Änderung protokolliert.
     """
     vorher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))
     if vorher is None:
         return
+    gedreht = _betrag_bei_typwechsel(verbindung, vorher, kategorie_id)
     verbindung.execute(
-        "UPDATE buchungen SET objekt_id = ?, kategorie_id = ?, mieter_id = ? "
-        "WHERE id = ?",
-        (objekt_id, kategorie_id, mieter_id, buchung_id),
+        "UPDATE buchungen SET objekt_id = ?, kategorie_id = ?, mieter_id = ?, "
+        "betrag = ? WHERE id = ?",
+        (objekt_id, kategorie_id, mieter_id,
+         gedreht if gedreht is not None else vorher["betrag"], buchung_id),
     )
     nachher = _buchung_als_dict(_buchung_lesen(verbindung, buchung_id))
     aktionen.aktion_protokollieren(

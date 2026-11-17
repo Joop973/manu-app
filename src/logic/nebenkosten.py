@@ -8,13 +8,25 @@ eine Nachzahlung oder ein Guthaben.
 Bei unterjährigem Ein- oder Auszug wird der Umlageschlüssel taggenau
 mit dem Nutzungsanteil gewichtet (z. B. 60 m² × 184/365 Tage).
 
+Cent-genau: Jede Kostenart wird einzeln verteilt; Rundungscents gehen
+nach dem Verfahren der größten Reste an die Beteiligten, sodass die
+Summe aller Anteile exakt den Kosten entspricht.
+
+Leerstand: Ist beim Haus die Gesamtwohnfläche hinterlegt, ist sie
+(beim Flächenschlüssel) der Nenner. Kosten leerstehender Flächen bzw.
+Zeiträume trägt dann der Vermieter, nicht die übrigen Mieter (so
+verlangt es die Rechtsprechung). Ohne Gesamtwohnfläche wird über die
+Summe der Mieterflächen verteilt und ein Hinweis ausgegeben.
+
+Vorauszahlungen: maßgeblich sind die tatsächlich gebuchten
+Nebenkosten-Vorauszahlungen des Mieters (Ist). Nur wenn keine gebucht
+sind, wird hilfsweise die vertragliche Vorauszahlung × abgehakte
+Monate angesetzt (Hinweis in der Abrechnung).
+
 Vereinfachungen (bewusst, für die private Nutzung):
 * Abrechnungszeitraum ist stets das Kalenderjahr.
 * Heizkosten werden wie alle übrigen umlagefähigen Kosten verteilt
   (keine verbrauchsabhängige Abrechnung nach Heizkostenverordnung).
-* Der Anteil ergibt sich aus gewichteter Schlüssel ÷ Summe der
-  gewichteten Schlüssel; Leerstand verteilt sich damit auf die
-  verbleibenden Mieter.
 """
 
 from __future__ import annotations
@@ -22,7 +34,7 @@ from __future__ import annotations
 import html
 import sqlite3
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -71,6 +83,12 @@ def zeitanteil_im_jahr(
     return Decimal(tage) / Decimal(jahr_tage), start, ende
 
 
+_JAHR_FILTER = (
+    "((b.steuerjahr IS NULL AND substr(b.datum, 1, 4) = ?) "
+    " OR b.steuerjahr = ?)"
+)
+
+
 def umlagefaehige_buchungen(
     verbindung: sqlite3.Connection, objekt_id: int, jahr: int
 ) -> list[dict]:
@@ -78,22 +96,23 @@ def umlagefaehige_buchungen(
 
     Jeder Eintrag enthält Datum, Kategorie, Beschreibung, Betrag und ob
     ein Beleg hinterlegt ist — die Grundlage für die Belegliste der
-    Abrechnung und für den Hinweis, wo noch Belege fehlen.
+    Abrechnung und für den Hinweis, wo noch Belege fehlen. Erstattungen
+    (Gegenbuchungen) sind negativ und mindern die Kosten.
     """
     zeilen = verbindung.execute(
         "SELECT b.id, b.datum, b.betrag, b.beschreibung, b.beleg_pfad, "
         "k.name AS kategorie_name "
         "FROM buchungen b JOIN kategorien k ON k.id = b.kategorie_id "
-        "WHERE b.objekt_id = ? AND substr(b.datum, 1, 4) = ? "
+        f"WHERE b.objekt_id = ? AND {_JAHR_FILTER} "
         "AND k.typ = 'ausgabe' AND k.umlagefaehig = 1 "
         "ORDER BY b.datum, b.id",
-        (objekt_id, f"{jahr:04d}"),
+        (objekt_id, f"{jahr:04d}", jahr),
     ).fetchall()
     ergebnis: list[dict] = []
     for zeile in zeilen:
         try:
             betrag = Decimal(zeile["betrag"])
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, ArithmeticError):
             continue
         ergebnis.append({
             "id": zeile["id"],
@@ -110,21 +129,82 @@ def _umlagefaehige_kosten(
     verbindung: sqlite3.Connection, objekt_id: int, jahr: int
 ) -> list[tuple[str, Decimal]]:
     """Liefert die umlagefähigen Ausgaben eines Hauses je Kategorie."""
-    zeilen = verbindung.execute(
-        "SELECT k.name AS name, b.betrag AS betrag "
-        "FROM buchungen b JOIN kategorien k ON k.id = b.kategorie_id "
-        "WHERE b.objekt_id = ? AND substr(b.datum, 1, 4) = ? "
-        "AND k.typ = 'ausgabe' AND k.umlagefaehig = 1",
-        (objekt_id, f"{jahr:04d}"),
-    ).fetchall()
     summen: dict[str, Decimal] = {}
-    for zeile in zeilen:
-        try:
-            betrag = Decimal(zeile["betrag"])
-        except (ValueError, TypeError):
-            continue
-        summen[zeile["name"]] = summen.get(zeile["name"], Decimal("0")) + betrag
+    for b in umlagefaehige_buchungen(verbindung, objekt_id, jahr):
+        summen[b["kategorie"]] = summen.get(b["kategorie"], Decimal("0")) \
+            + b["betrag"]
     return sorted(summen.items())
+
+
+def cent_genau_verteilen(
+    betrag: Decimal, gewichte: list[Decimal], nenner: Decimal
+) -> list[Decimal]:
+    """Verteilt ``betrag`` cent-genau im Verhältnis ``gewicht / nenner``.
+
+    Ist ``nenner`` größer als die Summe der Gewichte, bleibt der Rest
+    (z. B. Leerstand) unverteilt und wird als letzter Listeneintrag
+    zurückgegeben. Rundungscents gehen an die größten Nachkommareste.
+    Die Summe der Rückgabe ist immer exakt ``betrag``.
+    """
+    if nenner <= 0 or not gewichte:
+        return [Decimal("0")] * len(gewichte) + [betrag]
+    vorzeichen = -1 if betrag < 0 else 1
+    cents_gesamt = int((abs(betrag) * 100).to_integral_value())
+    rest_gewicht = max(nenner - sum(gewichte, Decimal("0")), Decimal("0"))
+    alle = list(gewichte) + [rest_gewicht]
+    exakt = [Decimal(cents_gesamt) * g / nenner for g in alle]
+    ganz = [int(e.to_integral_value(rounding=ROUND_FLOOR)) for e in exakt]
+    fehlend = cents_gesamt - sum(ganz)
+    reihenfolge = sorted(
+        range(len(alle)), key=lambda i: (exakt[i] - ganz[i], -i), reverse=True
+    )
+    for i in reihenfolge[:fehlend]:
+        ganz[i] += 1
+    return [Decimal(vorzeichen * c) / 100 for c in ganz]
+
+
+def _vorauszahlungen_ist(
+    verbindung: sqlite3.Connection, mieter_id: int, jahr: int
+) -> tuple[Decimal, int]:
+    """Summe der tatsächlich gebuchten NK-Vorauszahlungen eines Mieters.
+
+    Zählt positive Buchungen auf der Kategorie mit Rolle „nebenkosten“
+    (bzw. steuerlicher Art „umlagen“), deren Leistungsmonat im Jahr liegt
+    (Zahlung ab dem 25. gilt für den Folgemonat, ein gesetztes Steuerjahr
+    hat Vorrang). Nach- und Rückzahlungen aus Abrechnungen bleiben außen
+    vor. Liefert ``(summe, anzahl_buchungen)``.
+    """
+    from src.logic.import_buchen import leistungsmonat
+
+    zeilen = verbindung.execute(
+        "SELECT b.datum, b.betrag, b.steuerjahr, b.beschreibung "
+        "FROM buchungen b JOIN kategorien k ON k.id = b.kategorie_id "
+        "WHERE b.mieter_id = ? AND k.typ = 'einnahme' "
+        "AND (k.rolle = 'nebenkosten' OR k.steuer_art = 'umlagen') "
+        "AND substr(b.datum, 1, 4) BETWEEN ? AND ?",
+        (mieter_id, f"{jahr - 1:04d}", f"{jahr + 1:04d}"),
+    ).fetchall()
+    summe = Decimal("0")
+    anzahl = 0
+    for z in zeilen:
+        try:
+            betrag = Decimal(z["betrag"])
+        except (ValueError, TypeError, ArithmeticError):
+            continue
+        text = (z["beschreibung"] or "").lower()
+        if betrag <= 0 or "nachzahlung" in text or "abrechnung" in text:
+            continue
+        if z["steuerjahr"] is not None:
+            effektiv = int(z["steuerjahr"])
+        else:
+            try:
+                effektiv = leistungsmonat(z["datum"])[0]
+            except ValueError:
+                continue
+        if effektiv == jahr:
+            summe += betrag
+            anzahl += 1
+    return summe, anzahl
 
 
 def abrechnung_erstellen(
@@ -132,7 +212,8 @@ def abrechnung_erstellen(
 ) -> dict:
     """Berechnet die Nebenkostenabrechnung eines Hauses für ein Jahr."""
     haus = verbindung.execute(
-        "SELECT name, umlageschluessel FROM objekte WHERE id = ?",
+        "SELECT name, umlageschluessel, gesamtflaeche FROM objekte "
+        "WHERE id = ?",
         (objekt_id,),
     ).fetchone()
     if haus is None:
@@ -152,14 +233,11 @@ def abrechnung_erstellen(
     def schluesselwert(zeile: sqlite3.Row) -> Decimal:
         # Manuell gesetztes Umlage-Gewicht hat Vorrang (Aufteilung
         # bearbeiten): überschreibt den automatischen Schlüssel.
-        try:
-            manuell = zeile["umlage_gewicht"]
-        except (KeyError, IndexError):
-            manuell = None
+        manuell = zeile["umlage_gewicht"]
         if manuell is not None and str(manuell).strip() != "":
             try:
                 return Decimal(str(manuell))
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, ArithmeticError):
                 pass
         if schluessel == "personen":
             return Decimal(zeile["personenzahl"])
@@ -167,7 +245,7 @@ def abrechnung_erstellen(
             return Decimal("1")
         try:
             return Decimal(str(zeile["wohnflaeche"]))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, ArithmeticError):
             return Decimal("0")
 
     # Taggenauer Nutzungsanteil je Mieter: bei unterjährigem Ein- oder
@@ -181,23 +259,60 @@ def abrechnung_erstellen(
         if anteil_zeit > 0:
             mieter.append((m, anteil_zeit, von, bis))
 
-    summe_schluessel = sum(
-        (schluesselwert(m) * anteil_zeit for m, anteil_zeit, _, _ in mieter),
-        Decimal("0"),
+    gewichte = [schluesselwert(m) * anteil_zeit
+                for m, anteil_zeit, _, _ in mieter]
+    summe_gewichte = sum(gewichte, Decimal("0"))
+
+    hinweise: list[str] = []
+    nenner = summe_gewichte
+    gesamtflaeche = None
+    try:
+        if haus["gesamtflaeche"] not in (None, ""):
+            gesamtflaeche = Decimal(str(haus["gesamtflaeche"]))
+    except (ValueError, TypeError, ArithmeticError):
+        gesamtflaeche = None
+    if schluessel == "flaeche":
+        if gesamtflaeche and gesamtflaeche > 0:
+            if summe_gewichte > gesamtflaeche:
+                hinweise.append(
+                    "Die Mieterflächen ergeben mehr als die hinterlegte "
+                    "Gesamtwohnfläche – es wird über die Mieterflächen "
+                    "verteilt. Bitte Flächen prüfen."
+                )
+            else:
+                nenner = gesamtflaeche
+        else:
+            hinweise.append(
+                "Keine Gesamtwohnfläche beim Haus hinterlegt: Kosten "
+                "leerstehender Flächen/Zeiten werden auf die übrigen Mieter "
+                "verteilt. Rechtlich trägt sie der Vermieter – bitte unter "
+                "Stammdaten → Häuser → Steuer-Daten eintragen."
+            )
+
+    # Cent-genaue Verteilung je Kostenart.
+    je_kostenart: dict[str, list[Decimal]] = {}
+    for name, betrag in kosten:
+        je_kostenart[name] = cent_genau_verteilen(betrag, gewichte, nenner)
+    anteil_vermieter = sum(
+        (anteile[-1] for anteile in je_kostenart.values()), Decimal("0")
     )
 
     mieter_ergebnis = []
-    for m, anteil_zeit, von, bis in mieter:
-        wert = schluesselwert(m) * anteil_zeit
-        anteil = (wert / summe_schluessel) if summe_schluessel > 0 \
-            else Decimal("0")
-        kostenanteil = (kosten_gesamt * anteil).quantize(_CENT)
+    for index, (m, anteil_zeit, von, bis) in enumerate(mieter):
+        wert = gewichte[index]
+        anteil = (wert / nenner) if nenner > 0 else Decimal("0")
+        kostenanteile = [
+            (name, je_kostenart[name][index]) for name, _ in kosten
+        ]
+        kostenanteil = sum((b for _, b in kostenanteile), Decimal("0"))
         monate = len(bezahlte_monate(verbindung, m["id"], jahr))
+        ist, anzahl_ist = _vorauszahlungen_ist(verbindung, m["id"], jahr)
         try:
             monatlich = Decimal(str(m["nebenkosten"]))
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, ArithmeticError):
             monatlich = Decimal("0")
-        vorauszahlung = (monatlich * monate).quantize(_CENT)
+        soll = (monatlich * monate).quantize(_CENT)
+        vorauszahlung = ist if anzahl_ist else soll
         mieter_ergebnis.append({
             "name": m["name"],
             "schluesselwert": wert,
@@ -205,9 +320,12 @@ def abrechnung_erstellen(
             "zeitanteil": anteil_zeit,
             "nutzung_von": von.isoformat(),
             "nutzung_bis": bis.isoformat(),
+            "kostenanteile": kostenanteile,
             "kostenanteil": kostenanteil,
             "monate": monate,
             "vorauszahlung": vorauszahlung,
+            "vorauszahlung_quelle": "gebucht" if anzahl_ist else "vertraglich",
+            "vorauszahlung_soll": soll,
             "differenz": vorauszahlung - kostenanteil,
         })
 
@@ -216,11 +334,14 @@ def abrechnung_erstellen(
         "haus": haus["name"],
         "jahr": jahr,
         "umlageschluessel": schluessel,
+        "gesamtflaeche": gesamtflaeche,
         "kosten": kosten,
         "kosten_gesamt": kosten_gesamt,
+        "anteil_vermieter": anteil_vermieter,
         "mieter": mieter_ergebnis,
         "einzelbuchungen": einzelbuchungen,
         "belege_fehlen": sum(1 for b in einzelbuchungen if not b["beleg"]),
+        "hinweise": hinweise,
     }
 
 
@@ -270,12 +391,21 @@ def abrechnung_excel(verbindung: sqlite3.Connection, jahr: int) -> Path:
         zeile += 1
         for eintrag in abrechnung["mieter"]:
             blatt.cell(zeile, 1, eintrag["name"])
-            blatt.cell(zeile, 2, f"{eintrag['anteil'] * 100:.1f} %")
+            blatt.cell(zeile, 2, f"{eintrag['anteil'] * 100:.2f} %")
             for spalte, schluessel in (
                 (3, "kostenanteil"), (4, "vorauszahlung"), (5, "differenz")
             ):
                 zelle = blatt.cell(zeile, spalte, float(eintrag[schluessel]))
                 zelle.number_format = _WAEHRUNG
+            blatt.cell(zeile, 6, f"Vorauszahlung {eintrag['vorauszahlung_quelle']}")
+            zeile += 1
+        if abrechnung["anteil_vermieter"]:
+            blatt.cell(zeile, 1, "Leerstand / Anteil Vermieter")
+            zelle = blatt.cell(zeile, 3, float(abrechnung["anteil_vermieter"]))
+            zelle.number_format = _WAEHRUNG
+            zeile += 1
+        for hinweis in abrechnung["hinweise"]:
+            blatt.cell(zeile, 1, "Hinweis: " + hinweis)
             zeile += 1
         zeile += 2
 
@@ -288,9 +418,12 @@ def abrechnung_excel(verbindung: sqlite3.Connection, jahr: int) -> Path:
 def abrechnung_html(abrechnung: dict, eintrag: dict) -> str:
     """Erzeugt den HTML-Inhalt der Abrechnung für einen einzelnen Mieter."""
     schluessel_text = UMLAGESCHLUESSEL[abrechnung["umlageschluessel"]]
+    ihr_anteil = dict(eintrag.get("kostenanteile", []))
     kosten_zeilen = "".join(
         f"<tr><td>{html.escape(name)}</td>"
-        f"<td align='right'>{betrag_formatieren(betrag)} €</td></tr>"
+        f"<td align='right'>{betrag_formatieren(betrag)} €</td>"
+        f"<td align='right'>{betrag_formatieren(ihr_anteil.get(name, 0))} €"
+        f"</td></tr>"
         for name, betrag in abrechnung["kosten"]
     )
     differenz = eintrag["differenz"]
@@ -326,6 +459,12 @@ def abrechnung_html(abrechnung: dict, eintrag: dict) -> str:
             "werden.</i></p>"
         )
 
+    if eintrag.get("vorauszahlung_quelle") == "vertraglich":
+        vorauszahlung_text = (
+            f"Vorauszahlung laut Vertrag ({eintrag['monate']} Monate)")
+    else:
+        vorauszahlung_text = "Von Ihnen geleistete Vorauszahlungen"
+
     zeitanteil = eintrag.get("zeitanteil", Decimal("1"))
     nutzungszeile = ""
     if zeitanteil < 1:
@@ -345,20 +484,24 @@ def abrechnung_html(abrechnung: dict, eintrag: dict) -> str:
       01.01.{abrechnung['jahr']} – 31.12.{abrechnung['jahr']}<br>
       <b>Umlageschlüssel:</b> {schluessel_text}
     </p>
-    <h3>Umlagefähige Gesamtkosten des Hauses</h3>
+    <h3>Umlagefähige Kosten des Hauses und Ihr Anteil</h3>
     <table border='1' cellspacing='0' cellpadding='5' width='100%'>
+      <tr><th align='left'>Kostenart</th><th align='right'>Gesamtkosten</th>
+      <th align='right'>Ihr Anteil</th></tr>
       {kosten_zeilen}
       <tr><td><b>Summe</b></td><td align='right'><b>
-      {betrag_formatieren(abrechnung['kosten_gesamt'])} €</b></td></tr>
+      {betrag_formatieren(abrechnung['kosten_gesamt'])} €</b></td>
+      <td align='right'><b>{betrag_formatieren(eintrag['kostenanteil'])} €</b>
+      </td></tr>
     </table>
     <h3>Ihr Anteil</h3>
     <table border='1' cellspacing='0' cellpadding='5' width='100%'>
       {nutzungszeile}
       <tr><td>Anteil ({schluessel_text})</td>
-        <td align='right'>{eintrag['anteil'] * 100:.1f} %</td></tr>
+        <td align='right'>{eintrag['anteil'] * 100:.2f} %</td></tr>
       <tr><td>Ihr Kostenanteil</td>
         <td align='right'>{betrag_formatieren(eintrag['kostenanteil'])} €</td></tr>
-      <tr><td>Geleistete Vorauszahlung ({eintrag['monate']} Monate)</td>
+      <tr><td>{vorauszahlung_text}</td>
         <td align='right'>
         {betrag_formatieren(eintrag['vorauszahlung'])} €</td></tr>
     </table>
@@ -426,45 +569,56 @@ _MONATE_KURZ = [
 def mieteinnahmen_daten(
     verbindung: sqlite3.Connection, objekt_id: int | None, jahr: int
 ) -> dict:
-    """Sammelt die erfassten Mietzahlungen je Mieter für ein Jahr.
+    """Sammelt die tatsächlich eingegangenen Mieten je Mieter für ein Jahr.
 
     Grundlage für den Steuer-Nachweis „wer wann wie viel gezahlt hat".
-    ``objekt_id=None`` wertet alle Häuser aus. Für jeden Mieter werden
-    die Monatsbeträge (aus der Mietzahlungs-Checkliste) und die Summe
-    geliefert, dazu Soll-Miete und die Häuser.
+    Maßgeblich sind die gebuchten Zahlungseingänge (Kaltmiete und
+    Nebenkosten-Vorauszahlungen, Zuflussprinzip), nicht die Checkliste —
+    so stimmt die Summe mit den Einnahmen der Anlage V überein.
+    Buchungen ohne Mieter erscheinen in einer eigenen Zeile.
+    ``objekt_id=None`` wertet alle Häuser aus.
     """
-    haus_filter = ""
-    params: list = [f"{jahr:04d}"]
-    if objekt_id is not None:
-        haus_filter = "AND m.objekt_id = ?"
-        params.append(objekt_id)
+    from src.logic.steuer import posten_laden
 
-    zeilen = verbindung.execute(
-        "SELECT m.id AS mieter_id, m.name AS mieter, o.name AS haus, "
-        "m.kaltmiete, m.nebenkosten, m.ruecklage, z.monat, z.betrag "
-        "FROM mietzahlungen z "
-        "JOIN mieter m ON m.id = z.mieter_id "
-        "JOIN objekte o ON o.id = m.objekt_id "
-        f"WHERE z.jahr = ? {haus_filter} "
-        "ORDER BY o.name COLLATE NOCASE, m.name COLLATE NOCASE, z.monat",
-        params,
-    ).fetchall()
+    if objekt_id is None:
+        posten = posten_laden(verbindung, jahr)
+    else:
+        posten = posten_laden(verbindung, jahr, objekt_id)
+    soll = {
+        z["id"]: z for z in verbindung.execute(
+            "SELECT id, kaltmiete, nebenkosten, ruecklage FROM mieter"
+        ).fetchall()
+    }
 
-    mieter: dict[int, dict] = {}
-    for z in zeilen:
-        eintrag = mieter.setdefault(z["mieter_id"], {
-            "mieter": z["mieter"],
-            "haus": z["haus"],
+    mieter: dict[tuple, dict] = {}
+    for p in posten:
+        if p["position"] not in ("E_MIETE", "E_UMLAGEN"):
+            continue
+        schluessel = (p["mieter_id"], p["haus"])
+        eintrag = mieter.setdefault(schluessel, {
+            "mieter": p["mieter"] or "(ohne Mieterzuordnung)",
+            "haus": p["haus"] or "(ohne Haus)",
             "monate": {},
+            "kaltmiete": Decimal("0"),
+            "umlagen": Decimal("0"),
             "summe": Decimal("0"),
-            "soll_monat": _summe_soll(z),
+            "soll_monat": (_summe_soll(soll[p["mieter_id"]])
+                           if p["mieter_id"] in soll else Decimal("0")),
         })
-        try:
-            betrag = Decimal(str(z["betrag"]))
-        except (ValueError, TypeError):
-            betrag = Decimal("0")
-        eintrag["monate"][z["monat"]] = betrag
-        eintrag["summe"] += betrag
+        zahl_jahr = int(p["datum"][:4])
+        if zahl_jahr < jahr:
+            monat = 1
+        elif zahl_jahr > jahr:
+            monat = 12
+        else:
+            monat = int(p["datum"][5:7])
+        eintrag["monate"][monat] = eintrag["monate"].get(
+            monat, Decimal("0")) + p["angesetzt"]
+        if p["position"] == "E_MIETE":
+            eintrag["kaltmiete"] += p["angesetzt"]
+        else:
+            eintrag["umlagen"] += p["angesetzt"]
+        eintrag["summe"] += p["angesetzt"]
 
     liste = sorted(mieter.values(), key=lambda e: (e["haus"], e["mieter"]))
     gesamt = sum((e["summe"] for e in liste), Decimal("0"))
@@ -472,9 +626,9 @@ def mieteinnahmen_daten(
 
 
 def _summe_soll(zeile: sqlite3.Row) -> Decimal:
-    """Summiert die vereinbarte Monatsmiete (Kalt + NK + Rücklage)."""
+    """Summiert die vereinbarte Monatsmiete (Kalt + NK)."""
     gesamt = Decimal("0")
-    for feld in ("kaltmiete", "nebenkosten", "ruecklage"):
+    for feld in ("kaltmiete", "nebenkosten"):
         try:
             gesamt += Decimal(str(zeile[feld]))
         except (ValueError, TypeError):
@@ -507,8 +661,9 @@ def mieteinnahmen_html(daten: dict, haus_name: str) -> str:
     <h2>Mieteinnahmen-Nachweis {daten['jahr']}</h2>
     <p><b>Haus:</b> {html.escape(haus_name)}<br>
     <b>Zeitraum:</b> 01.01.{daten['jahr']} – 31.12.{daten['jahr']}</p>
-    <p>Beträge in Euro, wie in der Mietzahlungs-Checkliste erfasst
-    (– = kein Zahlungseingang vermerkt).</p>
+    <p>Beträge in Euro: tatsächliche Zahlungseingänge laut Buchungen
+    (Kaltmiete + Nebenkosten-Vorauszahlungen, Zuflussprinzip;
+    – = kein Zahlungseingang).</p>
     <table border='1' cellspacing='0' cellpadding='3' width='100%'>
       <tr><th>Mieter</th><th>Haus</th>{kopf}<th>Summe</th></tr>
       {zeilen_html}
@@ -522,11 +677,11 @@ def mieteinnahmen_html(daten: dict, haus_name: str) -> str:
 
 def mieteinnahmen_pdf(
     verbindung: sqlite3.Connection, objekt_id: int | None, jahr: int,
-    haus_name: str,
+    haus_name: str, ordner: Path | None = None,
 ) -> Path:
     """Erstellt den Mieteinnahmen-Nachweis eines Jahres als PDF."""
     daten = mieteinnahmen_daten(verbindung, objekt_id, jahr)
-    ordner = exporte_verzeichnis()
+    ordner = ordner or exporte_verzeichnis()
     ordner.mkdir(parents=True, exist_ok=True)
     ziel = ordner / (
         f"Mieteinnahmen_{_dateiname_saeubern(haus_name)}_{jahr}.pdf"

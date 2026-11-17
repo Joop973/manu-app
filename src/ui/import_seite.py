@@ -12,6 +12,7 @@ gelb. Erst „Alle übernehmen" schreibt die Buchungen in die Datenbank.
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -37,19 +38,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.db import (
-    auszuege, buchungen, einstellungen, konten, mietzahlungen, muster,
-    stammdaten,
-)
+from src.db import auszuege, buchungen, einstellungen, konten, stammdaten
 from src.logic import lernsystem
 from src.logic.belege import beleg_archivieren
+from src.logic.import_buchen import kandidat_buchen
 from src.logic.pdf_import import (
     auszug_kennung, buchungszeilen_aus_text, konto_nummer, rohtext_lesen,
     saldo_pruefen,
 )
 from src.ui.tabelle import tabelle_vorbereiten
 from src.utils.eingaben import (
-    ValidierungsFehler, betrag_formatieren, betrag_parsen, datum_anzeigen,
+    ValidierungsFehler, betrag_formatieren, betrag_mit_vorzeichen_parsen,
+    betrag_parsen, datum_anzeigen, datum_iso_parsen,
 )
 
 # Hintergrundfarben der Vorschau-Zeilen.
@@ -149,43 +149,16 @@ def _kategorie_aus_combo(
     return stammdaten.kategorie_holen_oder_anlegen(verbindung, name, typ)
 
 
-def _mietzahlung_abhaken(
-    verbindung: sqlite3.Connection,
-    datum: str,
-    betrag,
-    mieter_id: int | None,
-    kategorie_id: int,
-) -> None:
-    """Hakt bei einer Mieteinnahme den Monat in der Checkliste ab.
-
-    Greift, wenn die Buchung einem Mieter zugeordnet ist und die
-    Kategorie eine Einnahme ist. Legt keine zusätzlichen Buchungen an
-    (die Kontobewegung ist bereits erfasst).
-    """
-    if mieter_id is None or betrag is None or betrag <= 0:
-        return
-    zeile = verbindung.execute(
-        "SELECT typ FROM kategorien WHERE id = ?", (kategorie_id,)
-    ).fetchone()
-    if zeile is None or zeile["typ"] != "einnahme":
-        return
-    try:
-        jahr = int(datum[:4])
-        monat = int(datum[5:7])
-    except (ValueError, TypeError, IndexError):
-        return
-    mietzahlungen.zahlung_vermerken(verbindung, mieter_id, monat, jahr, betrag)
-
-
 def kandidat_direkt_schreiben(
     verbindung: sqlite3.Connection, kandidat: dict
-) -> None:
+) -> str | None:
     """Schreibt einen vollständig zugeordneten Kandidaten in die Datenbank.
 
-    Legt bei Bedarf die Rahmen-Kategorie an, speichert die Buchung und
-    merkt sich Haus/Kategorie/Mieter als Muster für den nächsten Import.
-    Erwartet ``objekt_id`` gesetzt und entweder ``kategorie_id`` oder
-    ``kategorie_name``.
+    Legt bei Bedarf die Rahmen-Kategorie an und bucht über den
+    gemeinsamen Import-Weg (Vorzeichen, Mietaufteilung, Checkliste,
+    Lernsystem). Erwartet ``objekt_id`` gesetzt und entweder
+    ``kategorie_id`` oder ``kategorie_name``. Liefert ggf. einen
+    Prüfhinweis.
     """
     objekt_id = kandidat["objekt_id"]
     kategorie_id = kandidat.get("kategorie_id")
@@ -196,28 +169,11 @@ def kandidat_direkt_schreiben(
         )
     if objekt_id is None or kategorie_id is None:
         raise sqlite3.Error("Kandidat unvollständig für Direkt-Übernahme.")
-
-    buchungen.buchung_anlegen(
-        verbindung,
-        kandidat["datum"],
-        abs(kandidat["betrag"]),
-        objekt_id,
-        kategorie_id,
-        kandidat["text"],
-        None,
-        "import",
-        mieter_id=kandidat.get("mieter_id"),
+    _ids, hinweis = kandidat_buchen(
+        verbindung, kandidat, objekt_id, kategorie_id,
+        kandidat.get("mieter_id"),
     )
-    erkennung = lernsystem.erkennungstext_bilden(kandidat.get("norm", ""))
-    if erkennung:
-        muster.muster_speichern(
-            verbindung, erkennung, objekt_id, kategorie_id,
-            mieter_id=kandidat.get("mieter_id"),
-        )
-    _mietzahlung_abhaken(
-        verbindung, kandidat["datum"], kandidat["betrag"],
-        kandidat.get("mieter_id"), kategorie_id,
-    )
+    return hinweis
 
 
 # Spezial-Wert: vom Nutzer im Combo gewählter „Neuen Mieter anlegen"-Eintrag.
@@ -757,7 +713,7 @@ class ImportVorschauDialog(QDialog):
             return
         pfad, _ = QFileDialog.getOpenFileName(
             self, "Beleg auswählen", "",
-            "PDF/Bild (*.pdf *.jpg *.jpeg *.png);;Alle Dateien (*)"
+            "PDF/Bild (*.pdf *.jpg *.jpeg *.png *.heic *.heif *.webp);;Alle Dateien (*)"
         )
         if pfad:
             self._belege[position] = pfad
@@ -790,6 +746,7 @@ class ImportVorschauDialog(QDialog):
                 return
             zuordnung.append((objekt_id, kategorie_id, mieter_id))
 
+        hinweise: list[str] = []
         try:
             for index, (kandidat, (objekt_id, kategorie_id, mieter_id)) in \
                     enumerate(zip(self._kandidaten, zuordnung)):
@@ -797,31 +754,14 @@ class ImportVorschauDialog(QDialog):
                 beleg_quelle = self._belege.get(index)
                 if beleg_quelle:
                     jahr = int(kandidat["datum"][:4]) \
-                        if kandidat.get("datum") else 2024
+                        if kandidat.get("datum") else date.today().year
                     beleg_pfad = beleg_archivieren(beleg_quelle, jahr)
-                buchungen.buchung_anlegen(
-                    self._verbindung,
-                    kandidat["datum"],
-                    abs(kandidat["betrag"]),
-                    objekt_id,
-                    kategorie_id,
-                    kandidat["text"],
-                    beleg_pfad,
-                    "import",
-                    mieter_id=mieter_id,
+                _ids, hinweis = kandidat_buchen(
+                    self._verbindung, kandidat, objekt_id, kategorie_id,
+                    mieter_id, beleg_pfad=beleg_pfad,
                 )
-                _mietzahlung_abhaken(
-                    self._verbindung, kandidat["datum"], kandidat["betrag"],
-                    mieter_id, kategorie_id,
-                )
-                erkennung = lernsystem.erkennungstext_bilden(
-                    kandidat.get("norm", "")
-                )
-                if erkennung:
-                    muster.muster_speichern(
-                        self._verbindung, erkennung,
-                        objekt_id, kategorie_id, mieter_id=mieter_id,
-                    )
+                if hinweis:
+                    hinweise.append(hinweis)
         except (sqlite3.Error, OSError) as fehler:
             QMessageBox.critical(self, "Fehler beim Übernehmen", str(fehler))
             return
@@ -830,10 +770,10 @@ class ImportVorschauDialog(QDialog):
         for kennung, dateiname in self._kennungen:
             auszuege.vermerken(self._verbindung, kennung, dateiname)
 
-        QMessageBox.information(
-            self, "Import abgeschlossen",
-            f"{len(self._kandidaten)} Buchung(en) wurden übernommen."
-        )
+        text = f"{len(self._kandidaten)} Buchung(en) wurden übernommen."
+        if hinweise:
+            text += "\n\nBitte prüfen:\n• " + "\n• ".join(hinweise)
+        QMessageBox.information(self, "Import abgeschlossen", text)
         self.accept()
 
 
@@ -1084,6 +1024,7 @@ class ImportSeite(QWidget):
         ) == "1"
 
         auto_zahl = 0
+        auto_hinweise: list[str] = []
         rest = alle_kandidaten
         if auto_aktiv:
             sicher = [k for k in alle_kandidaten
@@ -1091,8 +1032,12 @@ class ImportSeite(QWidget):
             rest = [k for k in alle_kandidaten if k not in sicher]
             for kandidat in sicher:
                 try:
-                    kandidat_direkt_schreiben(self._verbindung, kandidat)
+                    hinweis = kandidat_direkt_schreiben(
+                        self._verbindung, kandidat
+                    )
                     auto_zahl += 1
+                    if hinweis:
+                        auto_hinweise.append(hinweis)
                 except (sqlite3.Error, OSError):
                     rest.append(kandidat)
 
@@ -1100,19 +1045,19 @@ class ImportSeite(QWidget):
             # Vollständig automatisch übernommen → Auszüge vermerken.
             for kennung, dateiname in kennungen:
                 auszuege.vermerken(self._verbindung, kennung, dateiname)
-            QMessageBox.information(
-                self, "Import abgeschlossen",
-                f"{auto_zahl} Buchung(en) automatisch übernommen. "
-                "Es blieben keine unklaren Fälle."
-            )
+            text = (f"{auto_zahl} Buchung(en) automatisch übernommen. "
+                    "Es blieben keine unklaren Fälle.")
+            if auto_hinweise:
+                text += "\n\nBitte prüfen:\n• " + "\n• ".join(auto_hinweise)
+            QMessageBox.information(self, "Import abgeschlossen", text)
             return
 
         if auto_zahl:
-            QMessageBox.information(
-                self, "Automatik",
-                f"{auto_zahl} Buchung(en) wurden automatisch übernommen. "
-                f"{len(rest)} Buchung(en) brauchen noch deine Kontrolle."
-            )
+            text = (f"{auto_zahl} Buchung(en) wurden automatisch übernommen. "
+                    f"{len(rest)} Buchung(en) brauchen noch deine Kontrolle.")
+            if auto_hinweise:
+                text += "\n\nBitte prüfen:\n• " + "\n• ".join(auto_hinweise)
+            QMessageBox.information(self, "Automatik", text)
         ImportVorschauDialog(
             self._verbindung, rest,
             pruefungen=pruefungen, kennungen=kennungen, parent=self,
@@ -1346,18 +1291,14 @@ class ExcelImportDialog(QDialog):
             if all(z is None or z == "" for z in row):
                 continue
             try:
-                datum_roh = row[sp_datum]
-                if hasattr(datum_roh, "strftime"):
-                    datum = datum_roh.strftime("%Y-%m-%d")
-                else:
-                    datum = str(datum_roh)[:10]
-                if not datum or len(datum) < 8:
+                datum = datum_iso_parsen(row[sp_datum])
+                if datum is None:
                     continue
                 betrag_roh = row[sp_betrag]
                 if isinstance(betrag_roh, (int, float)):
-                    betrag = Decimal(str(betrag_roh))
+                    betrag = Decimal(str(betrag_roh)).quantize(Decimal("0.01"))
                 else:
-                    betrag = betrag_parsen(str(betrag_roh))
+                    betrag = betrag_mit_vorzeichen_parsen(str(betrag_roh))
                 text = str(row[sp_text] or "")
             except (ValueError, InvalidOperation, ValidierungsFehler):
                 continue

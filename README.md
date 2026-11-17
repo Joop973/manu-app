@@ -50,7 +50,9 @@ Hinweise:
 * **Import:** Kontoauszug-PDF einlesen, Buchungen in der Vorschau prüfen
   und übernehmen; Belege archivieren.
 * **Stammdaten:** Häuser, Mieter, Kategorien und gelernte Muster pflegen.
-* **Export:** Excel-Jahresübersicht erstellen.
+* **Export:** Prüfbericht, Anlage V je Haus (Excel/PDF) mit
+  Einzelnachweis, DATEV-Buchungsstapel und komplettes Steuerpaket für den
+  Steuerberater (Ordner + ZIP inkl. Belegen). Details: `LEITFADEN_STEUER.md`.
 * **Einstellungen:** PIN ändern, Backup-Ordner wählen, manuell sichern.
 
 ## Projektstruktur
@@ -87,6 +89,13 @@ ManuApp/
     │   ├── export_seite.py       Excel-Export
     │   └── einstellungen_seite.py  PIN, Backup, Speicherort
     ├── logic/                Geschäftslogik
+    │   ├── steuer.py         Steuerliche Auswertung (Anlage V), Prüfbericht
+    │   ├── steuer_export.py  Anlage-V-Excel, Steuerberater-PDFs, Steuerpaket
+    │   ├── datev.py          DATEV-Buchungsstapel (EXTF 700, Version 13)
+    │   ├── afa.py            AfA-Pläne und § 82b-Verteilung (cent-genau)
+    │   ├── import_buchen.py  Import: Vorzeichen, Mietaufteilung, Checkliste
+    │   ├── nebenkosten.py    Nebenkostenabrechnung (cent-genau, Leerstand)
+    │   ├── beleg_text.py     Volltext/OCR von Belegen, Betrag/Datum
     │   ├── belege.py         Archivierung von Belegdateien
     │   ├── pdf_import.py     Auslesen von Kontoauszug-PDFs
     │   ├── lernsystem.py     Normalisierung + automatische Zuordnung
@@ -96,7 +105,20 @@ ManuApp/
         ├── paths.py          zentrale Pfadverwaltung
         ├── security.py       PIN-Hashing (SHA-256 + Salt)
         └── eingaben.py       Betrag parsen/formatieren, Validierung
+tests/                       automatische Tests (python -m pytest)
 ```
+
+## Tests
+
+```bash
+pip install -r requirements.txt
+python -m pytest
+```
+
+Die Tests legen jeweils eine frische Datenbank in einem Temp-Ordner an
+und prüfen u. a. Parser (Jahreswechsel, Saldo), steuerliche Auswertung,
+Prozent-Anrechnung, 10-Tage-Regel, AfA, cent-genaue Nebenkosten,
+DATEV-Format, Datenbank-Umstellung und die Oberfläche (ohne Bildschirm).
 
 ## Entwicklungsstand
 
@@ -105,3 +127,7 @@ ManuApp/
 * **Phase 3 — abgeschlossen:** Buchungserfassung, Mietzahlungen, Dashboard
 * **Phase 4 — abgeschlossen:** PDF-Import mit Lernsystem, Beleg-Archivierung
 * **Phase 5 — abgeschlossen:** Excel-Export, Auto-Backup, .exe-Build
+* **Schema 10 — Steuer:** steuerliche Behandlung je Kategorie, prozentuale
+  Anrechnung (Buchung/Haus/Kategorie), Erstattungen als Gegenbuchung,
+  10-Tage-Regel, Gebäude-AfA, Prüfbericht, Anlage V mit einstellbaren
+  Zeilennummern, DATEV-Export, Steuerpaket, Foto-OCR

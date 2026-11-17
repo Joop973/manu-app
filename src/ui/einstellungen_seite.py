@@ -142,6 +142,22 @@ class EinstellungenSeite(QWidget):
         ))
         layout.addWidget(automatik)
 
+        # --- Beleg-Erkennung (Fotos/Scans) ---
+        ocr = QGroupBox("Beleg-Erkennung für Fotos und Scans")
+        ocr_layout = QVBoxLayout(ocr)
+        from src.logic.beleg_text import ocr_status
+        verfuegbar, text = ocr_status()
+        ocr_label = QLabel(("✓ " if verfuegbar else "✗ ") + text)
+        ocr_label.setWordWrap(True)
+        ocr_label.setStyleSheet(
+            "color: #1f7a4d;" if verfuegbar else "color: #b3261e;")
+        ocr_layout.addWidget(ocr_label)
+        ocr_layout.addWidget(QLabel(
+            "Fotos vom Handy (JPG, PNG, HEIC) werden automatisch gedreht und "
+            "aufbereitet; erkannt werden Gesamtbetrag und Rechnungsdatum."
+        ))
+        layout.addWidget(ocr)
+
         # --- Datensicherung ---
         backup = QGroupBox("Datensicherung")
         backup_layout = QVBoxLayout(backup)

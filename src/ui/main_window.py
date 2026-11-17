@@ -110,8 +110,36 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(zentral)
         self._navigation.setCurrentRow(0)
 
-        # Eingangs-Ordner kurz nach dem Start prüfen (Auto-Import).
+        # Einmaliger Hinweis nach einem Daten-Update, danach den
+        # Eingangs-Ordner prüfen (Auto-Import).
+        QTimer.singleShot(300, self._update_hinweis_zeigen)
         QTimer.singleShot(600, self._eingang_pruefen)
+
+    def _update_hinweis_zeigen(self) -> None:
+        """Zeigt einmalig, was die letzte Daten-Umstellung geändert hat."""
+        from src.db.init import SCHLUESSEL_UPDATE_HINWEIS
+
+        zeile = self._verbindung.execute(
+            "SELECT wert FROM app_settings WHERE schluessel = ?",
+            (SCHLUESSEL_UPDATE_HINWEIS,),
+        ).fetchone()
+        if zeile is None or not zeile["wert"]:
+            return
+        QMessageBox.information(
+            self, "Update: steuerliche Auswertung",
+            "Die Datenbank wurde auf den neuen Stand gebracht. Der vorherige "
+            "Stand liegt als Sicherung im Ordner „sicherungen“ "
+            "(controlling_vor_update_v10_…).\n\n"
+            + zeile["wert"]
+            + "\n\nBitte unter Export → „Prüfbericht“ das Steuerjahr prüfen "
+            "und unter Stammdaten → Kategorien die steuerliche Behandlung "
+            "eigener Kategorien festlegen (rot markiert)."
+        )
+        self._verbindung.execute(
+            "DELETE FROM app_settings WHERE schluessel = ?",
+            (SCHLUESSEL_UPDATE_HINWEIS,),
+        )
+        self._verbindung.commit()
 
     def _eingang_pruefen(self) -> None:
         """Prüft den Eingangs-Ordner auf neue Kontoauszüge.
